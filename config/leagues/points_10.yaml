@@ -1,0 +1,19 @@
+name: points_10
+team_count: 10
+scoring_type: points
+roster_slots:
+  C: 2
+  LW: 2
+  RW: 2
+  D: 4
+  G: 2
+  UTIL: 1
+  BENCH: 4
+points_per_stat:
+  G: 3
+  A: 2
+  SOG: 0.4
+  BLK: 0.4
+  HIT: 0.2
+  W: 4
+  SO: 2

@@ -1,0 +1,20 @@
+name: roto_14
+team_count: 14
+scoring_type: roto
+roster_slots:
+  C: 2
+  LW: 2
+  RW: 2
+  D: 4
+  G: 2
+  UTIL: 1
+  BENCH: 4
+categories:
+  - G
+  - A
+  - PPP
+  - SOG
+  - HIT
+  - BLK
+  - W
+  - SV%

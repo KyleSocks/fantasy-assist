@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NHL Draft Board</title>
+  <link rel="stylesheet" href="/static/vendor/uPlot.min.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>NHL Draft Board</h1>
+    <div class="controls">
+      <select id="league" aria-label="League"></select>
+      <input id="search" type="search" placeholder="Search players" aria-label="Search players">
+      <div id="chips" class="chips" aria-label="Position filter"></div>
+      <button id="reset" type="button">Reset</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="side" aria-label="Draft sidebar">
+      <nav class="tabs" aria-label="Sidebar tabs">
+        <button type="button" class="tab active" data-tab="recs">Recommendations</button>
+        <button type="button" class="tab" data-tab="roster">My Roster</button>
+        <button type="button" class="tab" data-tab="drafted">Drafted</button>
+      </nav>
+      <div id="round" class="round">Round 1</div>
+      <div id="tab-recs" class="tab-panel" role="tabpanel">
+        <div id="recs" class="recs">
+          <div class="rec-empty">Loading recommendations…</div>
+        </div>
+      </div>
+      <div id="tab-roster" class="tab-panel" hidden role="tabpanel">
+        <div id="roster" class="roster"></div>
+        <div class="paster">
+          <label for="paster">Paste a player name (Enter drafts the best match)</label>
+          <input id="paster" type="text" placeholder="Paste full name">
+          <div class="dest-toggle" aria-label="Draft destination">
+            <button type="button" class="dest active" data-dest="taken">Taken</button>
+            <button type="button" class="dest" data-dest="me">Me</button>
+          </div>
+          <div id="paster-list" class="paster-list"></div>
+          <div id="paster-status" class="paster-status"></div>
+        </div>
+      </div>
+      <div id="tab-drafted" class="tab-panel" hidden role="tabpanel">
+        <ol id="draft-log" class="draft-log"></ol>
+      </div>
+    </aside>
+
+    <section class="board-wrap">
+      <div id="status" class="status">Loading…</div>
+      <div class="board-scroll">
+        <table class="board">
+          <thead id="board-head"><tr></tr></thead>
+          <tbody id="board-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <aside id="player-panel" class="player-panel" hidden aria-label="Player drill-down">
+    <div class="panel-head">
+      <div>
+        <h2 id="panel-name" class="panel-title"></h2>
+        <div id="panel-meta" class="panel-meta"></div>
+      </div>
+      <button id="panel-close" type="button" class="panel-close" aria-label="Close player panel">×</button>
+    </div>
+    <div id="panel-body" class="panel-body"></div>
+  </aside>
+
+  <script src="/static/board.js"></script>
+  <script src="/static/vendor/uPlot.iife.min.js"></script>
+  <script src="/static/detail.js"></script>
+</body>
+</html>

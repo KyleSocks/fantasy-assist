@@ -1,0 +1,26 @@
+# data
+data/raw/
+data/hockey.db
+*.db
+*.sqlite3
+
+# python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.uv/
+dist/
+build/
+
+# frontend
+node_modules/
+web/dist/
+
+# misc
+.env
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/

@@ -1,0 +1,26 @@
+[project]
+name = "hockey-draft"
+version = "0.1.0"
+description = "Fantasy hockey draft assistant (NHL), local-first, single user"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "fastapi>=0.100",
+    "uvicorn>=0.23",
+    "httpx>=0.27",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "network: tests that require network access to the NHL API",
+]

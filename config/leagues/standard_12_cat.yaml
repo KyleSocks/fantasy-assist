@@ -1,0 +1,19 @@
+name: standard_12_cat
+team_count: 12
+scoring_type: h2h_categories
+roster_slots:
+  C: 2
+  LW: 2
+  RW: 2
+  D: 4
+  G: 2
+  UTIL: 1
+  BENCH: 4
+categories:
+  - G
+  - A
+  - PPP
+  - SOG
+  - HIT+BLK
+  - W
+  - SV%

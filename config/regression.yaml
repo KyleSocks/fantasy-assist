@@ -1,0 +1,10 @@
+# Shrinkage parameters (k) for Bayesian regression of per-GP rates toward positional means.
+# k represents the equivalent number of games of a "typical" player in that category.
+# Tuned 2026-09-14: k=14 optimal for all categories (MSE backtest, 2022-2025 seasons).
+goals: 14
+assists: 14
+shots: 14
+blocks: 14
+hits: 14
+pp_points: 14
+goalie_save_pct: 1000

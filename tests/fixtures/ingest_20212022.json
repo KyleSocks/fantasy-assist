@@ -1,0 +1,588 @@
+{
+ "season": 20212022,
+ "skater_summary": [
+  {
+   "playerId": 8477492,
+   "seasonId": 20212022,
+   "gamesPlayed": 85,
+   "goals": 45,
+   "assists": 67,
+   "points": 112,
+   "shots": 416,
+   "ppPoints": 36,
+   "teamAbbrevs": "COL"
+  },
+  {
+   "playerId": 8477934,
+   "seasonId": 20212022,
+   "gamesPlayed": 96,
+   "goals": 62,
+   "assists": 80,
+   "points": 142,
+   "shots": 322,
+   "ppPoints": 50,
+   "teamAbbrevs": "EDM"
+  },
+  {
+   "playerId": 8478402,
+   "seasonId": 20212022,
+   "gamesPlayed": 96,
+   "goals": 54,
+   "assists": 102,
+   "points": 156,
+   "shots": 375,
+   "ppPoints": 52,
+   "teamAbbrevs": "EDM"
+  }
+ ],
+ "skater_realtime": [
+  {
+   "playerId": 8477492,
+   "seasonId": 20212022,
+   "hits": 96,
+   "blockedShots": 51
+  },
+  {
+   "playerId": 8477934,
+   "seasonId": 20212022,
+   "hits": 61,
+   "blockedShots": 28
+  },
+  {
+   "playerId": 8478402,
+   "seasonId": 20212022,
+   "hits": 126,
+   "blockedShots": 30
+  }
+ ],
+ "skater_toi": [
+  {
+   "playerId": 8477492,
+   "seasonId": 20212022,
+   "evTimeOnIce": 89168,
+   "ppTimeOnIce": 18404
+  },
+  {
+   "playerId": 8477934,
+   "seasonId": 20212022,
+   "evTimeOnIce": 100569,
+   "ppTimeOnIce": 22082
+  },
+  {
+   "playerId": 8478402,
+   "seasonId": 20212022,
+   "evTimeOnIce": 105016,
+   "ppTimeOnIce": 21504
+  }
+ ],
+ "goalie_summary": [
+  {
+   "playerId": 8476945,
+   "seasonId": 20212022,
+   "gamesPlayed": 66,
+   "gamesStarted": 66,
+   "wins": 29,
+   "losses": 27,
+   "otLosses": 10,
+   "saves": 1962,
+   "shotsAgainst": 2155,
+   "goalsAgainst": 193,
+   "shutouts": 4,
+   "teamAbbrevs": "WPG"
+  },
+  {
+   "playerId": 8478048,
+   "seasonId": 20212022,
+   "gamesPlayed": 73,
+   "gamesStarted": 72,
+   "wins": 46,
+   "losses": 22,
+   "otLosses": 4,
+   "saves": 2185,
+   "shotsAgainst": 2342,
+   "goalsAgainst": 157,
+   "shutouts": 6,
+   "teamAbbrevs": "NYR"
+  }
+ ],
+ "schedule": {
+  "2021-10-13": {
+   "gameWeek": [
+    {
+     "games": [
+      {
+       "id": 2021020003,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "TOR"
+       },
+       "awayTeam": {
+        "abbrev": "MTL"
+       }
+      },
+      {
+       "id": 2021020004,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "WSH"
+       },
+       "awayTeam": {
+        "abbrev": "NYR"
+       }
+      },
+      {
+       "id": 2021020005,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "COL"
+       },
+       "awayTeam": {
+        "abbrev": "CHI"
+       }
+      },
+      {
+       "id": 2021020006,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "EDM"
+       },
+       "awayTeam": {
+        "abbrev": "VAN"
+       }
+      },
+      {
+       "id": 2021020015,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "ANA"
+       },
+       "awayTeam": {
+        "abbrev": "WPG"
+       }
+      },
+      {
+       "id": 2021020007,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "BUF"
+       },
+       "awayTeam": {
+        "abbrev": "MTL"
+       }
+      },
+      {
+       "id": 2021020008,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "OTT"
+       },
+       "awayTeam": {
+        "abbrev": "TOR"
+       }
+      },
+      {
+       "id": 2021020010,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "FLA"
+       },
+       "awayTeam": {
+        "abbrev": "PIT"
+       }
+      },
+      {
+       "id": 2021020011,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "NYR"
+       },
+       "awayTeam": {
+        "abbrev": "DAL"
+       }
+      },
+      {
+       "id": 2021020012,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "CAR"
+       },
+       "awayTeam": {
+        "abbrev": "NYI"
+       }
+      },
+      {
+       "id": 2021020013,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "CBJ"
+       },
+       "awayTeam": {
+        "abbrev": "ARI"
+       }
+      },
+      {
+       "id": 2021020009,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "DET"
+       },
+       "awayTeam": {
+        "abbrev": "TBL"
+       }
+      },
+      {
+       "id": 2021020014,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "NSH"
+       },
+       "awayTeam": {
+        "abbrev": "SEA"
+       }
+      },
+      {
+       "id": 2021020016,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "LAK"
+       },
+       "awayTeam": {
+        "abbrev": "VGK"
+       }
+      },
+      {
+       "id": 2021020017,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "NJD"
+       },
+       "awayTeam": {
+        "abbrev": "CHI"
+       }
+      },
+      {
+       "id": 2021020018,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "PHI"
+       },
+       "awayTeam": {
+        "abbrev": "VAN"
+       }
+      },
+      {
+       "id": 2021020019,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "ANA"
+       },
+       "awayTeam": {
+        "abbrev": "MIN"
+       }
+      },
+      {
+       "id": 2021020021,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "BUF"
+       },
+       "awayTeam": {
+        "abbrev": "ARI"
+       }
+      },
+      {
+       "id": 2021020025,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "FLA"
+       },
+       "awayTeam": {
+        "abbrev": "NYI"
+       }
+      },
+      {
+       "id": 2021020020,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "BOS"
+       },
+       "awayTeam": {
+        "abbrev": "DAL"
+       }
+      },
+      {
+       "id": 2021020022,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "TOR"
+       },
+       "awayTeam": {
+        "abbrev": "OTT"
+       }
+      },
+      {
+       "id": 2021020023,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "MTL"
+       },
+       "awayTeam": {
+        "abbrev": "NYR"
+       }
+      },
+      {
+       "id": 2021020024,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "DET"
+       },
+       "awayTeam": {
+        "abbrev": "VAN"
+       }
+      },
+      {
+       "id": 2021020026,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "PIT"
+       },
+       "awayTeam": {
+        "abbrev": "CHI"
+       }
+      },
+      {
+       "id": 2021020027,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "WSH"
+       },
+       "awayTeam": {
+        "abbrev": "TBL"
+       }
+      },
+      {
+       "id": 2021020028,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "CBJ"
+       },
+       "awayTeam": {
+        "abbrev": "SEA"
+       }
+      },
+      {
+       "id": 2021020029,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "NSH"
+       },
+       "awayTeam": {
+        "abbrev": "CAR"
+       }
+      },
+      {
+       "id": 2021020030,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "COL"
+       },
+       "awayTeam": {
+        "abbrev": "STL"
+       }
+      },
+      {
+       "id": 2021020031,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "EDM"
+       },
+       "awayTeam": {
+        "abbrev": "CGY"
+       }
+      },
+      {
+       "id": 2021020033,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "SJS"
+       },
+       "awayTeam": {
+        "abbrev": "WPG"
+       }
+      },
+      {
+       "id": 2021020032,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "LAK"
+       },
+       "awayTeam": {
+        "abbrev": "MIN"
+       }
+      },
+      {
+       "id": 2021020034,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "OTT"
+       },
+       "awayTeam": {
+        "abbrev": "DAL"
+       }
+      },
+      {
+       "id": 2021020035,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "TOR"
+       },
+       "awayTeam": {
+        "abbrev": "NYR"
+       }
+      },
+      {
+       "id": 2021020036,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "PHI"
+       },
+       "awayTeam": {
+        "abbrev": "SEA"
+       }
+      },
+      {
+       "id": 2021020037,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "CGY"
+       },
+       "awayTeam": {
+        "abbrev": "ANA"
+       }
+      },
+      {
+       "id": 2021020038,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "ARI"
+       },
+       "awayTeam": {
+        "abbrev": "STL"
+       }
+      },
+      {
+       "id": 2021020039,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "BUF"
+       },
+       "awayTeam": {
+        "abbrev": "VAN"
+       }
+      },
+      {
+       "id": 2021020040,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "MTL"
+       },
+       "awayTeam": {
+        "abbrev": "SJS"
+       }
+      },
+      {
+       "id": 2021020042,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "TBL"
+       },
+       "awayTeam": {
+        "abbrev": "FLA"
+       }
+      },
+      {
+       "id": 2021020043,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "NJD"
+       },
+       "awayTeam": {
+        "abbrev": "SEA"
+       }
+      },
+      {
+       "id": 2021020044,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "PIT"
+       },
+       "awayTeam": {
+        "abbrev": "DAL"
+       }
+      },
+      {
+       "id": 2021020045,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "WSH"
+       },
+       "awayTeam": {
+        "abbrev": "COL"
+       }
+      },
+      {
+       "id": 2021020041,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "DET"
+       },
+       "awayTeam": {
+        "abbrev": "CBJ"
+       }
+      },
+      {
+       "id": 2021020046,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "CHI"
+       },
+       "awayTeam": {
+        "abbrev": "NYI"
+       }
+      },
+      {
+       "id": 2021020047,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "NSH"
+       },
+       "awayTeam": {
+        "abbrev": "LAK"
+       }
+      },
+      {
+       "id": 2021020048,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "MIN"
+       },
+       "awayTeam": {
+        "abbrev": "WPG"
+       }
+      },
+      {
+       "id": 2021020049,
+       "gameType": 2,
+       "homeTeam": {
+        "abbrev": "EDM"
+       },
+       "awayTeam": {
+        "abbrev": "ANA"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

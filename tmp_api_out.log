@@ -1,0 +1,19 @@
+INFO:     127.0.0.1:53853 - "GET /api/board HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53864 - "GET /api/board HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53865 - "GET /api/recommend?league=roto_14&round=3&drafted_by_me=8478402,8477492&drafted_all=8478402,8477492 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53866 - "GET /api/export?format=csv HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53867 - "GET /api/player/8478402 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60064 - "GET /api/board HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60065 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60066 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60066 - "GET /static/vendor/uPlot.min.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60067 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60068 - "GET /static/board.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60069 - "GET /static/vendor/uPlot.iife.min.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60070 - "GET /static/detail.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60068 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60069 - "GET /api/board HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60069 - "GET /api/player/8478402?league=kyle_12_points HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60069 - "GET /api/player/8477492?league=kyle_12_points HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49271 - "GET /api/player/8476389?league=kyle_12_points HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49271 - "GET /api/player/8484144?league=kyle_12_points HTTP/1.1" 200 OK
