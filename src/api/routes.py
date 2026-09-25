@@ -46,6 +46,7 @@ from src.valuation.league import (
     _extract_stat,
     load_league,
 )
+from src.valuation.schedule_value import windowed_values
 from src.valuation.valuation import auction_values, valuate
 
 from src.draft.recommend import recommend
@@ -197,18 +198,18 @@ def build_board(league: str, adp: dict[str, float] | None = None) -> dict:
         conn.close()
 
     projs = {p.player_id: p for p in project_all(season, str(DB_PATH))}
-    vals = valuate(list(projs.values()), cfg)
-    auction = auction_values(vals, cfg)
+    vals = windowed_values(list(projs.values()), cfg)
+    auction = auction_values(vals, cfg, key="total_value")
 
     if adp is None:
         adp = _load_adp()
 
     # Keep only players that can be shown (a players row with a name), then
     # rank among those so the rank column is gapless for the draft board.
-    # 1-based VORP rank; ties broken by player_id for determinism.
+    # 1-based total_value rank; ties broken by player_id for determinism.
     ordered = [
         v
-        for v in sorted(vals, key=lambda v: (-v.vorp, v.player_id))
+        for v in sorted(vals, key=lambda v: (-v.total_value, v.player_id))
         if (info := players.get(v.player_id)) is not None and info[0] is not None
     ]
     value_rank = {v.player_id: i + 1 for i, v in enumerate(ordered)}
@@ -243,8 +244,12 @@ def build_board(league: str, adp: dict[str, float] | None = None) -> dict:
                 "pos": pos,
                 "team": team or "-",
                 "rank": value_rank[v.player_id],
-                "vorp": round(v.vorp, 2),
+                "vorp": round(v.total_value, 2),
+                "vorp_regular": round(v.vorp_regular, 2),
+                "vorp_playoff": round(v.vorp_playoff, 2),
                 "dollars": round(auction.get(v.player_id, 0.0), 1),
+                "gp_regular": round(v.gp_regular, 1),
+                "gp_playoff": round(v.gp_playoff, 1),
                 "stats": {k: round(_extract_stat(p, k), 1) for k in cat_keys},
                 "adp": round(a, 1) if a is not None else None,
                 "delta": delta,

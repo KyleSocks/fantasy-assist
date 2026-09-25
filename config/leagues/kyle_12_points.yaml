@@ -22,3 +22,8 @@ points_per_stat:
   GA: -1.5
   SV: 0.3
   SO: 3
+fantasy_start_date: "2026-09-28"
+week_start_dow: 1
+regular_weeks: [1, 24]
+playoff_weeks: [25, 27]
+playoff_weight: 0.15

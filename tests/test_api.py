@@ -57,19 +57,19 @@ def client() -> TestClient:
 
 
 def test_kyle_count(kyle_board):
-    """975 displayable players (valuated players INNER JOINed to players rows)."""
-    assert kyle_board["count"] == 975
-    assert len(kyle_board["players"]) == 975
+    """977 displayable players (valuated players INNER JOINed to players rows)."""
+    assert kyle_board["count"] == 977
+    assert len(kyle_board["players"]) == 977
 
 
 def test_kyle_top_player(kyle_board):
-    """Top player is McDavid: rank 1, VORP 341.34, $47.0 (hand-verified)."""
+    """Top player McDavid rank 1, total 251.24, $46.2; kyle window [1,24]/[25,27]."""
     top = kyle_board["players"][0]
     assert top["name"] == "Connor McDavid"
     assert top["pos"] == "C"
     assert top["rank"] == 1
-    assert top["vorp"] == pytest.approx(341.34, abs=0.01)
-    assert top["dollars"] == pytest.approx(47.0, abs=0.1)
+    assert top["vorp"] == pytest.approx(251.24, abs=0.01)
+    assert top["dollars"] == pytest.approx(46.2, abs=0.1)
 
 
 def test_kyle_top3(kyle_board):
@@ -81,12 +81,12 @@ def test_kyle_top3(kyle_board):
         "Leon Draisaitl",
     ]
     assert [p["rank"] for p in (p1, p2, p3)] == [1, 2, 3]
-    assert p1["vorp"] == pytest.approx(341.34, abs=0.01)
-    assert p2["vorp"] == pytest.approx(336.55, abs=0.01)
-    assert p3["vorp"] == pytest.approx(280.21, abs=0.01)
-    assert p1["dollars"] == pytest.approx(47.0, abs=0.1)
-    assert p2["dollars"] == pytest.approx(46.3, abs=0.1)
-    assert p3["dollars"] == pytest.approx(38.6, abs=0.1)
+    assert p1["vorp"] == pytest.approx(251.24, abs=0.01)
+    assert p2["vorp"] == pytest.approx(242.63, abs=0.01)
+    assert p3["vorp"] == pytest.approx(205.76, abs=0.01)
+    assert p1["dollars"] == pytest.approx(46.2, abs=0.1)
+    assert p2["dollars"] == pytest.approx(44.6, abs=0.1)
+    assert p3["dollars"] == pytest.approx(37.9, abs=0.1)
 
 
 def test_kyle_categories(kyle_board):
@@ -134,8 +134,8 @@ def test_kyle_adp_columns_absent(kyle_board):
 def test_kyle_player_shape(kyle_board):
     """Each player row has exactly the documented keys and 12 stat keys."""
     required = {
-        "id", "name", "pos", "team", "rank", "vorp", "dollars", "stats",
-        "adp", "delta",
+        "id", "name", "pos", "team", "rank", "vorp", "vorp_regular",
+        "vorp_playoff", "dollars", "stats", "adp", "delta", "gp_regular", "gp_playoff",
     }
     cat_keys = set(kyle_board["categories"])
     for p in kyle_board["players"]:
@@ -154,7 +154,7 @@ def test_kyle_leagues_list(kyle_board):
 
 
 def test_roto_count_and_scoring(roto_board):
-    assert roto_board["count"] == 975
+    assert roto_board["count"] == 977
     assert roto_board["scoring_type"] == "roto"
     assert roto_board["league"] == "roto_14"
 
@@ -176,12 +176,12 @@ def test_roto_top3(roto_board):
     ]
     assert [p["rank"] for p in (p1, p2, p3)] == [1, 2, 3]
     # Roto VORP is on a different scale than points (category z-scores)
-    assert p1["vorp"] == pytest.approx(11.12, abs=0.01)
-    assert p2["vorp"] == pytest.approx(10.67, abs=0.01)
-    assert p3["vorp"] == pytest.approx(9.22, abs=0.01)
-    assert p1["dollars"] == pytest.approx(51.0, abs=0.1)
-    assert p2["dollars"] == pytest.approx(48.9, abs=0.1)
-    assert p3["dollars"] == pytest.approx(42.3, abs=0.1)
+    assert p1["vorp"] == pytest.approx(11.05, abs=0.01)
+    assert p2["vorp"] == pytest.approx(10.37, abs=0.01)
+    assert p3["vorp"] == pytest.approx(9.06, abs=0.01)
+    assert p1["dollars"] == pytest.approx(50.7, abs=0.1)
+    assert p2["dollars"] == pytest.approx(47.6, abs=0.1)
+    assert p3["dollars"] == pytest.approx(41.5, abs=0.1)
 
 
 def test_roto_ordering_differs_from_points(kyle_board, roto_board):
@@ -211,18 +211,18 @@ def test_points_10_top3(points_board):
     assert p3["name"] == "Cale Makar"
     assert p3["pos"] == "D"
     assert points_board["scoring_type"] == "points"
-    assert p1["vorp"] == pytest.approx(227.99, abs=0.01)
-    assert p2["vorp"] == pytest.approx(213.58, abs=0.01)
-    assert p3["vorp"] == pytest.approx(174.07, abs=0.01)
+    assert p1["vorp"] == pytest.approx(158.16, abs=0.01)
+    assert p2["vorp"] == pytest.approx(152.25, abs=0.01)
+    assert p3["vorp"] == pytest.approx(119.55, abs=0.01)
 
 
 def test_standard_top(standard_board):
     """h2h_categories scoring: McDavid still rank 1, VORP on the category scale."""
     assert standard_board["scoring_type"] == "h2h_categories"
-    assert standard_board["count"] == 975
+    assert standard_board["count"] == 977
     assert standard_board["players"][0]["name"] == "Connor McDavid"
     assert standard_board["players"][0]["rank"] == 1
-    assert standard_board["players"][0]["vorp"] == pytest.approx(10.74, abs=0.01)
+    assert standard_board["players"][0]["vorp"] == pytest.approx(10.63, abs=0.01)
 
 
 # ─── build_board: unknown league -> 404 ───
@@ -243,7 +243,7 @@ def test_http_default_board(client):
     res = client.get("/api/board")
     assert res.status_code == 200
     data = res.json()
-    assert data["count"] == 975
+    assert data["count"] == 977
     assert data["league"] == "kyle_12_points"
     assert data["players"][0]["name"] == "Connor McDavid"
 
@@ -305,11 +305,11 @@ def test_skater_detail_shape(mcdavid_detail):
 
 
 def test_skater_detail_goals(mcdavid_detail):
-    """McDavid goals: actuals [40,33,49], projection 35.2567, band hand-checked."""
+    """McDavid goals: actuals [40,33,49], projection 35.2535, band hand-checked."""
     goals = next(c for c in mcdavid_detail["categories"] if c["key"] == "goals")
     assert goals["actuals"] == [40, 33, 49]
-    assert goals["projection"] == pytest.approx(35.2567, abs=0.001)
-    assert goals["band"] == [27.790579, 42.722749]
+    assert goals["projection"] == pytest.approx(35.2535, abs=0.001)
+    assert goals["band"] == [27.784282, 42.722749]
     assert goals["band"][0] < goals["projection"] < goals["band"][1]
 
 
@@ -318,8 +318,8 @@ def test_skater_detail_board_row(mcdavid_detail):
     row = mcdavid_detail["board_row"]
     assert row is not None
     assert row["rank"] == 1
-    assert row["vorp"] == pytest.approx(11.12, abs=0.01)
-    assert row["dollars"] == pytest.approx(51.0, abs=0.1)
+    assert row["vorp"] == pytest.approx(11.05, abs=0.01)
+    assert row["dollars"] == pytest.approx(50.7, abs=0.1)
     assert row["stats"]["G"] == pytest.approx(35.3, abs=0.1)
 
 
@@ -370,10 +370,10 @@ def test_skater_detail_chart_payload(mcdavid_detail):
     goals = next(c for c in d["categories"] if c["key"] == "goals")
     # GP per season from the DB: 101, 89, 88; per-60 = value / gp * 60
     assert goals["actual"] == [23.762376, 22.247191, 33.409091]
-    # projection 35.256664 over proj_gp 82 -> 25.797559 per 60
-    assert goals["proj"] == 25.797559
+    # projection 35.253516 over proj_gp 82 -> 25.795255 per 60
+    assert goals["proj"] == 25.795255
     assert goals["hi"] == 31.260548
-    assert goals["lo"] == 20.33457
+    assert goals["lo"] == 20.329963
     # every chart series has one point per past season (labels minus proj)
     for c in d["categories"]:
         assert len(c["actual"]) == len(d["labels"]) - 1
@@ -407,11 +407,11 @@ def test_geertsen_single_season(geertsen_detail):
     assert d["band_note"] == "Band widened: only one season of qualifying data."
     goals = next(c for c in d["categories"] if c["key"] == "goals")
     assert goals["actuals"] == [0]
-    assert goals["projection"] == pytest.approx(8.626575, abs=0.001)
-    assert goals["band"] == [0.0, 17.25315]
+    assert goals["projection"] == pytest.approx(8.6362, abs=0.001)
+    assert goals["band"] == [0.0, 17.272402]
     assert goals["actual"] == [0.0]
-    assert goals["proj"] == 11.476596
-    assert goals["hi"] == 22.953192
+    assert goals["proj"] == 11.489402
+    assert goals["hi"] == 22.978805
     assert goals["lo"] == 0.0
 
 

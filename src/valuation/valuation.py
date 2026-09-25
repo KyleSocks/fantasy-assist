@@ -17,6 +17,13 @@ class PlayerValue:
     vorp: float
     cat_zscores: dict
     replacement_used: float
+    # ── Windowed (regular vs playoff week) valuation ──
+    # Zero for the season-long path; populated by valuate_windowed().
+    gp_regular: float = 0.0
+    gp_playoff: float = 0.0
+    vorp_regular: float = 0.0
+    vorp_playoff: float = 0.0
+    total_value: float = 0.0
 
 
 def _pos_group(pos: str) -> str:
@@ -215,18 +222,59 @@ def valuate(projs: list[Projection], cfg: LeagueConfig) -> list[PlayerValue]:
     return vals
 
 
-def auction_values(vals: list[PlayerValue], cfg: LeagueConfig, budget: int = 200) -> dict[int, float]:
-    """VORP-proportional auction values. Total spend == team_count * budget."""
+def valuate_windowed(
+    regular_projs: list[Projection],
+    playoff_projs: list[Projection],
+    cfg: LeagueConfig,
+) -> list[PlayerValue]:
+    """Two-pass windowed valuation combined into ``total_value``.
+
+    Runs ``valuate()`` once per window, each pass deriving its OWN
+    replacement levels from that window's totals (the two windows never
+    share pool stats). Then combines per player:
+
+        total_value = (1 - w) * vorp_regular + w * vorp_playoff
+
+    where ``w = cfg.playoff_weight``. Returns the regular-pass
+    ``PlayerValue`` list extended with ``gp_regular``, ``gp_playoff``,
+    ``vorp_regular``, ``vorp_playoff`` and ``total_value``.
+    """
+    w = cfg.playoff_weight
+    reg_vals = valuate(list(regular_projs), cfg)
+    po_vals = valuate(list(playoff_projs), cfg)
+    po_by_id = {v.player_id: v for v in po_vals}
+    reg_gp = {p.player_id: p.gp for p in regular_projs}
+    po_gp = {p.player_id: p.gp for p in playoff_projs}
+    for v in reg_vals:
+        po = po_by_id[v.player_id]
+        v.gp_regular = reg_gp[v.player_id]
+        v.gp_playoff = po_gp[v.player_id]
+        v.vorp_regular = v.vorp
+        v.vorp_playoff = po.vorp
+        v.total_value = (1.0 - w) * v.vorp + w * po.vorp
+    return reg_vals
+
+
+def auction_values(
+    vals: list[PlayerValue], cfg: LeagueConfig, budget: int = 200,
+    key: str = "vorp",
+) -> dict[int, float]:
+    """Value-proportional auction dollars. Total spend == team_count * budget.
+
+    ``key`` selects the PlayerValue field that drives the split:
+    ``"vorp"`` for the season-long pass, ``"total_value"`` for the windowed
+    board. Only players with a positive value participate.
+    """
     total_budget = cfg.team_count * budget
-    # Only players with positive VORP participate
-    positive = [v for v in vals if v.vorp > 0]
-    total_vorp = sum(v.vorp for v in positive)
-    if total_vorp < 1e-12:
+    positive = [v for v in vals if getattr(v, key) > 0]
+    total = sum(getattr(v, key) for v in positive)
+    if total < 1e-12:
         return {v.player_id: 0.0 for v in vals}
     result: dict[int, float] = {}
     for v in vals:
-        if v.vorp > 0:
-            result[v.player_id] = (v.vorp / total_vorp) * total_budget
+        value = getattr(v, key)
+        if value > 0:
+            result[v.player_id] = (value / total) * total_budget
         else:
             result[v.player_id] = 0.0
     return result

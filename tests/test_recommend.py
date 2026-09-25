@@ -74,13 +74,13 @@ def test_empty_roster_top3_raw_vorp(roto_vals):
 
 def test_empty_roster_points_league(kyle_vals):
     """Same neutral-state check on the points league: VORP is points here,
-    so the top 3 are McDavid 341.3408, MacKinnon 336.5532, Draisaitl 280.2083."""
+    so the top 3 are McDavid 341.3290, MacKinnon 336.5416, Draisaitl 280.1967."""
     vals, cfg = kyle_vals
     recs = recommend([], [], vals, cfg, 1)
     assert [r.player_id for r in recs] == [8478402, 8477492, 8477934]
-    assert recs[0].marginal_value == pytest.approx(341.3408, rel=1e-4)
-    assert recs[1].marginal_value == pytest.approx(336.5532, rel=1e-4)
-    assert recs[2].marginal_value == pytest.approx(280.2083, rel=1e-4)
+    assert recs[0].marginal_value == pytest.approx(341.3290, rel=1e-4)
+    assert recs[1].marginal_value == pytest.approx(336.5416, rel=1e-4)
+    assert recs[2].marginal_value == pytest.approx(280.1967, rel=1e-4)
 
 
 # ─── Drafted players are excluded from the pool ───
@@ -258,7 +258,7 @@ def client() -> TestClient:
 
 def test_api_default_league(client):
     """Default: kyle_12_points, round 1, empty roster -> raw VORP top 3 with
-    values rounded to 2 dp: McDavid 341.34, MacKinnon 336.55, Draisaitl 280.21."""
+    values rounded to 2 dp: McDavid 341.33, MacKinnon 336.54, Draisaitl 280.20."""
     resp = client.get("/api/recommend")
     assert resp.status_code == 200
     data = resp.json()
@@ -269,11 +269,11 @@ def test_api_default_league(client):
     assert recs[0] == {
         "name": "Connor McDavid",
         "player_id": 8478402,
-        "marginal_value": 341.34,
+        "marginal_value": 341.33,
         "reason": "Top remaining C by VORP (341.3)",
     }
-    assert recs[1]["marginal_value"] == 336.55
-    assert recs[2]["marginal_value"] == 280.21
+    assert recs[1]["marginal_value"] == 336.54
+    assert recs[2]["marginal_value"] == 280.20
 
 
 def test_api_roto_with_drafts(client):

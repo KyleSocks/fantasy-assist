@@ -24,3 +24,5 @@ web/dist/
 *.swo
 .vscode/
 .idea/
+.clinerules/
+tmp*.py
