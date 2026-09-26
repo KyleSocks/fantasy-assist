@@ -4,13 +4,13 @@ Given the user's current roster, everyone drafted league-wide, and the
 valuation table, re-rank the still-available pool by marginal value to
 this roster:
 
-    marginal = (vorp * urgency + pickup) * bench_scale
+    marginal = (total_value * urgency + pickup) * bench_scale
 
 - urgency (per position group F/D/G): runway = remaining players with
-  VORP above replacement level; need = teams still needing the position
-  (league starter slots for the position minus drafted players, split
-  into per-team chunks). When runway < need, urgency = need / runway —
-  derived from that ratio, not a constant.
+  total_value above replacement level; need = teams still needing the
+  position (league starter slots for the position minus drafted players,
+  split into per-team chunks). When runway < need, urgency = need / runway
+  — derived from that ratio, not a constant.
 - bench_scale: 0.35 when every slot a player could start is already
   filled (bench asset), else 1.0.
 - pickup (category leagues only): the user's projected team total per
@@ -139,7 +139,7 @@ def _scarcity(
             drafted_count[group] += 1
     runway = {g: 0 for g in "FDG"}
     for v in available:
-        if v.vorp > 0:
+        if v.total_value > 0:
             runway[_pos_group(v.position)] += 1
     out: dict[str, tuple[float, int, int]] = {}
     for g in "FDG":
@@ -218,7 +218,7 @@ def _reason(
     runway: int,
     bench: bool,
 ) -> str:
-    parts = [f"{_ordinal(rank)} remaining {v.position} by VORP ({v.vorp:.1f})"]
+    parts = [f"{_ordinal(rank)} remaining {v.position} by VORP ({v.total_value:.1f})"]
     if team_state:
         deficits = [
             (max(v.cat_zscores.get(c, 0.0), 0.0), c)
@@ -249,7 +249,8 @@ def recommend(
     Args:
         drafted_by_me: player_ids on the user's roster.
         drafted_all: player_ids drafted by any team (not available).
-        vals: full valuation table, one PlayerValue per pool player.
+        vals: windowed valuation table, one PlayerValue per pool player;
+            the engine keys off total_value (the windowed headline value).
         cfg: LeagueConfig for the league being drafted in.
         round_no: current draft round, tracked by the client; the engine
             is a pure function of roster state and availability.
@@ -275,7 +276,7 @@ def recommend(
         mult, runway, _need = urgency.get(_pos_group(v.position), (1.0, 0, 0))
         pickup = _pickup(v, team_state)
         bench = _bench_asset(v.position, occ, util_full, cfg)
-        marginal = (v.vorp * mult + pickup) * (BENCH_SCALE if bench else 1.0)
+        marginal = (v.total_value * mult + pickup) * (BENCH_SCALE if bench else 1.0)
         scored.append((marginal, v, bench, mult, runway))
     scored.sort(key=lambda t: (-t[0], t[1].player_id))
     top = scored[:3]
@@ -284,7 +285,7 @@ def recommend(
     for v in available:
         by_pos.setdefault(v.position, []).append(v)
     for group in by_pos.values():
-        group.sort(key=lambda v: (-v.vorp, v.player_id))
+        group.sort(key=lambda v: (-v.total_value, v.player_id))
     rank = {
         v.player_id: i + 1 for lst in by_pos.values() for i, v in enumerate(lst)
     }

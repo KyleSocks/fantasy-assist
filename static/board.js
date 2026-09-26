@@ -149,7 +149,7 @@ function computeRank() {
 }
 
 function cols() {
-  const c = [["rank", "Rank"], ["draft", "Draft"], ["name", "Player"], ["pos", "Pos"], ["team", "Team"], ["vorp", "VORP"], ["dollars", "$"]];
+  const c = [["rank", "Rank"], ["draft", "Draft"], ["name", "Player"], ["pos", "Pos"], ["team", "Team"], ["vorp", "VORP"], ["vorp_regular", "VORP RS"], ["vorp_playoff", "VORP PO"], ["dollars", "$"]];
   for (const k of state.meta.categories) c.push([k, k]);
   if (state.meta.has_adp) c.push(["adp", "ADP"], ["delta", "+/-"]);
   return c;
@@ -172,6 +172,8 @@ function cellHtml(p, k) {
   else if (k === "pos") v = p.pos;
   else if (k === "team") v = p.team;
   else if (k === "vorp") v = p.vorp.toFixed(1);
+  else if (k === "vorp_regular") v = p.vorp_regular.toFixed(1);
+  else if (k === "vorp_playoff") v = p.vorp_playoff.toFixed(1);
   else if (k === "dollars") v = p.dollars.toFixed(1);
   else if (k === "adp") v = p.adp == null ? "—" : p.adp.toFixed(1);
   else if (k === "delta") { v = p.delta == null ? "—" : (p.delta > 0 ? "+" : "") + p.delta; cls = p.delta > 0 ? " pos" : p.delta < 0 ? " neg" : ""; }

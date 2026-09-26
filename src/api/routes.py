@@ -47,7 +47,7 @@ from src.valuation.league import (
     load_league,
 )
 from src.valuation.schedule_value import windowed_values
-from src.valuation.valuation import auction_values, valuate
+from src.valuation.valuation import auction_values
 
 from src.draft.recommend import recommend
 
@@ -297,7 +297,7 @@ def build_recommendations(
     cfg = leagues[league]
     season = _next_season_id()
     projs = {p.player_id: p for p in project_all(season, str(DB_PATH))}
-    vals = valuate(list(projs.values()), cfg)
+    vals = windowed_values(list(projs.values()), cfg)
     recs = recommend(drafted_by_me, drafted_all, vals, cfg, round_no)
     return {
         "league": cfg.name,
