@@ -137,7 +137,12 @@ def _breakdown_rows(terms: dict, is_goalie: bool) -> list[dict]:
     """Deterministic explanation rows for the projection terms table."""
     rows: list[dict] = []
     weights = terms.get("season_weights", [])
-    rows.append({"term": "age factor", "value": terms["age_factor"]})
+    rows.append({"term": "obs_age (weighted mean age)",
+                 "value": terms["obs_age"]})
+    rows.append({"term": "L(obs_age)", "value": terms["L_obs"]})
+    rows.append({"term": "L(proj_age)", "value": terms["L_proj"]})
+    rows.append({"term": "age adjustment L(proj)/L(obs)",
+                 "value": terms["age_adj"]})
     rows.append({"term": "projected GP", "value": terms["proj_gp"]})
     rows.append({"term": "projected TOI/GP", "value": terms["proj_toi_per_gp"]})
     rows.append({"term": "season weights",

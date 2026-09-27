@@ -10,7 +10,7 @@ projected total ``final``:
 actuals. ``shrink`` is the regression shrinkage, which depends on the player
 type and category:
 
-- Skater (any category): ``abs(raw - regressed) * age_factor * proj_gp``
+- Skater (any category): ``abs(raw - regressed) * age_adj * proj_gp``
 - Goalie save_pct (a rate): ``abs(raw - regressed)``
 - Goalie count category (no per-season rate regression): ``0``
 
@@ -34,7 +34,7 @@ def compute_band(
     season_actuals: list[float],
     raw: float | None,
     regressed: float | None,
-    age_factor: float,
+    age_adj: float,
     proj_gp: float,
     category: str,
     is_goalie: bool,
@@ -53,9 +53,9 @@ def compute_band(
     elif raw is None or regressed is None:
         shrink = 0.0
     else:
-        # Skater categories scale with age factor and projected games;
-        # goalie save_pct is a rate (scale 1.0).
-        scale = 1.0 if is_goalie else age_factor * proj_gp
+        # Skater categories scale with the age adjustment and projected
+        # games; goalie save_pct is a rate (scale 1.0).
+        scale = 1.0 if is_goalie else age_adj * proj_gp
         shrink = abs(raw - regressed) * scale
     hw = sigma + shrink
     return (final - hw, final + hw)

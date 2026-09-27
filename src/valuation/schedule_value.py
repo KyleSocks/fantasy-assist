@@ -1,11 +1,10 @@
-"""Windowed (regular-week vs playoff-week) fantasy valuation.
+"""Windowed (regular-window vs playoff-window) fantasy valuation.
 
-Values players over a schedule-driven game window instead of the full
-82-game season. The window is a contiguous run of weekly windows derived
-purely from the league config (``fantasy_start_date`` advanced 7 days per
-week, no hardcoded dates):
-
-    week N spans fantasy_start_date + 7*(N-1) .. + 6 days
+Values players over schedule-driven date windows instead of the full
+82-game season. The windows are contiguous date ranges taken straight
+from the league config (``regular_window`` / ``playoff_window``, no
+hardcoded dates; the config validator requires them to be adjacent
+and ``playoff_weight`` to be in [0, 1]).
 
 Per-window totals are derived from the season projection:
 
@@ -28,7 +27,7 @@ Players whose team is missing from the players table are valued at the
 league-mean window games and logged, never dropped.
 
 CLI: python -m src.valuation.schedule_value [--league NAME]
-prints the acceptance report (week grid, window game totals, top-20
+prints the acceptance report (date windows, window game totals, top-20
 reorder vs the old season-long VORP, same-projection/different-games
 pair, playoff_weight=0.0 reproduction, gp_regular < 82 invariant, and
 the short-schedule hard fail).
@@ -59,74 +58,38 @@ def _resolve_db(db_path: str | Path | None = None) -> str:
 
 def _require_window(cfg: LeagueConfig) -> None:
     if (
-        cfg.fantasy_start_date is None
-        or cfg.regular_weeks is None
-        or cfg.playoff_weeks is None
+        cfg.regular_window is None
+        or cfg.playoff_window is None
     ):
         raise ValueError(
-            f"league '{cfg.name}' has no window config (fantasy_start_date, "
-            "regular_weeks, playoff_weeks); windowed valuation requires it"
+            f"league '{cfg.name}' has no window config (regular_window, "
+            "playoff_window); windowed valuation requires it"
         )
 
 
-def week_bounds(cfg: LeagueConfig) -> dict[int, tuple[str, str]]:
-    """Map every window week number to its (start_iso, end_iso) dates.
+def window_games(
+    cfg: LeagueConfig, window: str, db_path: str | Path | None = None
+) -> dict[str, int]:
+    """Total games each team plays inside one window.
 
-    Pure date arithmetic: week N spans fantasy_start_date + 7*(N-1)
-    through + 6 days.
+    ``window`` is ``"regular"`` or ``"playoff"``. A game counts when
+    ``game_type=2`` and its ``game_date`` falls inside the window's
+    inclusive date range; each game adds one to both teams' counts.
+    Returns ``{team_abbrev: count}``.
     """
+    if window not in ("regular", "playoff"):
+        raise ValueError(
+            f"unknown window '{window}' (expected 'regular' or 'playoff')"
+        )
     _require_window(cfg)
-    start = datetime.date.fromisoformat(cfg.fantasy_start_date)
-    bounds: dict[int, tuple[str, str]] = {}
-    for w in _all_weeks(cfg):
-        s = start + datetime.timedelta(days=7 * (w - 1))
-        e = s + datetime.timedelta(days=6)
-        bounds[w] = (s.isoformat(), e.isoformat())
-    return bounds
-
-
-def regular_week_numbers(cfg: LeagueConfig) -> list[int]:
-    """Inclusive list of regular-window week numbers."""
-    _require_window(cfg)
-    lo, hi = cfg.regular_weeks
-    return list(range(lo, hi + 1))
-
-
-def playoff_week_numbers(cfg: LeagueConfig) -> list[int]:
-    """Inclusive list of playoff-window week numbers."""
-    _require_window(cfg)
-    lo, hi = cfg.playoff_weeks
-    return list(range(lo, hi + 1))
-
-
-def _all_weeks(cfg: LeagueConfig) -> list[int]:
-    return sorted(
-        set(regular_week_numbers(cfg)) | set(playoff_week_numbers(cfg))
+    start, end = (
+        cfg.regular_window if window == "regular" else cfg.playoff_window
     )
-
-
-def _week_of(date: str, cfg: LeagueConfig) -> int:
-    """Window week number for a game date inside the window."""
-    window_start = datetime.date.fromisoformat(cfg.fantasy_start_date)
-    return 1 + (datetime.date.fromisoformat(date) - window_start).days // 7
-
-
-def team_games(
-    cfg: LeagueConfig, db_path: str | Path | None = None
-) -> dict[str, dict[int, int]]:
-    """Games each team plays in each window week.
-
-    Returns ``{team_abbrev: {week_number: game_count}}`` over
-    regular-season (``game_type=2``) games inside the fantasy window.
-    """
-    bounds = week_bounds(cfg)
-    start = bounds[min(bounds)][0]
-    end = bounds[max(bounds)][1]
     db = _resolve_db(db_path)
     conn = sqlite3.connect(db)
     try:
         rows = conn.execute(
-            "SELECT game_date, home_abbrev, away_abbrev FROM schedule "
+            "SELECT home_abbrev, away_abbrev FROM schedule "
             "WHERE game_type=2 AND game_date>=? AND game_date<=?",
             (start, end),
         ).fetchall()
@@ -137,74 +100,50 @@ def team_games(
         ) from e
     finally:
         conn.close()
-    out: dict[str, dict[int, int]] = {}
-    for date, home, away in rows:
-        w = _week_of(date, cfg)
+    out: dict[str, int] = {}
+    for home, away in rows:
         for team in (home, away):
             if team:
-                out.setdefault(team, {})
-                out[team][w] = out[team].get(w, 0) + 1
+                out[team] = out.get(team, 0) + 1
     return out
-
-
-def window_games(
-    cfg: LeagueConfig, window: str, db_path: str | Path | None = None
-) -> dict[str, int]:
-    """Total games each team plays inside one window.
-
-    ``window`` is ``"regular"`` or ``"playoff"``. Returns
-    ``{team_abbrev: count}``.
-    """
-    if window not in ("regular", "playoff"):
-        raise ValueError(
-            f"unknown window '{window}' (expected 'regular' or 'playoff')"
-        )
-    tg = team_games(cfg, db_path)
-    weeks = (
-        regular_week_numbers(cfg)
-        if window == "regular"
-        else playoff_week_numbers(cfg)
-    )
-    return {
-        team: sum(counts.get(w, 0) for w in weeks)
-        for team, counts in tg.items()
-    }
 
 
 def assert_schedule_covers(
     cfg: LeagueConfig, db_path: str | Path | None = None
 ) -> None:
-    """Hard-fail when the schedule does not cover the fantasy window.
+    """Hard-fail when the schedule does not cover the date windows.
 
     Two checks:
-    - per-week coverage: every window week has at least one regular-season
-      (``game_type=2``) game in its date range;
+    - per-window coverage: each window (regular and playoff) has at least
+      one regular-season (``game_type=2``) game in its date range;
     - tail coverage: the schedule's latest regular-season game is on or
-      after the window's final week's end date.
+      after the playoff window's end date.
 
     A calendar day with no games (preseason, Thanksgiving, Christmas,
-    All-Star break) is NOT an error — only a missing week or a truncated
+    All-Star break) is NOT an error — only an empty window or a truncated
     tail is. Raises ``ValueError`` naming the gap and the ingest command.
     """
-    bounds = week_bounds(cfg)
+    _require_window(cfg)
     db = _resolve_db(db_path)
     conn = sqlite3.connect(db)
     try:
         max_date = conn.execute(
             "SELECT MAX(game_date) FROM schedule WHERE game_type=2"
         ).fetchone()[0]
-        for w in sorted(bounds):
-            s, e = bounds[w]
+        for window, (start, end) in (
+            ("regular", cfg.regular_window),
+            ("playoff", cfg.playoff_window),
+        ):
             n = conn.execute(
                 "SELECT COUNT(*) FROM schedule "
                 "WHERE game_type=2 AND game_date>=? AND game_date<=?",
-                (s, e),
+                (start, end),
             ).fetchone()[0]
             if n == 0:
                 raise ValueError(
-                    f"week {w} ({s}..{e}) has no regular-season "
-                    f"(game_type=2) games in the schedule. Run the ingest "
-                    f"to extend the schedule: {INGEST_COMMAND}"
+                    f"window '{window}' ({start}..{end}) has no "
+                    f"regular-season (game_type=2) games in the schedule. "
+                    f"Run the ingest to extend the schedule: {INGEST_COMMAND}"
                 )
     except sqlite3.OperationalError as e:
         raise ValueError(
@@ -213,7 +152,7 @@ def assert_schedule_covers(
         ) from e
     finally:
         conn.close()
-    last_end = bounds[max(bounds)][1]
+    last_end = cfg.playoff_window[1]
     if max_date is None or max_date < last_end:
         raise ValueError(
             f"schedule's last regular-season (game_type=2) game is "
@@ -363,30 +302,26 @@ def main(argv: list[str] | None = None) -> int:
     db = str(DB_PATH)
     names = _names(db)
 
-    print(f"== Window grid ({cfg.name}, season {season}) ==")
-    bounds = week_bounds(cfg)
-    reg_hi = cfg.regular_weeks[1]
-    for w in sorted(bounds):
-        s, e = bounds[w]
-        kind = "regular" if w <= reg_hi else "playoff"
-        print(f"  week {w:>2}  {s} .. {e}   ({kind})")
+    print(f"== Windows ({cfg.name}, season {season}) ==")
+    for window in ("regular", "playoff"):
+        start, end = (
+            cfg.regular_window if window == "regular" else cfg.playoff_window
+        )
+        print(f"  {window:<8} {start} .. {end}")
 
     reg_games = window_games(cfg, "regular")
     po_games = window_games(cfg, "playoff")
     print("== Window game totals (game_type=2 only) ==")
-    print(
-        f"  regular weeks {cfg.regular_weeks[0]}-{reg_hi}: "
-        f"{sum(reg_games.values()) // 2} games across {len(reg_games)} teams "
-        f"(per-team min {min(reg_games.values())}, "
-        f"max {max(reg_games.values())})"
-    )
-    po_lo, po_hi = cfg.playoff_weeks
-    print(
-        f"  playoff weeks {po_lo}-{po_hi}: "
-        f"{sum(po_games.values()) // 2} games across {len(po_games)} teams "
-        f"(per-team min {min(po_games.values())}, "
-        f"max {max(po_games.values())})"
-    )
+    for window, games in (("regular", reg_games), ("playoff", po_games)):
+        start, end = (
+            cfg.regular_window if window == "regular" else cfg.playoff_window
+        )
+        print(
+            f"  {window} window {start}..{end}: "
+            f"{sum(games.values()) // 2} games across {len(games)} teams "
+            f"(per-team min {min(games.values())}, "
+            f"max {max(games.values())})"
+        )
 
     vals = windowed_values(projs, cfg)
     old = valuate(list(projs), cfg)
@@ -448,7 +383,11 @@ def main(argv: list[str] | None = None) -> int:
     print("== gp_regular < 82 invariant ==")
     print(f"  max gp_regular = {max_gp_reg:.2f} (< 82: {max_gp_reg < 82})")
 
-    short_cfg = cfg.model_copy(update={"playoff_weeks": [24, 30]})
+    po_start, po_end = cfg.playoff_window
+    long_end = (
+        datetime.date.fromisoformat(po_end) + datetime.timedelta(days=30)
+    ).isoformat()
+    short_cfg = cfg.model_copy(update={"playoff_window": (po_start, long_end)})
     print("== short-schedule hard fail ==")
     try:
         assert_schedule_covers(short_cfg)

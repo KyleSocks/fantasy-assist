@@ -44,7 +44,7 @@ ROSTER_SLOTS: dict[str, int] = {
 
 # ─── LeagueConfig ───
 
-_DOW_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
 
 
 class LeagueConfig(BaseModel):
@@ -56,12 +56,10 @@ class LeagueConfig(BaseModel):
     roster_slots: dict[str, int]
     categories: list[str] | None = None
     points_per_stat: dict[str, float] | None = None
-    # ── Windowed (regular vs playoff week) valuation ──
+    # ── Windowed (regular vs playoff) valuation ──
     # Optional: a config without any of these is valued season-long only.
-    fantasy_start_date: str | None = None
-    week_start_dow: int = 1
-    regular_weeks: list[int] | None = None
-    playoff_weeks: list[int] | None = None
+    regular_window: tuple[str, str] | None = None
+    playoff_window: tuple[str, str] | None = None
     playoff_weight: float = 0.0
 
     @model_validator(mode="after")
@@ -93,58 +91,49 @@ class LeagueConfig(BaseModel):
     def _validate_window(self) -> None:
         """Validate the schedule-driven valuation window, if present."""
         if (
-            self.fantasy_start_date is None
-            and self.regular_weeks is None
-            and self.playoff_weeks is None
+            self.regular_window is None
+            and self.playoff_window is None
         ):
             return  # no window configured: season-long valuation only
         if (
-            self.fantasy_start_date is None
-            or self.regular_weeks is None
-            or self.playoff_weeks is None
+            self.regular_window is None
+            or self.playoff_window is None
         ):
             raise ValueError(
-                "window config is incomplete: fantasy_start_date, "
-                "regular_weeks and playoff_weeks must all be set together"
+                "window config is incomplete: regular_window and "
+                "playoff_window must both be set together"
             )
-        try:
-            start = datetime.date.fromisoformat(self.fantasy_start_date)
-        except ValueError as e:
+        for name, win in (
+            ("regular_window", self.regular_window),
+            ("playoff_window", self.playoff_window),
+        ):
+            if len(win) != 2:
+                raise ValueError(
+                    f"{name} {win} must be a [start, end] ISO date pair"
+                )
+            try:
+                start = datetime.date.fromisoformat(win[0])
+                end = datetime.date.fromisoformat(win[1])
+            except (ValueError, IndexError) as e:
+                raise ValueError(
+                    f"{name} {win} is not a valid ISO date pair "
+                    f"(YYYY-MM-DD, YYYY-MM-DD): {e}"
+                )
+            if start > end:
+                raise ValueError(
+                    f"{name} {win} must satisfy start <= end"
+                )
+        reg_start, reg_end = self.regular_window
+        po_start, po_end = self.playoff_window
+        reg_end_plus_1 = (
+            datetime.date.fromisoformat(reg_end)
+            + datetime.timedelta(days=1)
+        ).isoformat()
+        if po_start != reg_end_plus_1:
             raise ValueError(
-                f"fantasy_start_date '{self.fantasy_start_date}' is not a valid "
-                f"ISO date (YYYY-MM-DD): {e}"
-            )
-        if not 1 <= self.week_start_dow <= 7:
-            raise ValueError(
-                f"week_start_dow {self.week_start_dow} is out of range 1-7 "
-                "(1 = Monday)"
-            )
-        if start.weekday() != self.week_start_dow - 1:
-            raise ValueError(
-                f"fantasy_start_date {self.fantasy_start_date} falls on a "
-                f"{_DOW_NAMES[start.weekday()]} but week_start_dow="
-                f"{self.week_start_dow} declares the window to start on "
-                f"{_DOW_NAMES[self.week_start_dow - 1]}"
-            )
-        if len(self.regular_weeks) != 2 or len(self.playoff_weeks) != 2:
-            raise ValueError(
-                "regular_weeks and playoff_weeks must each be a [first, last] "
-                "inclusive week range"
-            )
-        reg_lo, reg_hi = self.regular_weeks
-        po_lo, po_hi = self.playoff_weeks
-        if not (1 <= reg_lo <= reg_hi):
-            raise ValueError(
-                f"regular_weeks {self.regular_weeks} must satisfy 1 <= first <= last"
-            )
-        if not (po_lo <= po_hi):
-            raise ValueError(
-                f"playoff_weeks {self.playoff_weeks} must satisfy first <= last"
-            )
-        if po_lo != reg_hi + 1:
-            raise ValueError(
-                f"playoff_weeks {self.playoff_weeks} must start the week after "
-                f"regular_weeks ends (expected first = {reg_hi + 1}, got {po_lo})"
+                f"playoff_window {self.playoff_window} must start the day "
+                f"after regular_window ends (expected start = {reg_end_plus_1}, "
+                f"got {po_start})"
             )
         if not 0.0 <= self.playoff_weight <= 1.0:
             raise ValueError(

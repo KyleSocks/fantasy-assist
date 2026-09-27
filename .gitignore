@@ -26,3 +26,4 @@ web/dist/
 .idea/
 .clinerules/
 tmp*.py
+scratch/

@@ -17,8 +17,6 @@ points_per_stat:
   HIT: 0.2
   W: 4
   SO: 2
-fantasy_start_date: "2026-09-28"
-week_start_dow: 1
-regular_weeks: [1, 23]
-playoff_weeks: [24, 26]
+regular_window: ["2026-09-28", "2027-03-07"]
+playoff_window: ["2027-03-08", "2027-03-28"]
 playoff_weight: 0.15

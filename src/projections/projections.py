@@ -9,6 +9,7 @@ Ambiguity notes (simplest defensible option chosen):
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -85,16 +86,23 @@ def _age_as_of(birth_date: str | None, season_id: int) -> int | None:
     return start_year - b_year - 1
 
 
-def _age_factor(age: int | None) -> float:
+def _level_value(curve: dict[int, float], age: float | None) -> float:
+    """L(age) from a level-curve table.
+
+    Ages below/above the table clamp to the nearest entry; fractional ages
+    interpolate linearly between bracketing integer ages. Missing age -> 1.0.
+    """
     if age is None:
         return 1.0
-    if age <= 22:
-        return 1.0  # handled by rookie prior
-    if age <= 27:
-        return 1.00
-    if age <= 31:
-        return 0.97 ** (age - 27)
-    return 0.93 ** (age - 31) * 0.97 ** 4
+    ages = sorted(curve)
+    lo, hi = ages[0], ages[-1]
+    if age <= lo:
+        return float(curve[lo])
+    if age >= hi:
+        return float(curve[hi])
+    a = math.floor(age)
+    frac = age - a
+    return (1 - frac) * float(curve[a]) + frac * float(curve[a + 1])
 
 
 def _compute_pos_means(conn: sqlite3.Connection, season_ids: list[int],
@@ -250,8 +258,23 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
         regressed_rate[cat] = (raw_rates[cat] * n_val + pm * k) / (n_val + k)
         pos_mean_dict[cat] = pm
 
-    # Age factor
-    af = _age_factor(age)
+    # Age adjustment: level-curve ratio L(projected_age) / L(obs_age).
+    # obs_age is the season-weighted mean age across observed seasons, using
+    # the same season weights as the rate computation. The observed rate
+    # already embodies the player's current-age performance, so dividing by
+    # L(obs_age) applies decline/improvement once relative to the player's
+    # own observed age instead of double-counting it (older players) or
+    # never crediting improvement (younger players).
+    if age is not None:
+        curve = (cfg["level_curves"]["defensemen"] if pg == "D"
+                 else cfg["level_curves"]["forwards"])
+        obs_age = sum(weights[i] * _age_as_of(birth_date, s[0])
+                     for i, s in enumerate(seasons))
+        L_obs = _level_value(curve, obs_age)
+        L_proj = _level_value(curve, age)
+        age_adj = L_proj / L_obs
+    else:
+        obs_age, L_obs, L_proj, age_adj = None, 1.0, 1.0, 1.0
 
     # Rookie prior
     if career_gp < 100:
@@ -305,14 +328,17 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
               ("goals", "assists", "shots", "blocks", "hits", "pp_points")},
         "n": n_totals,
         "regressed_rate": regressed_rate,
-        "age_factor": af,
+        "obs_age": obs_age,
+        "L_obs": L_obs,
+        "L_proj": L_proj,
+        "age_adj": age_adj,
         "proj_toi_per_gp": proj_toi_per_gp,
         "proj_gp": proj_gp,
         "final": {},
     }
     finals = {}
     for cat in ("goals", "assists", "shots", "blocks", "hits", "pp_points"):
-        total = regressed_rate[cat] * af * proj_gp
+        total = regressed_rate[cat] * age_adj * proj_gp
         finals[cat] = total
     terms["final"] = finals
 
@@ -434,6 +460,9 @@ def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
     proj_ga = ga_per_start * proj_starts
     proj_sv = sv_per_start * proj_starts
 
+    # No age curve for goalies: flat 1.00.
+    age_adj = 1.0
+
     # TOI for goalie (not very meaningful but keep for completeness)
     toi_per_gp_vals = []
     for i, s in enumerate(seasons):
@@ -452,12 +481,13 @@ def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
         "k": {"save_pct": k_sp},
         "n": {"save_pct": total_sa},
         "regressed_rate": {"save_pct": regressed_sp},
-        "age_factor": 1.0,
+        # Goalies keep flat 1.00: no age curve for save percentage.
+        "obs_age": None, "L_obs": 1.0, "L_proj": 1.0, "age_adj": age_adj,
         "proj_toi_per_gp": proj_toi,
         "proj_gp": proj_gp,
-        "final": {"wins": proj_wins, "save_pct": regressed_sp,
+        "final": {"wins": proj_wins, "save_pct": regressed_sp * age_adj,
                    "shutouts": 0.0, "games_started": proj_starts,
-                   "goals_against": proj_ga, "saves": proj_sv},
+                    "goals_against": proj_ga, "saves": proj_sv},
     }
     return Projection(
         player_id=pid, season_id=season_id,

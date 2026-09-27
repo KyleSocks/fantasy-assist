@@ -60,29 +60,29 @@ def _pv(pid: int, pos: str, vorp: float) -> PlayerValue:
 def test_empty_roster_top3_raw_vorp(roto_vals):
     """No roster, no drafts: every multiplier is 1.0 / 0.0, so the output
     is the raw-total_value top 3 of the available pool (windowed headline).
-    Hand-computed: McDavid C 11.0530, MacKinnon C 10.3730, Makar D 9.0559
+    Hand-computed: McDavid C 10.4143, MacKinnon C 10.0496, Draisaitl C 8.5171
     (same numbers test_api pins on the board endpoint)."""
     vals, cfg = roto_vals
     recs = recommend([], [], vals, cfg, 1)
-    assert [r.player_id for r in recs] == [8478402, 8477492, 8480069]
+    assert [r.player_id for r in recs] == [8478402, 8477492, 8477934]
     assert [r.name for r in recs] == [
-        "Connor McDavid", "Nathan MacKinnon", "Cale Makar",
+        "Connor McDavid", "Nathan MacKinnon", "Leon Draisaitl",
     ]
-    assert recs[0].marginal_value == pytest.approx(11.0530, rel=1e-4)
-    assert recs[1].marginal_value == pytest.approx(10.3730, rel=1e-4)
-    assert recs[2].marginal_value == pytest.approx(9.0559, rel=1e-4)
+    assert recs[0].marginal_value == pytest.approx(10.4143, rel=1e-4)
+    assert recs[1].marginal_value == pytest.approx(10.0496, rel=1e-4)
+    assert recs[2].marginal_value == pytest.approx(8.5171, rel=1e-4)
 
 
 def test_empty_roster_points_league(kyle_vals):
     """Same neutral-state check on the points league: VORP is points here,
-    so the top 3 by windowed total_value are McDavid 251.2370, MacKinnon
-    242.6285, Draisaitl 205.7605."""
+    so the top 3 by windowed total_value are McDavid 245.7567, MacKinnon
+    245.4380, Draisaitl 206.8862."""
     vals, cfg = kyle_vals
     recs = recommend([], [], vals, cfg, 1)
     assert [r.player_id for r in recs] == [8478402, 8477492, 8477934]
-    assert recs[0].marginal_value == pytest.approx(251.2370, rel=1e-4)
-    assert recs[1].marginal_value == pytest.approx(242.6285, rel=1e-4)
-    assert recs[2].marginal_value == pytest.approx(205.7605, rel=1e-4)
+    assert recs[0].marginal_value == pytest.approx(245.7567, rel=1e-4)
+    assert recs[1].marginal_value == pytest.approx(245.4380, rel=1e-4)
+    assert recs[2].marginal_value == pytest.approx(206.8862, rel=1e-4)
 
 
 # ─── Drafted players are excluded from the pool ───
@@ -105,22 +105,22 @@ def test_drafting_top_g_shifts_output(roto_vals):
     """Drafting the best available G makes the team sit below -0.5 in several
     categories, so the top remaining C earns category pickup and his
     marginal value rises above his raw total_value.
-    Hand-computed: McDavid 21.6126 vs 11.0530 in the empty state (scratch
-    run); the reason names the real team deficit (-1.7 in A)."""
+    Hand-computed: McDavid 20.5630 vs 10.4143 in the empty state (scratch
+    run); the reason names the real team deficit (-1.8 in A)."""
     vals, cfg = roto_vals
     empty = recommend([], [], vals, cfg, 1)
     g_id = 8479979  # a G, drafted to create category deficits
     after = recommend([g_id], [g_id], vals, cfg, 2)
     assert after[0].player_id == 8478402
     assert after[0].marginal_value > empty[0].marginal_value
-    assert "-1.7 in A" in after[0].reason
+    assert "-1.8 in A" in after[0].reason
 
 
 def test_deficit_position_boosted(roto_vals):
     """With 2C drafted and 0D, the top 3 are all D (BLK-scoring defensemen),
     each carrying the team's -0.6 BLK deficit. Hand-computed: 8481542 (the
-    3rd-best D by windowed total_value 8.2) edges Makar 8480069 (9.1) on
-    the regular-window BLK pickup -> 10.9078 vs 10.6995, then 8480803 9.9340
+    3rd-best D by windowed total_value) edges Makar 8480069 on the
+    regular-window BLK pickup -> 11.0693 vs 9.8361, then 8480803 9.4518
     — the pickup re-orders the D group."""
     vals, cfg = roto_vals
     drafted = [8478402, 8477492]
@@ -128,7 +128,7 @@ def test_deficit_position_boosted(roto_vals):
     recs = recommend(drafted, drafted, vals, cfg, 3)
     assert any(pos_of[r.player_id] == "D" for r in recs)
     assert recs[0].player_id == 8481542
-    assert recs[0].marginal_value == pytest.approx(10.9078, rel=1e-3)
+    assert recs[0].marginal_value == pytest.approx(11.0693, rel=1e-3)
 
 
 def test_all_starters_full_bench_scale(roto_vals):
@@ -136,18 +136,18 @@ def test_all_starters_full_bench_scale(roto_vals):
     C filling UTIL, so every remaining player is a bench asset.
     Hand-computed: urgency 1.0 for all groups and no team category below
     -0.5, so marginal = total_value x 1.0 x 0.35 exactly:
-      8480018 C 7.3690 -> 2.579157, 8480800 D 7.0016 -> 2.450555,
-      8484801 C 7.0002 -> 2.450065."""
+      8476453 R 7.8430 -> 2.745034, 8484801 C 6.6979 -> 2.344249,
+      8480800 D 6.5526 -> 2.293424."""
     vals, cfg = roto_vals
     roster = [
         8478402, 8477492, 8480027, 8480801, 8477956, 8478420,
         8480069, 8480803, 8481542, 8480839, 8479979, 8476883, 8477934,
     ]
     recs = recommend(roster, roster, vals, cfg, 14)
-    assert [r.player_id for r in recs] == [8480018, 8480800, 8484801]
-    assert recs[0].marginal_value == pytest.approx(2.579157, rel=1e-4)
-    assert recs[1].marginal_value == pytest.approx(2.450555, rel=1e-4)
-    assert recs[2].marginal_value == pytest.approx(2.450065, rel=1e-4)
+    assert [r.player_id for r in recs] == [8476453, 8484801, 8480800]
+    assert recs[0].marginal_value == pytest.approx(2.745034, rel=1e-4)
+    assert recs[1].marginal_value == pytest.approx(2.344249, rel=1e-4)
+    assert recs[2].marginal_value == pytest.approx(2.293424, rel=1e-4)
     for r in recs:
         assert r.reason.endswith("(bench asset)")
 
@@ -261,8 +261,8 @@ def client() -> TestClient:
 
 def test_api_default_league(client):
     """Default: kyle_12_points, round 1, empty roster -> raw windowed
-    total_value top 3, values rounded to 2 dp: McDavid 251.24, MacKinnon
-    242.63, Draisaitl 205.76."""
+    total_value top 3, values rounded to 2 dp: McDavid 245.76, MacKinnon
+    245.44, Draisaitl 206.89."""
     resp = client.get("/api/recommend")
     assert resp.status_code == 200
     data = resp.json()
@@ -273,15 +273,15 @@ def test_api_default_league(client):
     assert recs[0] == {
         "name": "Connor McDavid",
         "player_id": 8478402,
-        "marginal_value": 251.24,
-        "reason": "Top remaining C by VORP (251.2)",
+        "marginal_value": 245.76,
+        "reason": "Top remaining C by VORP (245.8)",
     }
-    assert recs[1]["marginal_value"] == 242.63
-    assert recs[2]["marginal_value"] == 205.76
+    assert recs[1]["marginal_value"] == 245.44
+    assert recs[2]["marginal_value"] == 206.89
 
 
 def test_api_roto_with_drafts(client):
-    """roto_14 after 2C drafted: top pick is 8481542 (10.91, hand-computed
+    """roto_14 after 2C drafted: top pick is 8481542 (11.07, hand-computed
     above) and no drafted player is recommended."""
     resp = client.get(
         "/api/recommend",
@@ -298,7 +298,7 @@ def test_api_roto_with_drafts(client):
     assert data["round"] == 3
     recs = data["recommendations"]
     assert recs[0]["player_id"] == 8481542
-    assert recs[0]["marginal_value"] == 10.91
+    assert recs[0]["marginal_value"] == 11.07
     assert not any(r["player_id"] in {8478402, 8477492} for r in recs)
 
 

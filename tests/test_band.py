@@ -4,7 +4,7 @@ Expected values are hand-computed from the ingested database (data/hockey.db)
 for season 20262027 and verified against ``uv run python scratch/tmp_detail.py``
 and ``scratch/tmp_bands.py``:
 
-- McDavid (8478402, skater) goals band [27.784282, 42.722749].
+- McDavid (8478402, skater) goals band [28.680003, 43.666487].
 - Tomkins (8477035, goalie) save_pct band [0.891892, 0.905644].
 - Tomkins count categories (single season) degenerate to [final, final].
 """
@@ -84,23 +84,23 @@ def test_mcdavid_goals_band():
         season_actuals=actuals,
         raw=terms["raw_rates"]["goals"],
         regressed=terms["regressed_rate"]["goals"],
-        age_factor=terms["age_factor"],
+        age_adj=terms["age_adj"],
         proj_gp=terms["proj_gp"],
         category="goals",
         is_goalie=False,
     )
-    assert (lo, hi) == pytest.approx((27.784282, 42.722749), abs=1e-5)
+    assert (lo, hi) == pytest.approx((28.680003, 43.666487), abs=1e-5)
 
 
 def test_mcdavid_all_skater_categories():
     """All six skater category bands match hand-computed values."""
     expected = {
-        "goals": (27.784282, 42.722749),
-        "assists": (64.713810, 105.451831),
-        "shots": (226.800040, 293.177868),
-        "blocks": (23.300046, 43.460658),
-        "hits": (10.900836, 115.189401),
-        "pp_points": (31.073024, 54.836802),
+        "goals": (28.680003, 43.666487),
+        "assists": (66.854171, 107.750923),
+        "shots": (233.417504, 300.126116),
+        "blocks": (24.156642, 44.345782),
+        "hits": (12.502888, 116.876918),
+        "pp_points": (32.150029, 56.001099),
     }
     terms = explain(8478402, SEASON, str(DB_PATH))
     for cat, exp in expected.items():
@@ -114,7 +114,7 @@ def test_mcdavid_all_skater_categories():
             season_actuals=actuals,
             raw=terms["raw_rates"][cat],
             regressed=terms["regressed_rate"][cat],
-            age_factor=terms["age_factor"],
+            age_adj=terms["age_adj"],
             proj_gp=terms["proj_gp"],
             category=cat,
             is_goalie=False,
@@ -134,7 +134,7 @@ def test_tomkins_save_pct_band():
         season_actuals=actuals,
         raw=raw,
         regressed=regressed,
-        age_factor=terms["age_factor"],
+        age_adj=terms["age_adj"],
         proj_gp=terms["proj_gp"],
         category="save_pct",
         is_goalie=True,
@@ -153,7 +153,7 @@ def test_tomkins_count_categories_degenerate():
             season_actuals=actuals,
             raw=raw,
             regressed=regressed,
-            age_factor=terms["age_factor"],
+            age_adj=terms["age_adj"],
             proj_gp=terms["proj_gp"],
             category=cat,
             is_goalie=True,

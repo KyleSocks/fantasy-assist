@@ -12,8 +12,6 @@ from src.valuation.league import LeagueConfig
 from src.valuation.schedule_value import (
     INGEST_COMMAND,
     assert_schedule_covers,
-    team_games,
-    week_bounds,
     window_games,
     windowed_projection,
     windowed_values,
@@ -21,13 +19,10 @@ from src.valuation.schedule_value import (
 
 
 def window_cfg(weight: float = 0.5) -> LeagueConfig:
-    """A minimal category league with a 4-week window.
+    """A minimal category league with date windows.
 
-    regular [1, 2], playoff [3, 4] anchored on 2026-09-28 (a Monday):
-      week 1: 2026-09-28 .. 2026-10-04
-      week 2: 2026-10-05 .. 2026-10-11
-      week 3: 2026-10-12 .. 2026-10-18
-      week 4: 2026-10-19 .. 2026-10-25
+    Regular window 2026-09-28..2026-10-11, playoff window
+    2026-10-12..2026-10-25 (adjacent, as the config validator requires).
     """
     return LeagueConfig(
         name="win",
@@ -35,40 +30,17 @@ def window_cfg(weight: float = 0.5) -> LeagueConfig:
         scoring_type="h2h_categories",
         roster_slots={"C": 2, "LW": 0, "RW": 0, "D": 0, "G": 0, "UTIL": 0, "BENCH": 0},
         categories=["G"],
-        fantasy_start_date="2026-09-28",
-        week_start_dow=1,
-        regular_weeks=[1, 2],
-        playoff_weeks=[3, 4],
+        regular_window=("2026-09-28", "2026-10-11"),
+        playoff_window=("2026-10-12", "2026-10-25"),
         playoff_weight=weight,
     )
 
 
-# ─── week bounds (pure date arithmetic) ───────────────────────────
+# ─── window_games requires a window config ─────────────────────────
 
 
-def test_week_bounds_hand_computed():
-    """Week N spans fantasy_start_date + 7*(N-1) .. + 6 days (ISO strings)."""
-    cfg = LeagueConfig(
-        name="grid",
-        team_count=1,
-        scoring_type="h2h_categories",
-        roster_slots={"C": 2, "LW": 0, "RW": 0, "D": 0, "G": 0, "UTIL": 0, "BENCH": 0},
-        categories=["G"],
-        fantasy_start_date="2026-09-28",
-        week_start_dow=1,
-        regular_weeks=[1, 3],
-        playoff_weeks=[4, 6],
-    )
-    weeks = week_bounds(cfg)
-    assert set(weeks) == {1, 2, 3, 4, 5, 6}
-    assert weeks[1] == ("2026-09-28", "2026-10-04")
-    assert weeks[2] == ("2026-10-05", "2026-10-11")
-    assert weeks[3] == ("2026-10-12", "2026-10-18")
-    assert weeks[4] == ("2026-10-19", "2026-10-25")
-    assert weeks[6] == ("2026-11-02", "2026-11-08")
-
-
-def test_week_bounds_requires_window():
+def test_window_games_requires_window():
+    """window_games raises before any DB work when no windows are set."""
     cfg = LeagueConfig(
         name="nowin",
         team_count=1,
@@ -77,7 +49,7 @@ def test_week_bounds_requires_window():
         categories=["G"],
     )
     with pytest.raises(ValueError) as excinfo:
-        week_bounds(cfg)
+        window_games(cfg, "regular", "unused.db")
     assert "no window config" in str(excinfo.value)
 
 
@@ -86,26 +58,27 @@ def test_week_bounds_requires_window():
 
 @pytest.fixture
 def schedule_db(tmp_path) -> Path:
-    """Synthetic schedule around the 2026-09-28 anchor (see window_cfg).
+    """Synthetic schedule around the 2026-09-28..2026-10-25 windows
+    (see window_cfg).
 
     Games (season 20262027):
-      1  2026-09-30  MTL @ EDM  type 2   week 1
-      2  2026-10-01  EDM @ MTL  type 2   week 1
-      3  2026-10-04  EDM @ MTL  type 2   week 1 (boundary: last day)
-      4  2026-10-05  EDM @ TOR  type 2   week 2 (boundary: first day)
-      5  2026-10-11  TOR @ EDM  type 2   week 2
-      6  2026-10-12  EDM @ MTL  type 2   week 3
-      7  2026-10-18  MTL @ EDM  type 2   week 3
-      8  2026-10-19  EDM @ TOR  type 2   week 4
-      9  2026-10-25  TOR @ EDM  type 2   week 4
+      1  2026-09-30  MTL @ EDM  type 2   regular window
+      2  2026-10-01  EDM @ MTL  type 2   regular window
+      3  2026-10-04  EDM @ MTL  type 2   regular window
+      4  2026-10-05  EDM @ TOR  type 2   regular window
+      5  2026-10-11  TOR @ EDM  type 2   regular window (last day)
+      6  2026-10-12  EDM @ MTL  type 2   playoff window (first day)
+      7  2026-10-18  MTL @ EDM  type 2   playoff window
+      8  2026-10-19  EDM @ TOR  type 2   playoff window
+      9  2026-10-25  TOR @ EDM  type 2   playoff window (last day)
       10 2026-09-30  EDM @ MTL  type 1   preseason -> excluded
-      11 2026-10-26  EDM @ MTL  type 2   after window end -> excluded from weeks
+      11 2026-10-26  EDM @ MTL  type 2   after window end (tail coverage)
       12 2026-09-27  EDM @ MTL  type 2   before window start -> excluded
 
-    Expected team_games:
-      EDM: {1: 3, 2: 2, 3: 2, 4: 2}
-      MTL: {1: 3, 3: 2}
-      TOR: {2: 2, 4: 2}
+    Expected window game counts (per team, per window):
+      EDM: regular 5, playoff 4
+      MTL: regular 3, playoff 2
+      TOR: regular 2, playoff 2
     """
     db = tmp_path / "sched.db"
     conn = sqlite3.connect(db)
@@ -134,16 +107,11 @@ def schedule_db(tmp_path) -> Path:
     conn.close()
     return db
 
-# ─── team_games / window_games ────────────────────────────────────
+# ─── window_games ─────────────────────────────────────────────────
 
 
-def test_team_games_and_window_games(schedule_db):
+def test_window_games_counts(schedule_db):
     cfg = window_cfg()
-    assert team_games(cfg, schedule_db) == {
-        "EDM": {1: 3, 2: 2, 3: 2, 4: 2},
-        "MTL": {1: 3, 3: 2},
-        "TOR": {2: 2, 4: 2},
-    }
     assert window_games(cfg, "regular", schedule_db) == {
         "EDM": 5, "MTL": 3, "TOR": 2,
     }
@@ -165,24 +133,24 @@ def test_assert_schedule_covers_passes(schedule_db):
     assert_schedule_covers(window_cfg(), schedule_db)
 
 
-def test_assert_schedule_covers_missing_week(schedule_db):
-    """Dropping the week-4 games -> ValueError naming week 4 and the
-    ingest command."""
+def test_assert_schedule_covers_empty_playoff_window(schedule_db):
+    """Dropping every playoff-window game -> ValueError naming the
+    window and the ingest command."""
     conn = sqlite3.connect(schedule_db)
-    conn.execute("DELETE FROM schedule WHERE game_id IN (8, 9)")
+    conn.execute("DELETE FROM schedule WHERE game_id IN (6, 7, 8, 9)")
     conn.commit()
     conn.close()
     with pytest.raises(ValueError) as excinfo:
         assert_schedule_covers(window_cfg(), schedule_db)
     msg = str(excinfo.value)
-    assert "week 4" in msg
-    assert "2026-10-19..2026-10-25" in msg
+    assert "window 'playoff'" in msg
+    assert "2026-10-12..2026-10-25" in msg
     assert INGEST_COMMAND in msg
 
 
 def test_assert_schedule_covers_truncated_tail(schedule_db):
-    """Week 4 holds one mid-week game, but the schedule's last RS game
-    (2026-10-20) ends before the window end (2026-10-25)."""
+    """The schedule's last regular-season game is 2026-10-20, which ends
+    before the window end (2026-10-25)."""
     conn = sqlite3.connect(schedule_db)
     conn.execute("DELETE FROM schedule WHERE game_id IN (8, 9, 11)")
     conn.execute(
@@ -198,10 +166,10 @@ def test_assert_schedule_covers_truncated_tail(schedule_db):
     assert INGEST_COMMAND in msg
 
 
-def test_assert_schedule_covers_single_day_week_ok(schedule_db):
-    """A week with a game on only one day (not the full 7) still passes."""
+def test_assert_schedule_covers_single_day_window_ok(schedule_db):
+    """A window with games on only one day still passes coverage."""
     conn = sqlite3.connect(schedule_db)
-    conn.execute("DELETE FROM schedule WHERE game_id IN (1, 2)")  # week 1 keeps game 3
+    conn.execute("DELETE FROM schedule WHERE game_id IN (1, 2)")  # regular keeps game 3
     conn.commit()
     conn.close()
     assert_schedule_covers(window_cfg(), schedule_db)
@@ -285,16 +253,12 @@ def test_windowed_projection_goalie():
 def window_db(tmp_path) -> Path:
     """Clean schedule giving per-team window games with clean means.
 
-    Window anchored 2026-09-28 (Monday), regular weeks 1-2, playoff 3-4:
-      week 1: 2026-09-28 .. 2026-10-04
-      week 2: 2026-10-05 .. 2026-10-11
-      week 3: 2026-10-12 .. 2026-10-18
-      week 4: 2026-10-19 .. 2026-10-25
-
-    All 12 games are regular-season (game_type=2). Team A plays every game,
-    B plays 8, C plays 4. Each window is exactly half the schedule:
-      regular (weeks 1-2): A=6, B=4, C=2   sum 12, mean 4
-      playoff  (weeks 3-4): A=6, B=4, C=2   sum 12, mean 4
+    Regular window 2026-09-28..2026-10-11, playoff window
+    2026-10-12..2026-10-25. All 12 games are regular-season (game_type=2).
+    Team A plays every game, B plays 8, C plays 4. Each window is exactly
+    half the schedule:
+      regular: A=6, B=4, C=2   sum 12, mean 4
+      playoff: A=6, B=4, C=2   sum 12, mean 4
     """
     db = tmp_path / "window.db"
     conn = sqlite3.connect(db)
@@ -340,10 +304,8 @@ def test_windowed_values_points_hand_computed(window_db, caplog):
         scoring_type="points",
         roster_slots={"C": 5, "LW": 0, "RW": 0, "D": 0, "G": 0, "UTIL": 0, "BENCH": 0},
         points_per_stat={"G": 1.0},
-        fantasy_start_date="2026-09-28",
-        week_start_dow=1,
-        regular_weeks=[1, 2],
-        playoff_weeks=[3, 4],
+        regular_window=("2026-09-28", "2026-10-11"),
+        playoff_window=("2026-10-12", "2026-10-25"),
         playoff_weight=0.5,
     )
     projs = [
@@ -389,10 +351,8 @@ def _window_league(**overrides) -> LeagueConfig:
         scoring_type="h2h_categories",
         roster_slots={"C": 2, "LW": 0, "RW": 0, "D": 0, "G": 0, "UTIL": 0, "BENCH": 0},
         categories=["G"],
-        fantasy_start_date="2026-09-28",
-        week_start_dow=1,
-        regular_weeks=[1, 2],
-        playoff_weeks=[3, 4],
+        regular_window=("2026-09-28", "2026-10-11"),
+        playoff_window=("2026-10-12", "2026-10-25"),
         playoff_weight=0.5,
     )
     base.update(overrides)
@@ -403,8 +363,8 @@ def test_league_window_valid():
     """The base windowed config validates and keeps its window fields."""
     cfg = _window_league()
     assert cfg.playoff_weight == 0.5
-    assert cfg.regular_weeks == [1, 2]
-    assert cfg.playoff_weeks == [3, 4]
+    assert cfg.regular_window == ("2026-09-28", "2026-10-11")
+    assert cfg.playoff_window == ("2026-10-12", "2026-10-25")
 
 
 def test_league_window_weight_below_zero():
@@ -419,28 +379,27 @@ def test_league_window_weight_above_one():
     assert "playoff_weight 1.1 must be in [0, 1]" in str(excinfo.value)
 
 
-def test_league_window_dow_mismatch():
-    """2026-09-28 is a Monday; week_start_dow=2 (Tuesday) mismatches it."""
+def test_league_window_start_after_end():
+    """A regular window whose start is after its end is rejected."""
     with pytest.raises(ValueError) as excinfo:
-        _window_league(week_start_dow=2)
+        _window_league(regular_window=("2026-10-11", "2026-09-28"))
     msg = str(excinfo.value)
-    assert "falls on a Monday" in msg
-    assert "week_start_dow=2" in msg
+    assert "must satisfy start <= end" in msg
 
 
 def test_league_window_non_contiguous():
-    """playoff week 4 leaves week 3 out: a gap between the windows."""
+    """Playoff window starts 2026-10-13, one day after the regular end."""
     with pytest.raises(ValueError) as excinfo:
-        _window_league(regular_weeks=[1, 2], playoff_weeks=[4, 5])
+        _window_league(playoff_window=("2026-10-13", "2026-10-25"))
     msg = str(excinfo.value)
-    assert "must start the week after regular_weeks ends" in msg
-    assert "expected first = 3, got 4" in msg
+    assert "must start the day after regular_window ends" in msg
+    assert "expected start = 2026-10-12, got 2026-10-13" in msg
 
 
 def test_league_window_incomplete():
-    """fantasy_start_date + regular_weeks set, but playoff_weeks missing."""
+    """regular_window set, but playoff_window missing."""
     with pytest.raises(ValueError) as excinfo:
-        _window_league(playoff_weeks=None)
+        _window_league(playoff_window=None)
     assert "window config is incomplete" in str(excinfo.value)
 
 
