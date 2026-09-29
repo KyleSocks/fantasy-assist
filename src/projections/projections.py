@@ -29,9 +29,13 @@ SKATER_CATEGORIES = [
     ("hits", "toi_sec", "hits"),
     ("pp_points", "pp_toi_sec", "pp_points"),
 ]
-# For regression "n": shots for goals, TOI-minutes for everything else
-REGRESSION_N = {"goals": "shots", "assists": "toi_sec", "shots": "toi_sec",
-               "blocks": "toi_sec", "hits": "toi_sec", "pp_points": "pp_toi_sec"}
+# Per-stat regression denominator for "n": accumulated across the observed
+# seasons in the same units as that stat's k from config/regression.yaml —
+# total shots for goals, total TOI-minutes for assists/shots/blocks/hits,
+# total PP TOI-minutes for pp_points. Games played is never a denominator.
+REGRESSION_N = {"goals": "shots", "assists": "toi_min", "shots": "toi_min",
+               "blocks": "toi_min", "hits": "toi_min",
+               "pp_points": "pp_toi_min"}
 
 WEIGHTS = [5, 3, 2]  # most-recent-first
 
@@ -63,6 +67,20 @@ def _load_config() -> dict:
         return yaml.safe_load(f)
 
 
+def _k_for(cfg: dict, stat: str) -> float:
+    """Per-stat shrinkage k from config; raises if the stat has no entry.
+
+    Every skater stat needs its own k in config/regression.yaml; there is
+    deliberately no shared default to fall back to.
+    """
+    try:
+        k = cfg[stat]
+    except (KeyError, TypeError) as exc:
+        raise KeyError(
+            f"per-stat k for {stat!r} missing from {CONFIG_PATH}") from exc
+    return float(k)
+
+
 def _pos_group(pos: str) -> str:
     """Split into C, W (wingers L+R), D, G per spec 'split C/W/D'."""
     if pos == "C":
@@ -72,18 +90,22 @@ def _pos_group(pos: str) -> str:
     return pos  # D or G
 
 
-def _age_as_of(birth_date: str | None, season_id: int) -> int | None:
+def age_at(birth_date: str | None, season_id: int) -> float | None:
+    """Age in whole years as of Feb 1 of the season's END year.
+
+    season_id 20242025 ends in 2025, so age is measured at 2025-02-01;
+    season_id 20252026 ends in 2026, measured at 2026-02-01. The age
+    increments only if the birthday has occurred on or before that date.
+    """
     if not birth_date:
         return None
-    # season_id like 20252026: start=2025, end=2026. Age as of Feb 1 of start year.
-    start_year = season_id // 10000
+    end_year = season_id % 10000
     b_year = int(birth_date[:4])
     b_month = int(birth_date[5:7])
     b_day = int(birth_date[8:10])
-    # If birthday is on or before Feb 1, they've had it; otherwise not yet.
     if b_month < 2 or (b_month == 2 and b_day <= 1):
-        return start_year - b_year
-    return start_year - b_year - 1
+        return float(end_year - b_year)
+    return float(end_year - b_year - 1)
 
 
 def _level_value(curve: dict[int, float], age: float | None) -> float:
@@ -184,6 +206,23 @@ def _season_weights(gp_list: list[int]) -> list[float]:
     return [w / total for w in raw]
 
 
+def _regression_n(seasons: list[tuple], stat: str) -> float:
+    """Per-stat denominator n accumulated across the observed seasons.
+
+    Units match the stat's k from config: total shots for goals, total
+    TOI-minutes for assists/shots/blocks/hits, total PP TOI-minutes for
+    pp_points. Never games played.
+    """
+    denom = REGRESSION_N[stat]
+    if denom == "shots":
+        return float(sum((s[4] or 0) for s in seasons))
+    if denom == "pp_toi_min":
+        return float(sum((s[8] or 0) for s in seasons)) / 60.0
+    if denom == "toi_min":
+        return float(sum((s[9] or 0) for s in seasons)) / 60.0
+    raise ValueError(f"unknown regression denominator {denom!r}")
+
+
 def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
                     cfg: dict, pos_means: dict, pos_median_toi: float) -> Projection | None:
     """Project one skater. Returns None if excluded."""
@@ -195,7 +234,7 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
         return None
     birth_date, pos = row
     pg = _pos_group(pos)
-    age = _age_as_of(birth_date, season_id)
+    age = age_at(birth_date, season_id)
 
     # Career GP (all seasons)
     career_row = conn.execute(
@@ -239,20 +278,21 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
             r["pp_points"] = 0.0
         rates_by_season.append(r)
 
-    # Weighted rates and totals (per-GP rates, n = total GP)
+    # Weighted per-GP rates and per-stat regression denominators (n).
+    # n is accumulated across the observed seasons in the same units as
+    # that stat's k: shots for goals, TOI-minutes otherwise.
     raw_rates: dict[str, float] = {}
     n_totals: dict[str, float] = {}
     for cat in ("goals", "assists", "shots", "blocks", "hits", "pp_points"):
-        weighted_rate = sum(weights[i] * rates_by_season[i][cat]
-                            for i in range(len(seasons)))
-        raw_rates[cat] = weighted_rate
-        n_totals[cat] = sum(seasons[i][1] for i in range(len(seasons)))
+        raw_rates[cat] = sum(weights[i] * rates_by_season[i][cat]
+                             for i in range(len(seasons)))
+        n_totals[cat] = _regression_n(seasons, cat)
 
     # Regress toward positional mean
     regressed_rate: dict[str, float] = {}
     pos_mean_dict: dict[str, float] = {}
     for cat in ("goals", "assists", "shots", "blocks", "hits", "pp_points"):
-        k = cfg.get(cat, 200)
+        k = _k_for(cfg, cat)
         n_val = n_totals[cat]
         pm = pos_means.get(cat, 0.0)
         regressed_rate[cat] = (raw_rates[cat] * n_val + pm * k) / (n_val + k)
@@ -268,7 +308,7 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
     if age is not None:
         curve = (cfg["level_curves"]["defensemen"] if pg == "D"
                  else cfg["level_curves"]["forwards"])
-        obs_age = sum(weights[i] * _age_as_of(birth_date, s[0])
+        obs_age = sum(weights[i] * age_at(birth_date, s[0])
                      for i, s in enumerate(seasons))
         L_obs = _level_value(curve, obs_age)
         L_proj = _level_value(curve, age)
@@ -324,7 +364,7 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
         "raw_rates": raw_rates,
         "season_weights": weights,
         "pos_mean": pos_mean_dict,
-        "k": {cat: cfg.get(cat, 200) for cat in
+        "k": {cat: _k_for(cfg, cat) for cat in
               ("goals", "assists", "shots", "blocks", "hits", "pp_points")},
         "n": n_totals,
         "regressed_rate": regressed_rate,
@@ -354,10 +394,20 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
 
 def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
                     cfg: dict, pos_means: dict) -> Projection | None:
-    """Project one goalie."""
+    """Project one goalie (raw starts, before per-team allocation).
+
+    Starts are regressed toward zero (never a floor) with per-stat k/n:
+    n = total games started across the observed seasons, k =
+    goalie_starts_k from config -- a goalie with almost no history
+    regresses toward almost no starts. save_pct regresses toward the
+    pool mean with k = goalie_save_pct_k and n = total shots against.
+    Count totals (wins, saves, goals-against, shutouts) are scaled from
+    per-start rates by _apply_goalie_starts once the team's starts are
+    allocated; save_pct is a rate and is not scaled.
+    """
     seasons = conn.execute(
         "SELECT season_id, gp, games_started, wins, saves, shots_against,"
-        " goals_against, toi_sec, team_abbrev"
+        " goals_against, shutouts, toi_sec, team_abbrev"
         " FROM goalie_seasons WHERE player_id = ? AND season_id < ? AND gp > 0"
         " ORDER BY season_id DESC LIMIT 3", (pid, season_id)).fetchall()
     if not seasons:
@@ -366,41 +416,24 @@ def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
     gp_list = [s[1] for s in seasons]
     weights = _season_weights(gp_list)
 
-    # Career stats
-    career = conn.execute(
-        "SELECT COALESCE(SUM(gp),0), COALESCE(SUM(games_started),0)"
-        " FROM goalie_seasons WHERE player_id = ?", (pid,)).fetchone()
-    career_gp, career_starts = career
-    start_share = career_starts / career_gp if career_gp > 0 else 0.5
-    start_share = max(start_share, 0.30)
+    # Weighted recent games started, regressed toward 0 starts (per-stat
+    # k/n: n = total starts across observed seasons, k = goalie_starts_k).
+    w_starts = sum(weights[i] * (s[2] or 0) for i, s in enumerate(seasons))
+    n_starts = sum((s[2] or 0) for s in seasons)
+    k_starts = float(cfg.get("goalie_starts_k", 25))
+    raw_starts = (w_starts * n_starts / (n_starts + k_starts)
+                  if n_starts > 0 else 0.0)
 
-    # Prior-season team points% for wins
-    prior = conn.execute(
-        "SELECT team_abbrev FROM goalie_seasons WHERE player_id = ?"
-        " AND season_id < ? AND gp > 0 ORDER BY season_id DESC LIMIT 1",
-        (pid, season_id)).fetchone()
-    team_win_pct = 0.50
-    if prior:
-        team = prior[0]
-        t = conn.execute(
-            "SELECT COUNT(*) FROM schedule WHERE season_id < ? AND"
-            " (home_abbrev = ? OR away_abbrev = ?)",
-            (season_id, team, team)).fetchone()[0]
-        if t > 0:
-            # Use the most recent season's team record
-            prev_season = max(s[0] for s in seasons)
-            wins_count = conn.execute(
-                "SELECT COALESCE(SUM(wins),0) FROM goalie_seasons"
-                " WHERE player_id = ? AND season_id = ?",
-                (pid, prev_season)).fetchone()[0]
-            team_games = conn.execute(
-                "SELECT COUNT(*) FROM schedule WHERE season_id = ? AND"
-                " (home_abbrev = ? OR away_abbrev = ?)",
-                (prev_season, team, team)).fetchone()[0]
-            if team_games > 0:
-                team_win_pct = wins_count / team_games
+    # Win rate from the most recent observed season's team record.
+    prior = seasons[0]
+    wins_pct = 0.50
+    team = prior[9]
+    team_games = _team_games_for(prior[0], conn).get(team, 0) if team else 0
+    if team_games > 0:
+        wins_pct = (prior[3] or 0) / team_games
 
-    # Save pct: weighted + regressed with k=1000
+    # Save pct: weighted + regressed toward the pool mean with
+    # k = goalie_save_pct_k, n = total shots against.
     save_pcts = []
     total_sa = 0
     for i, s in enumerate(seasons):
@@ -412,53 +445,23 @@ def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
         else:
             save_pcts.append(weights[i] * 0.920)
     weighted_sp = sum(save_pcts)
-    k_sp = cfg.get("goalie_save_pct", 1000)
+    k_sp = float(cfg.get("goalie_save_pct_k", 1000))
     pos_sp = pos_means.get("save_pct", 0.920)
     regressed_sp = (weighted_sp * total_sa + pos_sp * k_sp) / (total_sa + k_sp)
 
-    # Projected GP
-    if career_gp > 0:
-        team_games = 0
-        for s in seasons:
-            g = conn.execute(
-                "SELECT COUNT(*) FROM schedule WHERE season_id = ? AND"
-                " (home_abbrev = ? OR away_abbrev = ?)",
-                (s[0], s[8], s[8])).fetchone()[0]
-            team_games += g
-        # Also add seasons before our 3
-        all_g = conn.execute(
-            "SELECT season_id, team_abbrev FROM goalie_seasons"
-            " WHERE player_id = ?", (pid,)).fetchall()
-        team_games = 0
-        for sid, team in all_g:
-            g = conn.execute(
-                "SELECT COUNT(*) FROM schedule WHERE season_id = ? AND"
-                " (home_abbrev = ? OR away_abbrev = ?)",
-                (sid, team, team)).fetchone()[0]
-            team_games += g
-        durability = career_gp / team_games if team_games > 0 else 0.70
-    else:
-        durability = 0.70
-    durability = max(0.55, min(durability, 1.0))
-    proj_gp = 82.0 * durability
-
-    proj_starts = start_share * proj_gp
-    proj_wins = proj_starts * team_win_pct
-
-    # GA & SV per start (recency- and volume-weighted across prior seasons)
-    w_starts = 0.0
+    # GA, SV and SO per start (recency-weighted across prior seasons).
     w_ga = 0.0
     w_sv = 0.0
+    w_so = 0.0
     for i, s in enumerate(seasons):
-        starts_i = s[2]
+        starts_i = s[2] or 0
         if starts_i > 0:
-            w_starts += weights[i] * starts_i
-            w_ga += weights[i] * s[6]   # goals_against
-            w_sv += weights[i] * s[4]   # saves
+            w_ga += weights[i] * (s[6] or 0)   # goals_against
+            w_sv += weights[i] * (s[4] or 0)   # saves
+            w_so += weights[i] * (s[7] or 0)   # shutouts
     ga_per_start = w_ga / w_starts if w_starts > 0 else 0.0
     sv_per_start = w_sv / w_starts if w_starts > 0 else 0.0
-    proj_ga = ga_per_start * proj_starts
-    proj_sv = sv_per_start * proj_starts
+    so_per_start = w_so / w_starts if w_starts > 0 else 0.0
 
     # No age curve for goalies: flat 1.00.
     age_adj = 1.0
@@ -466,8 +469,8 @@ def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
     # TOI for goalie (not very meaningful but keep for completeness)
     toi_per_gp_vals = []
     for i, s in enumerate(seasons):
-        if s[1] > 0 and s[7] is not None:
-            toi_per_gp_vals.append(weights[i] * (s[7] / s[1]))
+        if s[1] > 0 and s[8] is not None:
+            toi_per_gp_vals.append(weights[i] * (s[8] / s[1]))
         else:
             toi_per_gp_vals.append(0.0)
     proj_toi = sum(toi_per_gp_vals)
@@ -475,28 +478,145 @@ def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
     terms = {
         "raw_rates": {"save_pct": weighted_sp,
                        "ga_per_start": ga_per_start,
-                       "sv_per_start": sv_per_start},
+                       "sv_per_start": sv_per_start,
+                       "so_per_start": so_per_start,
+                       "wins_pct": wins_pct,
+                       "starts_raw": raw_starts},
         "season_weights": weights,
         "pos_mean": {"save_pct": pos_sp},
-        "k": {"save_pct": k_sp},
-        "n": {"save_pct": total_sa},
-        "regressed_rate": {"save_pct": regressed_sp},
+        "k": {"save_pct": k_sp, "starts": k_starts},
+        "n": {"save_pct": total_sa, "starts": n_starts},
+        "regressed_rate": {"save_pct": regressed_sp, "starts": raw_starts},
         # Goalies keep flat 1.00: no age curve for save percentage.
         "obs_age": None, "L_obs": 1.0, "L_proj": 1.0, "age_adj": age_adj,
         "proj_toi_per_gp": proj_toi,
-        "proj_gp": proj_gp,
-        "final": {"wins": proj_wins, "save_pct": regressed_sp * age_adj,
-                   "shutouts": 0.0, "games_started": proj_starts,
-                    "goals_against": proj_ga, "saves": proj_sv},
+        "proj_gp": raw_starts,
+        # Count totals are allocated per team by _allocate_goalie_starts;
+        # save_pct is a rate and is final here.
+        "final": {"wins": 0.0, "save_pct": regressed_sp * age_adj,
+                   "shutouts": 0.0, "games_started": raw_starts,
+                   "goals_against": 0.0, "saves": 0.0},
     }
     return Projection(
         player_id=pid, season_id=season_id,
-        gp=proj_gp, toi_per_gp=proj_toi,
+        gp=raw_starts, toi_per_gp=proj_toi,
         goals=0.0, assists=0.0, shots=0.0, blocks=0.0, hits=0.0, pp_points=0.0,
-        wins=proj_wins, save_pct=regressed_sp, position="G", terms=terms,
-        shutouts=0.0, games_started=proj_starts,
-        goals_against=proj_ga, saves=proj_sv,
+        wins=0.0, save_pct=regressed_sp, position="G", terms=terms,
+        shutouts=0.0, games_started=raw_starts,
+        goals_against=0.0, saves=0.0,
     )
+
+
+def _team_games_for(season_id: int, conn: sqlite3.Connection) -> dict[str, int]:
+    """Regular-season games per team from the schedule (game_type=2)."""
+    team_games: dict[str, int] = {}
+    rows = conn.execute(
+        "SELECT home_abbrev, away_abbrev FROM schedule"
+        " WHERE season_id = ? AND game_type = 2", (season_id,)).fetchall()
+    for home, away in rows:
+        if home:
+            team_games[home] = team_games.get(home, 0) + 1
+        if away:
+            team_games[away] = team_games.get(away, 0) + 1
+    return team_games
+
+
+def _apply_goalie_starts(p: Projection, starts: float) -> None:
+    """Scale a goalie's count totals from the allocated projected starts.
+
+    Wins, saves, goals-against and shutouts scale with projected starts;
+    save_pct and the per-start rates are untouched.
+    """
+    starts = max(starts, 0.0)
+    raw = p.terms["raw_rates"]
+    final = p.terms["final"]
+    final["games_started"] = starts
+    final["wins"] = raw["wins_pct"] * starts
+    final["goals_against"] = raw["ga_per_start"] * starts
+    final["saves"] = raw["sv_per_start"] * starts
+    final["shutouts"] = raw["so_per_start"] * starts
+    p.gp = starts
+    p.games_started = starts
+    p.wins = final["wins"]
+    p.goals_against = final["goals_against"]
+    p.saves = final["saves"]
+    p.shutouts = final["shutouts"]
+    p.terms["proj_gp"] = starts
+
+
+def _allocate_goalie_starts(projs: list[Projection], conn: sqlite3.Connection,
+                            season_id: int) -> None:
+    """Zero-sum per-team allocation of projected goalie starts.
+
+    Each team's goalies are normalized so their starts sum to the team's
+    regular-season games from the schedule: raw sums above the total are
+    scaled down proportionally; a raw sum below the total gives the
+    remainder to the highest-share goalie. Goalies with no
+    current_team_abbrev get 0 projected starts and are logged -- never
+    league-mean starts.
+    """
+    goalies = [p for p in projs if p.position == "G"]
+    if not goalies:
+        return
+    team_of: dict[int, str] = {}
+    for pid, team in conn.execute(
+            "SELECT player_id, current_team_abbrev FROM players"):
+        if team:
+            team_of[pid] = team
+    no_team = [p.player_id for p in goalies
+               if p.player_id not in team_of]
+    if no_team:
+        log.warning(
+            "goalies with no current_team_abbrev get 0 projected starts: %s",
+            no_team)
+    team_games = _team_games_for(season_id, conn)
+    by_team: dict[str, list[Projection]] = {}
+    for p in goalies:
+        team = team_of.get(p.player_id)
+        if team is None:
+            _apply_goalie_starts(p, 0.0)
+            continue
+        by_team.setdefault(team, []).append(p)
+    for team, members in by_team.items():
+        total = team_games.get(team, 0)
+        if total <= 0:
+            for p in members:
+                _apply_goalie_starts(p, 0.0)
+            continue
+        raw_sum = sum(p.terms["final"]["games_started"] for p in members)
+        if raw_sum > 0:
+            if raw_sum > total:
+                scale = total / raw_sum
+                for p in members:
+                    p.terms["final"]["games_started"] *= scale
+            elif raw_sum < total:
+                top = max(members, key=lambda q: (
+                    q.terms["final"]["games_started"], q.player_id))
+                top.terms["final"]["games_started"] += total - raw_sum
+        # Pin the top-share goalie to the residual so the team's projected
+        # starts sum exactly to the team's game count (no float drift).
+        top = max(members, key=lambda q: (
+            q.terms["final"]["games_started"], q.player_id))
+        others = sum(q.terms["final"]["games_started"] for q in members
+                     if q.player_id != top.player_id)
+        top.terms["final"]["games_started"] = total - others
+        for p in members:
+            _apply_goalie_starts(p, p.terms["final"]["games_started"])
+
+
+def _project_goalies(season_id: int, conn: sqlite3.Connection, cfg: dict,
+                     pos_means: dict) -> list[Projection]:
+    """Project every goalie and allocate starts per team (zero-sum)."""
+    goalies = [r[0] for r in conn.execute(
+        "SELECT DISTINCT player_id FROM goalie_seasons"
+        " WHERE season_id < ? AND gp > 0", (season_id,))]
+    results: list[Projection] = []
+    for pid in goalies:
+        proj = _project_goalie(pid, season_id, conn, cfg, pos_means)
+        if proj is not None:
+            results.append(proj)
+    _allocate_goalie_starts(results, conn, season_id)
+    return results
 
 
 def project_all(season_id: int, db_path: str) -> list[Projection]:
@@ -541,14 +661,8 @@ def project_all(season_id: int, db_path: str) -> list[Projection]:
         if proj is not None:
             results.append(proj)
 
-    # All goalies
-    goalies = [r[0] for r in conn.execute(
-        "SELECT DISTINCT player_id FROM goalie_seasons"
-        " WHERE season_id < ? AND gp > 0", (season_id,))]
-    for pid in goalies:
-        proj = _project_goalie(pid, season_id, conn, cfg, pos_means_g)
-        if proj is not None:
-            results.append(proj)
+    # All goalies (per-team zero-sum starts allocation)
+    results.extend(_project_goalies(season_id, conn, cfg, pos_means_g))
 
     conn.close()
     return results
@@ -584,7 +698,8 @@ def explain(player_id: int, season_id: int, db_path: str) -> dict:
         proj = _project_skater(player_id, season_id, conn, cfg, pm, pmt)
     else:
         pm_g = _compute_pos_means(conn, prior_seasons, "G")
-        proj = _project_goalie(player_id, season_id, conn, cfg, pm_g)
+        all_g = _project_goalies(season_id, conn, cfg, pm_g)
+        proj = next((q for q in all_g if q.player_id == player_id), None)
 
     conn.close()
     if proj is None:

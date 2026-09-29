@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from src.projections.projections import Projection
+from src.projections.projections import Projection, _load_config
 from src.valuation.league import LeagueConfig, category_vector, points_value
 
 
@@ -24,6 +24,9 @@ class PlayerValue:
     vorp_regular: float = 0.0
     vorp_playoff: float = 0.0
     total_value: float = 0.0
+    # Goalies projected below min_startable_starts are excluded from the
+    # draftable pool and ranked below every startable goalie.
+    startable: bool = True
 
 
 def _pos_group(pos: str) -> str:
@@ -47,6 +50,33 @@ def _rate_cats(cfg: LeagueConfig) -> set[str]:
     if cfg.categories is None:
         return set()
     return {c for c in cfg.categories if c == "SV%" or "pct" in c.lower()}
+
+
+def _min_startable_starts() -> float:
+    """Configurable minimum projected starts to be startable (default 15)."""
+    return float(_load_config().get("min_startable_starts", 15))
+
+
+def _season_starts(p: Projection) -> float:
+    """Season projected starts: the allocated team starts, if present.
+
+    Windowed projections share the season terms dict, so windowed copies
+    keep the season starts; standalone Projections fall back to their
+    own starts/gp fields.
+    """
+    starts = (p.terms or {}).get("final", {}).get("games_started")
+    if starts is None:
+        starts = p.games_started
+    if starts <= 0:
+        starts = p.gp
+    return float(starts)
+
+
+def _is_startable(p: Projection, min_starts: float) -> bool:
+    """Goalies below min_starts are excluded; skaters are always startable."""
+    if _pos_group(p.position) != "G":
+        return True
+    return _season_starts(p) >= min_starts
 
 
 def _raw_value(p: Projection, cfg: LeagueConfig) -> float:
@@ -98,18 +128,30 @@ def _zscore_category(pool: list[Projection], all_projs: list[Projection],
 
 
 def _volume_weight(p: Projection, pool: list[Projection]) -> float:
-    """Volume factor for rate categories: gp / pool mean gp."""
-    pool_gp = np.array([q.gp for q in pool], dtype=float)
-    mean_gp = pool_gp.mean()
-    if mean_gp < 1e-12:
+    """Volume factor for rate categories: saves / goalie pool mean saves.
+
+    Save percentage is only worth what the shot volume behind it is, so
+    rate z-scores scale with projected saves relative to the mean saves
+    of the goalies in the draftable pool. Skaters carry no saves and
+    contribute 0 on rate categories.
+    """
+    g_saves = np.array(
+        [q.saves for q in pool if _pos_group(q.position) == "G"],
+        dtype=float,
+    )
+    if g_saves.size == 0:
         return 1.0
-    return p.gp / mean_gp
+    mean_saves = float(g_saves.mean())
+    if mean_saves < 1e-12:
+        return 1.0
+    return float(p.saves) / mean_saves
 
 
 def _compute_values(projs: list[Projection], cfg: LeagueConfig,
                     pools: dict[str, int]) -> list[PlayerValue]:
     """Compute values for all players. Two-pass for category leagues."""
     rate_cats = _rate_cats(cfg)
+    min_starts = _min_startable_starts()
     pid_map = {p.player_id: p for p in projs}
 
     # Build position groups
@@ -120,6 +162,8 @@ def _compute_values(projs: list[Projection], cfg: LeagueConfig,
     # Initial pool: top N by raw value per position
     pool: dict[str, list[Projection]] = {}
     for pos, players in by_pos.items():
+        if pos == "G":
+            players = [p for p in players if _is_startable(p, min_starts)]
         n = pools[pos]
         pool[pos] = sorted(players, key=lambda p: _raw_value(p, cfg), reverse=True)[:n]
     all_pool = pool["F"] + pool["D"] + pool["G"]
@@ -142,6 +186,8 @@ def _compute_values(projs: list[Projection], cfg: LeagueConfig,
         # Recompute pool using pass 1 values
         pool2: dict[str, list[Projection]] = {}
         for pos, players in by_pos.items():
+            if pos == "G":
+                players = [p for p in players if _is_startable(p, min_starts)]
             n = pools[pos]
             pool2[pos] = sorted(players, key=lambda p: pass1_z.get(p.player_id, 0.0), reverse=True)[:n]
         all_pool2 = pool2["F"] + pool2["D"] + pool2["G"]
@@ -170,6 +216,7 @@ def _compute_values(projs: list[Projection], cfg: LeagueConfig,
             vorp=0.0,
             cat_zscores=cat_z.get(p.player_id, {}),
             replacement_used=0.0,
+            startable=_is_startable(p, min_starts),
         ))
     return result
 
@@ -185,6 +232,8 @@ def replacement_levels(projs: list[Projection], cfg: LeagueConfig) -> dict[str, 
 
     levels: dict[str, float] = {}
     for pos, players in by_pos.items():
+        if pos == "G":
+            players = [v for v in players if v.startable]
         ranked = sorted(players, key=lambda v: v.raw_value, reverse=True)
         idx = pools[pos]  # (pool_size + 1)th player is at index pool_size
         if idx < len(ranked):
@@ -206,6 +255,8 @@ def valuate(projs: list[Projection], cfg: LeagueConfig) -> list[PlayerValue]:
 
     levels: dict[str, float] = {}
     for pos, players in by_pos.items():
+        if pos == "G":
+            players = [v for v in players if v.startable]
         ranked = sorted(players, key=lambda v: v.raw_value, reverse=True)
         idx = pools[pos]
         if idx < len(ranked):
@@ -218,6 +269,17 @@ def valuate(projs: list[Projection], cfg: LeagueConfig) -> list[PlayerValue]:
         pos = _pos_group(v.position)
         v.vorp = v.raw_value - levels.get(pos, 0.0)
         v.replacement_used = levels.get(pos, 0.0)
+
+    # Non-startable goalies sort below every startable goalie (they stay
+    # on the board; they are only excluded from the draftable pool).
+    g_vals = [v for v in vals if _pos_group(v.position) == "G"]
+    startable_g = [v for v in g_vals if v.startable]
+    if startable_g:
+        floor = min(v.vorp for v in startable_g) - 1e-6
+        for v in g_vals:
+            if not v.startable:
+                v.vorp = floor
+                v.replacement_used = v.raw_value - v.vorp
 
     return vals
 

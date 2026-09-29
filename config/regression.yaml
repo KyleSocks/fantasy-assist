@@ -1,13 +1,30 @@
-# Shrinkage parameters (k) for Bayesian regression of per-GP rates toward positional means.
-# k represents the equivalent number of games of a "typical" player in that category.
-# Tuned 2026-09-14: k=14 optimal for all categories (MSE backtest, 2022-2025 seasons).
-goals: 14
-assists: 14
-shots: 14
-blocks: 14
-hits: 14
-pp_points: 14
-goalie_save_pct: 1000
+# Shrinkage parameters (k) for Bayesian regression of per-GP rates toward
+# positional means. k is PER-STAT and must be expressed in the same units as
+# that stat's denominator n, which is accumulated across the observed
+# seasons (see REGRESSION_N in src/projections/projections.py):
+#   goals      n = total shots          -> k in equivalent shots
+#   assists    n = total TOI-minutes    -> k in equivalent TOI-minutes
+#   shots      n = total TOI-minutes    -> k in equivalent TOI-minutes
+#   blocks     n = total TOI-minutes    -> k in equivalent TOI-minutes
+#   hits       n = total TOI-minutes    -> k in equivalent TOI-minutes
+#   pp_points  n = total PP TOI-minutes -> k in equivalent PP TOI-minutes
+# Games played is never a denominator. Every stat needs its own entry: the
+# model raises if a stat is missing instead of falling back to a shared k.
+goals: 200
+assists: 300
+shots: 150
+blocks: 250
+hits: 250
+pp_points: 120
+# Goalie stats, same per-stat k/n rule (k in the same units as n):
+#   starts     n = total games started across observed seasons -> k in starts
+#   save_pct   n = total shots against across observed seasons -> k in shots
+# Starts regress toward 0 (no floor); save_pct toward the pool mean.
+goalie_save_pct_k: 1000
+goalie_starts_k: 25
+# Goalies projected below this many starts are excluded from the
+# draftable pool and ranked below every startable goalie.
+min_startable_starts: 15
 
 # Level curves L(age), peak-normalized to 1.00. Age adjustment is the ratio
 # L(projected_age) / L(obs_age), where obs_age is the season-weighted mean
