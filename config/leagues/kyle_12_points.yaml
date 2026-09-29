@@ -24,4 +24,4 @@ points_per_stat:
   SO: 3
 regular_window: ["2026-09-28", "2027-03-14"]
 playoff_window: ["2027-03-15", "2027-04-04"]
-playoff_weight: 0.20
+playoff_weight: 0.15
