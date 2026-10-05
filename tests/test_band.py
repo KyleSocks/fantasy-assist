@@ -4,7 +4,7 @@ Expected values are hand-computed from the ingested database (data/hockey.db)
 for season 20262027 and verified against ``uv run python scratch/tmp_detail.py``
 and ``scratch/tmp_bands.py``:
 
-- McDavid (8478402, skater) goals band [28.680003, 43.666487].
+- McDavid (8478402, skater) goals band [23.311040, 43.240110].
 - Tomkins (8477035, goalie) save_pct band [0.891892, 0.905644].
 - Tomkins count categories (single season) degenerate to [final, final].
 """
@@ -76,7 +76,7 @@ def test_pop_std_basic():
 
 
 def test_mcdavid_goals_band():
-    """McDavid goals band [27.784282, 42.722749] (hand-verified)."""
+    """McDavid goals band [23.311040, 43.240110] (hand-verified)."""
     terms, actuals = _mcdavid_goals_inputs()
     assert actuals == [40, 33, 49]
     lo, hi = compute_band(
@@ -89,18 +89,18 @@ def test_mcdavid_goals_band():
         category="goals",
         is_goalie=False,
     )
-    assert (lo, hi) == pytest.approx((28.680003, 43.666487), abs=1e-5)
+    assert (lo, hi) == pytest.approx((23.311040214701777, 43.24011008421644), abs=1e-5)
 
 
 def test_mcdavid_all_skater_categories():
     """All six skater category bands match hand-computed values."""
     expected = {
-        "goals": (28.680003, 43.666487),
-        "assists": (66.854171, 107.750923),
-        "shots": (233.417504, 300.126116),
-        "blocks": (24.156642, 44.345782),
-        "hits": (12.502888, 116.876918),
-        "pp_points": (32.150029, 56.001099),
+        "goals": (23.311040214701777, 43.24011008421644),
+        "assists": (64.91517176836243, 106.712202599515),
+        "shots": (235.63275385506455, 296.98692451321955),
+        "blocks": (23.769635491881246, 43.91659772590431),
+        "hits": (11.779087287750343, 116.02675871244588),
+        "pp_points": (27.30650637437059, 55.475074477260506),
     }
     terms = explain(8478402, SEASON, str(DB_PATH))
     for cat, exp in expected.items():

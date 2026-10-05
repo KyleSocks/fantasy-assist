@@ -26,6 +26,12 @@ goalie_starts_k: 25
 # draftable pool and ranked below every startable goalie.
 min_startable_starts: 15
 
+# Hard cap on any single goalie's projected starts. No NHL goalie starts
+# 82 games; a team's starts must sum to its game count, and any
+# remainder after capping is redistributed among the team's uncapped
+# goalies (see _allocate_goalie_starts in src/projections/projections.py).
+max_goalie_starts: 68
+
 # Level curves L(age), peak-normalized to 1.00. Age adjustment is the ratio
 # L(projected_age) / L(obs_age), where obs_age is the season-weighted mean
 # age across the observed seasons (same weights as the rate computation).

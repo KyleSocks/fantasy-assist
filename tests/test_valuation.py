@@ -17,7 +17,7 @@ from src.valuation.valuation import (
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config" / "leagues"
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "hockey.db"
-SEASON_ID = 20252026
+SEASON_ID = 20262027
 
 
 @pytest.fixture(scope="module")
