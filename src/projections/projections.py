@@ -544,146 +544,186 @@ def _apply_goalie_starts(p: Projection, starts: float) -> None:
     p.terms["proj_gp"] = starts
 
 
-def _goalie_backfill_team(conn: sqlite3.Connection, player_id: int) -> str | None:
-    """Most recent season's team_abbrev for a goalie (max season_id), or None.
+def _rostered_goalies(conn: sqlite3.Connection) -> list[tuple[int, str, str | None]]:
+    """Rostered goalies from the players table: (player_id, full_name, team).
 
-    Reads goalie_seasons only; the players table is never written.
+    The current roster IS the source of team membership. goalie_seasons is
+    never consulted to decide which team a goalie plays for.
     """
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(players)")]
+    if "full_name" in cols:
+        rows = conn.execute(
+            "SELECT player_id, full_name, current_team_abbrev"
+            " FROM players WHERE position = ? ORDER BY player_id", ("G",)).fetchall()
+        return [(int(r[0]), r[1], r[2]) for r in rows]
+    rows = conn.execute(
+        "SELECT player_id, current_team_abbrev"
+        " FROM players WHERE position = ? ORDER BY player_id", ("G",)).fetchall()
+    return [(int(r[0]), None, r[1]) for r in rows]
+
+
+def _recent_games_started(conn: sqlite3.Connection, pid: int) -> int:
+    """Most recent season games_started from goalie_seasons (0 if none)."""
     row = conn.execute(
-        "SELECT team_abbrev FROM goalie_seasons"
-        " WHERE player_id = ? ORDER BY season_id DESC LIMIT 1",
-        (player_id,)).fetchone()
+        "SELECT games_started FROM goalie_seasons"
+        " WHERE player_id = ? AND gp > 0 ORDER BY season_id DESC LIMIT 1",
+        (pid,)).fetchone()
     if row and row[0]:
-        return row[0]
-    return None
+        return int(row[0])
+    return 0
 
 
-def _backfill_goalie_teams(goalies: list[Projection],
-                           team_of: dict[int, str],
-                           conn: sqlite3.Connection) -> None:
-    """In-memory backfill of missing goalie teams + acceptance report.
+def _goalie_season_history(conn: sqlite3.Connection, pid: int) -> list[tuple]:
+    """All goalie_seasons rows for a goalie, ascending by season_id."""
+    return conn.execute(
+        "SELECT season_id, team_abbrev, games_started FROM goalie_seasons"
+        " WHERE player_id = ? AND gp > 0 ORDER BY season_id ASC",
+        (pid,)).fetchall()
 
-    Requirement 1/2: before allocation runs, each goalie still lacking a team
-    takes team_abbrev from his most recent goalie_seasons row (max season_id).
-    Only the in-memory team_of map is updated; the players table is never
-    written. Requirement 3: goalies with no resolvable team are printed by
-    name, player_id, season count, and reason -- never dropped silently.
-    Requirement 4 / allocation, valuation and z-scoring are untouched.
+
+def _blank_goalie_projection(pid: int, season_id: int,
+                             pos_means: dict) -> Projection:
+    """Zero-start Projection for a rostered goalie with no season history."""
+    pos_sp = pos_means.get("save_pct", 0.920)
+    terms = {
+        "raw_rates": {"save_pct": 0.920, "ga_per_start": 0.0,
+                      "sv_per_start": 0.0, "so_per_start": 0.0,
+                      "wins_pct": 0.50, "starts_raw": 0.0},
+        "season_weights": [],
+        "pos_mean": {"save_pct": pos_sp},
+        "k": {"save_pct": 1000, "starts": 25},
+        "n": {"save_pct": 0, "starts": 0},
+        "regressed_rate": {"save_pct": pos_sp, "starts": 0.0},
+        "obs_age": None, "L_obs": 1.0, "L_proj": 1.0, "age_adj": 1.0,
+        "proj_toi_per_gp": 0.0,
+        "proj_gp": 0.0,
+        "final": {"wins": 0.0, "save_pct": pos_sp, "shutouts": 0.0,
+                  "games_started": 0.0, "goals_against": 0.0, "saves": 0.0},
+    }
+    return Projection(
+        player_id=pid, season_id=season_id,
+        gp=0.0, toi_per_gp=0.0,
+        goals=0.0, assists=0.0, shots=0.0, blocks=0.0, hits=0.0, pp_points=0.0,
+        wins=0.0, save_pct=pos_sp, position="G", terms=terms,
+        shutouts=0.0, games_started=0.0, goals_against=0.0, saves=0.0,
+    )
+
+
+def _cap_team_to_three(team: str, members: list[Projection],
+                       name_of: dict[int, str],
+                       conn: sqlite3.Connection) -> list[Projection]:
+    """HARD INVARIANT: a team carries at most 3 goalies in the allocation.
+
+    If the roster has more than 3, keep the 3 with the most recent-season
+    games_started (tie-break: lower player_id first). Dropped goalies are
+    printed by name with their season history and get 0 projected starts;
+    this is a visible data-quality report, never a silent trim.
     """
-    before = sum(1 for p in goalies if p.player_id not in team_of)
-
-    name_of: dict[int, str | None] = {}
-    try:
-        for pid, name in conn.execute(
-                "SELECT player_id, full_name FROM players"):
-            name_of[pid] = name
-    except sqlite3.OperationalError:
-        # No full_name column (e.g. minimal synthetic fixtures): fall back
-        # to an id-based label below.
-        name_of = {}
-    season_counts: dict[int, int] = {}
-    for pid, cnt in conn.execute(
-            "SELECT player_id, COUNT(*) FROM goalie_seasons"
-            " GROUP BY player_id"):
-        season_counts[pid] = cnt
-
-    for p in goalies:
-        if p.player_id in team_of:
-            continue
-        team = _goalie_backfill_team(conn, p.player_id)
-        if team is not None:
-            team_of[p.player_id] = team
-
-    unresolved = [p for p in goalies if p.player_id not in team_of]
-    after = len(unresolved)
-    print("[goalie team backfill] goalies with no team: "
-          f"before={before} after={after}")
-    if not unresolved:
-        print("[goalie team backfill] all goalies now have a team")
-    else:
-        print("[goalie team backfill] STILL WITHOUT A TEAM "
-              "(name, player_id, season count, reason):")
-        for p in unresolved:
-            pid = p.player_id
-            cnt = season_counts.get(pid, 0)
-            if cnt == 0:
-                reason = "no goalie_seasons rows at all"
-            else:
-                reason = (f"{cnt} goalie_seasons row(s) but the most recent "
-                          "team_abbrev is null/empty")
-            name = name_of.get(pid) or f"UNKNOWN (id={pid})"
-            print(f"  {name} | id={pid} | seasons={cnt} | {reason}")
-
-    team_games = _team_games_for(goalies[0].season_id, conn)
-    per_team = {t: 0 for t in team_games}
-    for p in goalies:
-        t = team_of.get(p.player_id)
-        if t is not None:
-            per_team[t] = per_team.get(t, 0) + 1
-    print("[goalie team backfill] goalies per team after backfill "
-          "(all 32 teams, sorted by count, flag <2):")
-    for t in sorted(per_team, key=lambda x: (-per_team[x], x)):
-        flag = "  <== FLAG <2" if per_team[t] < 2 else ""
-        print(f"  {t:4s} {per_team[t]:3d}{flag}")
+    if len(members) <= 3:
+        return members
+    scored = []
+    for p in members:
+        recent = _recent_games_started(conn, p.player_id)
+        scored.append((recent, p.player_id, p))
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    kept = [item[2] for item in scored[:3]]
+    dropped = scored[3:]
+    kept_names = ", ".join(name_of.get(p.player_id, str(p.player_id))
+                           for p in kept)
+    print("[cap>3] %s: keeping %s, dropping %d rostered goalie(s)" % (
+        team, kept_names, len(dropped)))
+    for recent, pid, p in dropped:
+        pname = name_of.get(pid, str(pid))
+        print("  DROPPED: %s | team=%s | recent_starts=%d"
+              % (pname, team, recent))
+        history = _goalie_season_history(conn, pid)
+        if history:
+            for row in history:
+                print("    %d %s starts=%s" % (row[0], row[1], row[2]))
+        else:
+            print("    (no goalie_seasons history)")
+        _apply_goalie_starts(p, 0.0)
+    return kept
 
 
-def _allocate_goalie_starts(projs: list[Projection], conn: sqlite3.Connection,
+def _allocate_goalie_starts(projs: list[Projection],
+                            name_of: dict[int, str],
+                            conn: sqlite3.Connection,
                             season_id: int, cfg: dict) -> None:
     """Zero-sum per-team allocation of projected goalie starts.
 
-    A team plays a fixed number of regular-season games, shared among all
-    of its goalies, so the team's projected starts must sum to exactly
-    that game count and no single goalie can start more games than the
-    team plays. Allocation is one normalization per team: each goalie's
-    raw starts (weighted recent games started, regressed toward 0 with
-    goalie_starts_k) become a share of the team total. If the team's raw
-    sum is 0 -- no goalie has start history -- the team's games are split
-    evenly and logged. Capping at max_goalie_starts (regression.yaml,
-    default 68) redistributes any remainder proportionally among the
-    team's uncapped goalies, re-checking both invariants, at most 3
-    times. A cap or sum violation raises with the team abbreviation and
-    the offending numbers; it is never clamped silently. Goalies with no
-    current_team_abbrev get 0 projected starts and are logged.
+    The goalie pool and every team membership come from
+    players.current_team_abbrev (see _rostered_goalies); goalie_seasons
+    only supplies statistics. A goalie with no current_team_abbrev gets 0
+    projected starts and is printed by name. Each team keeps at most 3
+    goalies (see _cap_team_to_three). A team plays a fixed number of
+    regular-season games, shared among its goalies, so the team's projected
+    starts must sum to exactly that game count and no goalie may start more
+    games than the team plays. Each goalie's raw starts become a share of
+    the team total; a zero raw sum splits the team's games evenly and is
+    logged. Capping at max_goalie_starts (regression.yaml, default 68)
+    redistributes any remainder proportionally among the team's uncapped
+    goalies, re-checking both invariants, at most 3 times. A cap or sum
+    violation raises with the team abbreviation and the offending numbers;
+    it is never clamped silently.
     """
     goalies = [p for p in projs if p.position == "G"]
     if not goalies:
         return
     cap = float(cfg.get("max_goalie_starts", 68))
+    team_games = _team_games_for(season_id, conn)
+    rostered = _rostered_goalies(conn)
+    roster_pid = {pid for pid, _, _ in rostered}
     team_of: dict[int, str] = {}
-    for pid, team in conn.execute(
-            "SELECT player_id, current_team_abbrev FROM players"):
+    for pid, _, team in rostered:
         if team:
             team_of[pid] = team
-    _backfill_goalie_teams(goalies, team_of, conn)
-    team_games = _team_games_for(season_id, conn)
+    unassigned = [p for p in goalies
+                  if p.player_id not in roster_pid
+                  or p.player_id not in team_of]
+    for p in unassigned:
+        pname = name_of.get(p.player_id, str(p.player_id))
+        print("[unassigned] %s | team=NONE | starts=0.00" % pname)
+        _apply_goalie_starts(p, 0.0)
     by_team: dict[str, list[Projection]] = {}
     for p in goalies:
+        if p.player_id in unassigned:
+            continue
         team = team_of.get(p.player_id)
         if team is None:
+            pname = name_of.get(p.player_id, str(p.player_id))
+            print("[unassigned] %s | team=NONE | starts=0.00" % pname)
             _apply_goalie_starts(p, 0.0)
             continue
         by_team.setdefault(team, []).append(p)
-    for team, members in by_team.items():
+    print("[per-team goalie count from players, pre-cap]:")
+    for team in sorted(by_team):
+        count = len(by_team[team])
+        flag = "  <== FLAG >3" if count > 3 else ""
+        print("  %s %d%s" % (team, count, flag))
+    for team in list(by_team.keys()):
+        by_team[team] = _cap_team_to_three(team, by_team[team], name_of, conn)
+    print("[per-team goalie allocation, post-cap]:")
+    for team in sorted(by_team):
+        members = by_team[team]
         total = team_games.get(team, 0)
         if total <= 0:
             for p in members:
                 _apply_goalie_starts(p, 0.0)
+            print("  %s games=%d: %s" % (
+                team, total,
+                "; ".join("%s=%.2f" % (name_of.get(p.player_id, str(p.player_id)),
+                                        0.0) for p in members)))
             continue
         raw = [p.terms["final"]["games_started"] for p in members]
         raw_sum = sum(raw)
         if raw_sum > 0:
             starts = [r / raw_sum * total for r in raw]
         else:
-            # No goalie on this team has start history: split the team's
-            # games evenly. Never assign the whole team total to one
-            # goalie.
             starts = [total / len(members)] * len(members)
             log.warning(
                 "team %s goalies have no start history; splitting %d games "
                 "evenly across %d goalies", team, total, len(members))
-        # Cap at max_goalie_starts and redistribute any remainder
-        # proportionally among the team's uncapped goalies, re-checking
-        # both invariants, at most 3 times.
         for _iteration in range(3):
             over = [i for i, s in enumerate(starts) if s > cap]
             if not over:
@@ -704,13 +744,13 @@ def _allocate_goalie_starts(projs: list[Projection], conn: sqlite3.Connection,
             else:
                 for i in uncapped:
                     starts[i] += remainder / len(uncapped)
-        # HARD invariants: raise on violation, never clamp silently.
         for p, s in zip(members, starts):
             if s > cap:
                 raise ValueError(
-                    "goalie starts for %s: player %d projected at %.4f "
+                    "goalie starts for %s: player %s projected at %.4f "
                     "starts exceeds max_goalie_starts %g"
-                    % (team, p.player_id, s, cap))
+                    % (team, name_of.get(p.player_id, str(p.player_id)),
+                       s, cap))
         starts_sum = sum(starts)
         if abs(starts_sum - total) > 0.01:
             raise ValueError(
@@ -718,20 +758,31 @@ def _allocate_goalie_starts(projs: list[Projection], conn: sqlite3.Connection,
                 "team plays %d games" % (team, starts_sum, total))
         for p, s in zip(members, starts):
             _apply_goalie_starts(p, s)
+        detail = "; ".join("%s=%.2f"
+                           % (name_of.get(p.player_id, str(p.player_id)), s)
+                           for p, s in zip(members, starts))
+        print("  %s games=%d sum=%.2f: %s" % (team, total, starts_sum, detail))
 
 
-def _project_goalies(season_id: int, conn: sqlite3.Connection, cfg: dict,
-                     pos_means: dict) -> list[Projection]:
-    """Project every goalie and allocate starts per team (zero-sum)."""
-    goalies = [r[0] for r in conn.execute(
-        "SELECT DISTINCT player_id FROM goalie_seasons"
-        " WHERE season_id < ? AND gp > 0", (season_id,))]
+def _project_goalies(season_id: int, conn: sqlite3.Connection,
+                     cfg: dict, pos_means: dict) -> list[Projection]:
+    """Project every rostered goalie and allocate starts per team (zero-sum).
+
+    The goalie pool is defined by players.current_team_abbrev (position=G);
+    goalie_seasons supplies statistics only and never determines which team
+    a goalie is on. Rostered goalies without season history get a zero-start
+    blank projection so they still appear in (and can be capped out of) the
+    allocation.
+    """
+    rostered = _rostered_goalies(conn)
+    name_of: dict[int, str] = {pid: name for pid, name, _ in rostered}
     results: list[Projection] = []
-    for pid in goalies:
+    for pid, full_name, team in rostered:
         proj = _project_goalie(pid, season_id, conn, cfg, pos_means)
-        if proj is not None:
-            results.append(proj)
-    _allocate_goalie_starts(results, conn, season_id, cfg)
+        if proj is None:
+            proj = _blank_goalie_projection(pid, season_id, pos_means)
+        results.append(proj)
+    _allocate_goalie_starts(results, name_of, conn, season_id, cfg)
     return results
 
 
