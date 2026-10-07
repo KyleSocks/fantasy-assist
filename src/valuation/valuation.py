@@ -9,6 +9,25 @@ from src.projections.projections import Projection, _load_config
 from src.valuation.league import LeagueConfig, category_vector, points_value
 
 
+# Categories that belong to each position pool.
+_GOALIE_CAT_NAMES = {"W", "SO", "SV%", "GS", "GA", "SV", "SHP"}
+_SKATER_CAT_NAMES = {"G", "A", "PPP", "SOG", "HIT", "BLK", "HIT+BLK"}
+
+
+def _cats_for_position(cfg: LeagueConfig, pos: str) -> list[str]:
+    """Return the list of category keys that apply to a position.
+
+    Goalies are z-scored only on goalie categories; skaters on skater
+    categories.  The two sets are disjoint and each player's cat_zscores
+    contains only keys from its own pool.
+    """
+    if cfg.categories is None:
+        return []
+    if pos == "G":
+        return [c for c in cfg.categories if c in _GOALIE_CAT_NAMES]
+    return [c for c in cfg.categories if c in _SKATER_CAT_NAMES]
+
+
 @dataclass
 class PlayerValue:
     player_id: int
@@ -113,7 +132,7 @@ def _determine_pools(projs: list[Projection], cfg: LeagueConfig) -> dict[str, in
 
 
 def _zscore_category(pool: list[Projection], all_projs: list[Projection],
-                    cat: str, cfg: LeagueConfig) -> dict[int, float]:
+                     cat: str, cfg: LeagueConfig) -> dict[int, float]:
     """Z-score a category: mean/std from pool, applied to all players."""
     pool_vals = np.array([category_vector(p, cfg)[cat] for p in pool], dtype=float)
     mean = pool_vals.mean()
@@ -147,6 +166,33 @@ def _volume_weight(p: Projection, pool: list[Projection]) -> float:
     return float(p.saves) / mean_saves
 
 
+def _compute_pool_stats(
+    pool: list[Projection],
+    cfg: LeagueConfig,
+) -> tuple[dict[int, float], dict[int, dict[str, float]]]:
+    """Compute pass z-scores for a single position pool.
+
+    Returns (total_z, cat_z) where total_z maps player_id -> sum of z-scores
+    across the pool's categories, and cat_z maps player_id -> {cat: z}.
+    Only the categories relevant to this pool are scored.
+    """
+    pos = _pos_group(pool[0].position) if pool else "F"
+    cats = _cats_for_position(cfg, pos)
+    rate_cats = _rate_cats(cfg)
+    pid_map = {p.player_id: p for p in pool}
+
+    pass1_z: dict[int, float] = {}
+    pass1_cat_z: dict[int, dict[str, float]] = {}
+    for cat in cats:
+        zmap = _zscore_category(pool, pool, cat, cfg)
+        for pid, z in zmap.items():
+            if cat in rate_cats:
+                z *= _volume_weight(pid_map[pid], pool)
+            pass1_cat_z.setdefault(pid, {})[cat] = z
+            pass1_z[pid] = pass1_z.get(pid, 0.0) + z
+    return pass1_z, pass1_cat_z
+
+
 def _compute_values(projs: list[Projection], cfg: LeagueConfig,
                     pools: dict[str, int]) -> list[PlayerValue]:
     """Compute values for all players. Two-pass for category leagues."""
@@ -166,7 +212,6 @@ def _compute_values(projs: list[Projection], cfg: LeagueConfig,
             players = [p for p in players if _is_startable(p, min_starts)]
         n = pools[pos]
         pool[pos] = sorted(players, key=lambda p: _raw_value(p, cfg), reverse=True)[:n]
-    all_pool = pool["F"] + pool["D"] + pool["G"]
 
     if cfg.scoring_type == "points":
         values = {p.player_id: points_value(p, cfg) for p in projs}
@@ -175,13 +220,14 @@ def _compute_values(projs: list[Projection], cfg: LeagueConfig,
         # Pass 1: z-score using pool mean/std, applied to all players
         pass1_z: dict[int, float] = {}
         pass1_cat_z: dict[int, dict[str, float]] = {}
-        for cat in cfg.categories or []:
-            zmap = _zscore_category(all_pool, projs, cat, cfg)
-            for pid, z in zmap.items():
-                if cat in rate_cats:
-                    z *= _volume_weight(pid_map[pid], all_pool)
-                pass1_cat_z.setdefault(pid, {})[cat] = z
-                pass1_z[pid] = pass1_z.get(pid, 0.0) + z
+        for pos, pl in pool.items():
+            if not pl:
+                continue
+            p1z, p1cz = _compute_pool_stats(pl, cfg)
+            for pid, z in p1z.items():
+                pass1_z[pid] = p1z[pid]
+            for pid, cz in p1cz.items():
+                pass1_cat_z.setdefault(pid, {}).update(cz)
 
         # Recompute pool using pass 1 values
         pool2: dict[str, list[Projection]] = {}
@@ -190,18 +236,18 @@ def _compute_values(projs: list[Projection], cfg: LeagueConfig,
                 players = [p for p in players if _is_startable(p, min_starts)]
             n = pools[pos]
             pool2[pos] = sorted(players, key=lambda p: pass1_z.get(p.player_id, 0.0), reverse=True)[:n]
-        all_pool2 = pool2["F"] + pool2["D"] + pool2["G"]
 
         # Pass 2: z-score using recomputed pool mean/std
         pass2_z: dict[int, float] = {}
         pass2_cat_z: dict[int, dict[str, float]] = {}
-        for cat in cfg.categories or []:
-            zmap = _zscore_category(all_pool2, projs, cat, cfg)
-            for pid, z in zmap.items():
-                if cat in rate_cats:
-                    z *= _volume_weight(pid_map[pid], all_pool2)
-                pass2_cat_z.setdefault(pid, {})[cat] = z
-                pass2_z[pid] = pass2_z.get(pid, 0.0) + z
+        for pos, pl in pool2.items():
+            if not pl:
+                continue
+            p2z, p2cz = _compute_pool_stats(pl, cfg)
+            for pid, z in p2z.items():
+                pass2_z[pid] = p2z[pid]
+            for pid, cz in p2cz.items():
+                pass2_cat_z.setdefault(pid, {}).update(cz)
 
         values = pass2_z
         cat_z = pass2_cat_z
@@ -221,10 +267,23 @@ def _compute_values(projs: list[Projection], cfg: LeagueConfig,
     return result
 
 
+def _goalie_replacement_level(
+    g_vals: list[PlayerValue],
+    cfg: LeagueConfig,
+) -> tuple[float, PlayerValue | None]:
+    """Goalie replacement level = value of the (tc*slots+1)th ranked goalie."""
+    g_slots = cfg.roster_slots.get("G", 0)
+    idx = cfg.team_count * g_slots + 1
+    startable = [v for v in g_vals if v.startable]
+    startable.sort(key=lambda v: v.raw_value, reverse=True)
+    if idx < len(startable):
+        return startable[idx].raw_value, startable[idx]
+    return 0.0, None
+
+
 def replacement_levels(projs: list[Projection], cfg: LeagueConfig) -> dict[str, float]:
     """Replacement level per position group = value of (pool_size+1)th ranked player."""
     pools = _determine_pools(projs, cfg)
-    # Need values to rank
     vals = _compute_values(projs, cfg, pools)
     by_pos: dict[str, list[PlayerValue]] = {"F": [], "D": [], "G": []}
     for v in vals:
@@ -233,13 +292,17 @@ def replacement_levels(projs: list[Projection], cfg: LeagueConfig) -> dict[str, 
     levels: dict[str, float] = {}
     for pos, players in by_pos.items():
         if pos == "G":
-            players = [v for v in players if v.startable]
-        ranked = sorted(players, key=lambda v: v.raw_value, reverse=True)
-        idx = pools[pos]  # (pool_size + 1)th player is at index pool_size
-        if idx < len(ranked):
-            levels[pos] = ranked[idx].raw_value
+            # Goalie replacement = (team_count * goalie_slots + 1)th ranked goalie
+            lvl, _ = _goalie_replacement_level(players, cfg)
+            levels[pos] = lvl
         else:
-            levels[pos] = 0.0
+            players = [v for v in players if v.startable]
+            ranked = sorted(players, key=lambda v: v.raw_value, reverse=True)
+            idx = pools[pos]
+            if idx < len(ranked):
+                levels[pos] = ranked[idx].raw_value
+            else:
+                levels[pos] = 0.0
     return levels
 
 
@@ -256,13 +319,16 @@ def valuate(projs: list[Projection], cfg: LeagueConfig) -> list[PlayerValue]:
     levels: dict[str, float] = {}
     for pos, players in by_pos.items():
         if pos == "G":
-            players = [v for v in players if v.startable]
-        ranked = sorted(players, key=lambda v: v.raw_value, reverse=True)
-        idx = pools[pos]
-        if idx < len(ranked):
-            levels[pos] = ranked[idx].raw_value
+            lvl, _ = _goalie_replacement_level(players, cfg)
+            levels[pos] = lvl
         else:
-            levels[pos] = 0.0
+            players = [v for v in players if v.startable]
+            ranked = sorted(players, key=lambda v: v.raw_value, reverse=True)
+            idx = pools[pos]
+            if idx < len(ranked):
+                levels[pos] = ranked[idx].raw_value
+            else:
+                levels[pos] = 0.0
 
     # Assign VORP
     for v in vals:

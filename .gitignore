@@ -27,3 +27,10 @@ web/dist/
 .clinerules/
 tmp*.py
 scratch/
+# local diagnostics (renamed from _* probes)
+roster_check.py
+goalie_rank_diag.py
+goalie_rank_diag_vals.py
+check_valuation_pools.py
+verify_goalie_allocation.py
+verify_goalie_starts.py
