@@ -25,6 +25,9 @@ SKATER_CATEGORIES = [
 ]
 
 
+# Skater stat names in canonical order (matches SKATER_CATEGORIES).
+SKATER_STATS: tuple[str, ...] = tuple(c[0] for c in SKATER_CATEGORIES)
+
 # Per-stat regression denominator for "n": accumulated across the observed
 # seasons in the same units as that stat's k from config/regression.yaml —
 # total shots for goals, total TOI-minutes for assists/shots/blocks/hits,
@@ -175,7 +178,7 @@ def _compute_pos_means(conn: sqlite3.Connection, season_ids: list[int],
             totals["pp_points"] += r[5] or 0
             total_gp += r[6]
     means = {}
-    for cat in ("goals", "assists", "shots", "blocks", "hits", "pp_points"):
+    for cat in SKATER_STATS:
         means[cat] = totals[cat] / total_gp if total_gp > 0 else 0.0
     return means
 

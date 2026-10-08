@@ -18,6 +18,7 @@ from .common import (  # noqa: F401
     CONFIG_PATH,
     REGRESSION_N,
     SKATER_CATEGORIES,
+    SKATER_STATS,
     WEIGHTS,
     Projection,
     _compute_pos_means,
@@ -46,89 +47,83 @@ from .goalies import (  # noqa: F401
 from .skaters import _project_skater, _regression_n  # noqa: F401
 
 
+def _prior_seasons(conn: sqlite3.Connection, season_id: int) -> list[int]:
+    """Up to 3 skater seasons before ``season_id``, oldest first."""
+    rows = conn.execute(
+        "SELECT DISTINCT season_id FROM skater_seasons"
+        " WHERE season_id < ? ORDER BY season_id DESC LIMIT 3",
+        (season_id,)).fetchall()
+    return [r[0] for r in reversed(rows)]
+
+
+def _skater_baseline(conn: sqlite3.Connection, prior_seasons: list[int],
+                     position: str) -> tuple[dict[str, float], float]:
+    """(positional per-GP means, positional median TOI/GP) for a skater.
+
+    C -> centres, L/R -> wingers, anything else -> defencemen.
+    """
+    pg = _pos_group(position)
+    group = pg if pg in ("C", "W") else "D"
+    return (_compute_pos_means(conn, prior_seasons, group),
+            _compute_pos_median_toi(conn, prior_seasons, group))
+
+
 def project_all(season_id: int, db_path: str) -> list[Projection]:
     """Project next-season totals for every skater and goalie."""
     conn = sqlite3.connect(db_path)
-    cfg = _load_config()
-    # Determine which seasons to use for positional means
-    prior_seasons = [r[0] for r in conn.execute(
-        "SELECT DISTINCT season_id FROM skater_seasons"
-        " WHERE season_id < ? ORDER BY season_id DESC LIMIT 3",
-        (season_id,)).fetchall()]
-    if not prior_seasons:
-        return []
-    prior_seasons.reverse()  # oldest first
+    try:
+        cfg = _load_config()
+        prior_seasons = _prior_seasons(conn, season_id)
+        if not prior_seasons:
+            return []
 
-    pos_means_c = _compute_pos_means(conn, prior_seasons, "C")
-    pos_means_w = _compute_pos_means(conn, prior_seasons, "W")
-    pos_means_d = _compute_pos_means(conn, prior_seasons, "D")
-    pos_means_g = _compute_pos_means(conn, prior_seasons, "G")
-    pos_median_toi_c = _compute_pos_median_toi(conn, prior_seasons, "C")
-    pos_median_toi_w = _compute_pos_median_toi(conn, prior_seasons, "W")
-    pos_median_toi_d = _compute_pos_median_toi(conn, prior_seasons, "D")
+        baselines = {pos: _skater_baseline(conn, prior_seasons, pos)
+                     for pos in ("C", "L", "D")}
+        pos_means_g = _compute_pos_means(conn, prior_seasons, "G")
 
-    # All skaters
-    skaters = [r[0] for r in conn.execute(
-        "SELECT DISTINCT player_id FROM skater_seasons"
-        " WHERE season_id < ? AND gp > 0", (season_id,))]
-    results: list[Projection] = []
-    for pid in skaters:
-        row = conn.execute(
-            "SELECT position FROM players WHERE player_id = ?", (pid,)).fetchone()
-        if not row:
-            continue
-        pg = _pos_group(row[0])
-        if pg == "C":
-            pm, pmt = pos_means_c, pos_median_toi_c
-        elif pg == "W":
-            pm, pmt = pos_means_w, pos_median_toi_w
-        else:
-            pm, pmt = pos_means_d, pos_median_toi_d
-        proj = _project_skater(pid, season_id, conn, cfg, pm, pmt)
-        if proj is not None:
-            results.append(proj)
+        skaters = [r[0] for r in conn.execute(
+            "SELECT DISTINCT player_id FROM skater_seasons"
+            " WHERE season_id < ? AND gp > 0", (season_id,))]
+        results: list[Projection] = []
+        for pid in skaters:
+            row = conn.execute(
+                "SELECT position FROM players WHERE player_id = ?",
+                (pid,)).fetchone()
+            if not row:
+                continue
+            pg = _pos_group(row[0])
+            pm, pmt = baselines["C" if pg == "C" else "L" if pg == "W" else "D"]
+            proj = _project_skater(pid, season_id, conn, cfg, pm, pmt)
+            if proj is not None:
+                results.append(proj)
 
-    # All goalies (per-team zero-sum starts allocation)
-    results.extend(_project_goalies(season_id, conn, cfg, pos_means_g))
-
-    conn.close()
-    return results
+        # All goalies (per-team zero-sum starts allocation)
+        results.extend(_project_goalies(season_id, conn, cfg, pos_means_g))
+        return results
+    finally:
+        conn.close()
 
 
 def explain(player_id: int, season_id: int, db_path: str) -> dict:
     """Return all intermediate terms for a player's projection."""
     conn = sqlite3.connect(db_path)
-    cfg = _load_config()
-    prior_seasons = [r[0] for r in conn.execute(
-        "SELECT DISTINCT season_id FROM skater_seasons"
-        " WHERE season_id < ? ORDER BY season_id DESC LIMIT 3",
-        (season_id,)).fetchall()]
-    if not prior_seasons:
-        conn.close()
-        return {}
-    prior_seasons.reverse()
-
-    row = conn.execute(
-        "SELECT position FROM players WHERE player_id = ?",
-        (player_id,)).fetchone()
-    if row and _pos_group(row[0]) != "G":
-        pg = _pos_group(row[0])
-        if pg == "C":
-            pm = _compute_pos_means(conn, prior_seasons, "C")
-            pmt = _compute_pos_median_toi(conn, prior_seasons, "C")
-        elif pg == "W":
-            pm = _compute_pos_means(conn, prior_seasons, "W")
-            pmt = _compute_pos_median_toi(conn, prior_seasons, "W")
+    try:
+        cfg = _load_config()
+        prior_seasons = _prior_seasons(conn, season_id)
+        if not prior_seasons:
+            return {}
+        row = conn.execute(
+            "SELECT position FROM players WHERE player_id = ?",
+            (player_id,)).fetchone()
+        if row and _pos_group(row[0]) != "G":
+            pm, pmt = _skater_baseline(conn, prior_seasons, row[0])
+            proj = _project_skater(player_id, season_id, conn, cfg, pm, pmt)
         else:
-            pm = _compute_pos_means(conn, prior_seasons, "D")
-            pmt = _compute_pos_median_toi(conn, prior_seasons, "D")
-        proj = _project_skater(player_id, season_id, conn, cfg, pm, pmt)
-    else:
-        pm_g = _compute_pos_means(conn, prior_seasons, "G")
-        all_g = _project_goalies(season_id, conn, cfg, pm_g)
-        proj = next((q for q in all_g if q.player_id == player_id), None)
-
-    conn.close()
+            pm_g = _compute_pos_means(conn, prior_seasons, "G")
+            all_g = _project_goalies(season_id, conn, cfg, pm_g)
+            proj = next((q for q in all_g if q.player_id == player_id), None)
+    finally:
+        conn.close()
     if proj is None:
         return {}
     return proj.terms
