@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from src.paths import DEFAULT_DB_ARG
+
 from .models import (
     Fetcher,
     GoalieSummary,
@@ -198,7 +200,7 @@ def _ingest_goalies(conn, fetcher: Fetcher, season_id: int,
 
 # ── Public API ───────────────────────────────────────────────────────
 
-def ingest_seasons(n: int, db_path: str = "data/hockey.db",
+def ingest_seasons(n: int, db_path: str = DEFAULT_DB_ARG,
                   season_ids: list[int] | None = None) -> IngestReport:
     """Ingest NHL seasons (stats + schedule).
 
@@ -233,7 +235,7 @@ def ingest_seasons(n: int, db_path: str = "data/hockey.db",
     return report
 
 
-def ingest_rosters(db_path: str = "data/hockey.db") -> IngestReport:
+def ingest_rosters(db_path: str = DEFAULT_DB_ARG) -> IngestReport:
     """Ingest current rosters, player details, and team metadata."""
     report = IngestReport()
     conn = init_db(db_path)
@@ -280,7 +282,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest NHL stats into SQLite.")
     parser.add_argument("--seasons", type=int, default=1,
                         help="Number of seasons to ingest")
-    parser.add_argument("--db", default="data/hockey.db",
+    parser.add_argument("--db", default=DEFAULT_DB_ARG,
                         help="SQLite database path")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print planned writes only")

@@ -12,13 +12,14 @@ import logging
 import math
 import sqlite3
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import yaml
 
+from src.paths import REGRESSION_CONFIG_PATH
+
 log = logging.getLogger(__name__)
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "regression.yaml"
+CONFIG_PATH = REGRESSION_CONFIG_PATH
 
 # Category definitions: (column, denominator_column, k_key)
 SKATER_CATEGORIES = [

@@ -38,6 +38,8 @@ import math
 import sqlite3
 import sys
 
+from src.paths import DEFAULT_DB_ARG
+
 from .projections import (
     project_all, explain, age_at, _level_value, _load_config,
 )
@@ -197,7 +199,7 @@ def _old_skater_total(conn: sqlite3.Connection, curves: dict, proj,
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", default="data/hockey.db")
+    parser.add_argument("--db", default=DEFAULT_DB_ARG)
     args = parser.parse_args()
 
     conn = sqlite3.connect(args.db)

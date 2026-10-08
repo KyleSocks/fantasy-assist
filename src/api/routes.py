@@ -52,15 +52,18 @@ from src.valuation.valuation import auction_values
 from src.draft.recommend import recommend
 
 from src.api.export import board_to_csv
-
-ROOT = Path(__file__).resolve().parents[2]
-DB_PATH = ROOT / "data" / "hockey.db"
-LEAGUE_DIR = ROOT / "config" / "leagues"
-ADP_PATH = ROOT / "data" / "adp.csv"
-STATIC_DIR = ROOT / "static"
+from src.db import next_season_id
+from src.paths import (  # noqa: F401  (ROOT kept for importers)
+    ADP_PATH,
+    DB_PATH,
+    INGEST_COMMAND,
+    LEAGUE_DIR,
+    ROOT,
+    STATIC_DIR,
+)
 
 STALE_THRESHOLD_HOURS = 24.0
-REFRESH_COMMAND = "uv run python -m src.ingest.ingest --seasons 1"
+REFRESH_COMMAND = INGEST_COMMAND
 DB_NOT_READY_DETAIL = (
     "Database not ready: no ingested skater data. Run the ingest "
     f"({REFRESH_COMMAND}) to populate data/hockey.db."
@@ -138,16 +141,12 @@ def _next_season_id() -> int:
     The following season 2026-27 is 20262027 = 20252026 + 10001, so we
     add 10001 (not 10000) to roll from one season to the next.
     """
-    conn = sqlite3.connect(DB_PATH)
     try:
-        row = conn.execute("SELECT MAX(season_id) FROM skater_seasons").fetchone()
-    finally:
-        conn.close()
-    if not row or row[0] is None:
+        return next_season_id(DB_PATH)
+    except ValueError:
         raise HTTPException(
             status_code=500, detail="No skater_seasons rows in database"
         )
-    return int(row[0]) + 10001
 
 
 def _load_adp() -> dict[str, float] | None:
