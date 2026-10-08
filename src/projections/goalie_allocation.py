@@ -160,13 +160,14 @@ def _allocate_goalie_starts(projs: list[Projection],
     unassigned = [p for p in goalies
                   if p.player_id not in roster_pid
                   or p.player_id not in team_of]
+    unassigned_ids = {p.player_id for p in unassigned}
     for p in unassigned:
         pname = name_of.get(p.player_id, str(p.player_id))
         print("[unassigned] %s | team=NONE | starts=0.00" % pname)
         _apply_goalie_starts(p, 0.0)
     by_team: dict[str, list[Projection]] = {}
     for p in goalies:
-        if p.player_id in unassigned:
+        if p.player_id in unassigned_ids:
             continue
         team = team_of.get(p.player_id)
         if team is None:
