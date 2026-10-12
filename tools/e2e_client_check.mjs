@@ -1,3 +1,4 @@
+// Run from the repo root: node tools/e2e_client_check.mjs
 // E2E check: loads the real static/board.js + static/detail.js in a vm
 // context with a minimal DOM shim, against the live server on port 8123.
 // /api/board and /api/player hit the real API; /api/recommend is canned

@@ -27,7 +27,10 @@ web/dist/
 .clinerules/
 tmp*.py
 scratch/
-# local diagnostics (renamed from _* probes)
+# local diagnostics / throwaway probes (keep these out of the repo;
+# reusable diagnostics live in tools/)
+/_*.py
+/*.json
 roster_check.py
 goalie_rank_diag.py
 goalie_rank_diag_vals.py

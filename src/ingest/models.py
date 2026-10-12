@@ -10,7 +10,8 @@ from typing import Any, Optional
 import httpx
 from pydantic import BaseModel, ConfigDict
 
-SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent / "db" / "schema.sql"
+from src.paths import SCHEMA_PATH
+
 PAGE_LIMIT = 100
 SLEEP_S = 0.25
 TIMEOUT = 30

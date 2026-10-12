@@ -1,7 +1,7 @@
 # Shrinkage parameters (k) for Bayesian regression of per-GP rates toward
 # positional means. k is PER-STAT and must be expressed in the same units as
 # that stat's denominator n, which is accumulated across the observed
-# seasons (see REGRESSION_N in src/projections/projections.py):
+# seasons (see REGRESSION_N in src/projections/common.py):
 #   goals      n = total shots          -> k in equivalent shots
 #   assists    n = total TOI-minutes    -> k in equivalent TOI-minutes
 #   shots      n = total TOI-minutes    -> k in equivalent TOI-minutes
@@ -29,7 +29,7 @@ min_startable_starts: 15
 # Hard cap on any single goalie's projected starts. No NHL goalie starts
 # 82 games; a team's starts must sum to its game count, and any
 # remainder after capping is redistributed among the team's uncapped
-# goalies (see _allocate_goalie_starts in src/projections/projections.py).
+# goalies (see _allocate_goalie_starts in src/projections/goalie_allocation.py).
 max_goalie_starts: 68
 
 # Level curves L(age), peak-normalized to 1.00. Age adjustment is the ratio

@@ -1,5 +1,7 @@
 """Acceptance harness for the goalie projection + valuation fix.
 
+Run from the repo root: uv run python -m tools.diag
+
 Prints six numbered checks; any FAIL exits non-zero.
 """
 from __future__ import annotations
@@ -9,7 +11,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 DB = ROOT / "data" / "hockey.db"
 
 from src.api.routes import build_board

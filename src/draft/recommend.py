@@ -30,15 +30,13 @@ HTTP: display names come from the players table in data/hockey.db.
 from __future__ import annotations
 
 import math
-import sqlite3
 from dataclasses import dataclass
-from pathlib import Path
 
+from src.db import player_names
+from src.paths import DB_PATH, ROOT  # noqa: F401  (ROOT kept for importers)
 from src.valuation.league import LeagueConfig
 from src.valuation.valuation import PlayerValue, _pos_group
 
-ROOT = Path(__file__).resolve().parents[2]
-DB_PATH = ROOT / "data" / "hockey.db"
 
 BENCH_SCALE = 0.35
 DEFICIT_THRESHOLD = -0.5
@@ -62,15 +60,7 @@ class Recommendation:
 def _load_names() -> dict[int, str]:
     global _NAME_CACHE
     if _NAME_CACHE is None:
-        conn = sqlite3.connect(str(DB_PATH))
-        try:
-            rows = conn.execute(
-                "SELECT player_id, full_name FROM players "
-                "WHERE full_name IS NOT NULL"
-            ).fetchall()
-        finally:
-            conn.close()
-        _NAME_CACHE = {pid: name for pid, name in rows}
+        _NAME_CACHE = player_names(DB_PATH)
     return _NAME_CACHE
 
 

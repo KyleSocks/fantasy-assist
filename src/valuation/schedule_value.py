@@ -40,16 +40,15 @@ import logging
 import sqlite3
 from pathlib import Path
 
+from src.db import next_season_id as _db_next_season_id
+from src.db import player_names, player_teams
+from src.paths import DB_PATH, INGEST_COMMAND, LEAGUE_DIR, ROOT  # noqa: F401
 from src.projections.projections import Projection, project_all
 from src.valuation.league import LeagueConfig, load_league
 from src.valuation.valuation import PlayerValue, valuate, valuate_windowed
 
 log = logging.getLogger(__name__)
 
-ROOT = Path(__file__).resolve().parents[2]
-DB_PATH = ROOT / "data" / "hockey.db"
-LEAGUE_DIR = ROOT / "config" / "leagues"
-INGEST_COMMAND = "uv run python -m src.ingest.ingest --seasons 1"
 
 
 def _resolve_db(db_path: str | Path | None = None) -> str:
@@ -204,14 +203,7 @@ def _mean_games(counts: dict[str, int]) -> float:
 
 
 def _team_of(db: str) -> dict[int, str]:
-    conn = sqlite3.connect(db)
-    try:
-        rows = conn.execute(
-            "SELECT player_id, current_team_abbrev FROM players"
-        ).fetchall()
-    finally:
-        conn.close()
-    return {pid: team for pid, team in rows if team}
+    return player_teams(db)
 
 
 def windowed_values(
@@ -264,26 +256,11 @@ def windowed_values(
 
 def next_season_id(db_path: str | Path | None = None) -> int:
     """The upcoming season id: max(skater_seasons.season_id) + 10001."""
-    db = _resolve_db(db_path)
-    conn = sqlite3.connect(db)
-    try:
-        row = conn.execute("SELECT MAX(season_id) FROM skater_seasons").fetchone()
-    finally:
-        conn.close()
-    if not row or row[0] is None:
-        raise ValueError(f"no skater_seasons rows in {db}")
-    return int(row[0]) + 10001
+    return _db_next_season_id(_resolve_db(db_path))
 
 
 def _names(db: str) -> dict[int, str]:
-    conn = sqlite3.connect(db)
-    try:
-        rows = conn.execute(
-            "SELECT player_id, full_name FROM players WHERE full_name IS NOT NULL"
-        ).fetchall()
-    finally:
-        conn.close()
-    return {pid: name for pid, name in rows}
+    return player_names(db)
 
 
 def main(argv: list[str] | None = None) -> int:

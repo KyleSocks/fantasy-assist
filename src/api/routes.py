@@ -52,15 +52,18 @@ from src.valuation.valuation import auction_values
 from src.draft.recommend import recommend
 
 from src.api.export import board_to_csv
-
-ROOT = Path(__file__).resolve().parents[2]
-DB_PATH = ROOT / "data" / "hockey.db"
-LEAGUE_DIR = ROOT / "config" / "leagues"
-ADP_PATH = ROOT / "data" / "adp.csv"
-STATIC_DIR = ROOT / "static"
+from src.db import next_season_id
+from src.paths import (  # noqa: F401  (ROOT kept for importers)
+    ADP_PATH,
+    DB_PATH,
+    INGEST_COMMAND,
+    LEAGUE_DIR,
+    ROOT,
+    STATIC_DIR,
+)
 
 STALE_THRESHOLD_HOURS = 24.0
-REFRESH_COMMAND = "uv run python -m src.ingest.ingest --seasons 1"
+REFRESH_COMMAND = INGEST_COMMAND
 DB_NOT_READY_DETAIL = (
     "Database not ready: no ingested skater data. Run the ingest "
     f"({REFRESH_COMMAND}) to populate data/hockey.db."
@@ -138,16 +141,12 @@ def _next_season_id() -> int:
     The following season 2026-27 is 20262027 = 20252026 + 10001, so we
     add 10001 (not 10000) to roll from one season to the next.
     """
-    conn = sqlite3.connect(DB_PATH)
     try:
-        row = conn.execute("SELECT MAX(season_id) FROM skater_seasons").fetchone()
-    finally:
-        conn.close()
-    if not row or row[0] is None:
+        return next_season_id(DB_PATH)
+    except ValueError:
         raise HTTPException(
             status_code=500, detail="No skater_seasons rows in database"
         )
-    return int(row[0]) + 10001
 
 
 def _load_adp() -> dict[str, float] | None:
@@ -295,6 +294,7 @@ def build_recommendations(
     if league not in leagues:
         raise HTTPException(status_code=404, detail=f"Unknown league '{league}'")
     cfg = leagues[league]
+    _require_db()
     season = _next_season_id()
     projs = {p.player_id: p for p in project_all(season, str(DB_PATH))}
     vals = windowed_values(list(projs.values()), cfg)
@@ -428,11 +428,15 @@ def build_player_detail(player_id: int, league: str) -> dict:
 app = FastAPI(title="NHL Draft Board")
 
 
+def _league_or_default(league: str | None) -> str:
+    """The requested league name, or the default league's YAML stem."""
+    return league or Path(DEFAULT_LEAGUE).stem
+
+
 @app.get("/api/board")
 def get_board(league: str | None = None) -> dict:
     """Full ranked board for one league (client handles everything else)."""
-    default = Path(DEFAULT_LEAGUE).stem
-    return build_board(league or default)
+    return build_board(_league_or_default(league))
 
 
 @app.get("/api/recommend")
@@ -446,9 +450,8 @@ def get_recommend(
 
     ?league=roto_14&round=3&drafted_by_me=101,202&drafted_all=101,202,303
     """
-    default = Path(DEFAULT_LEAGUE).stem
     return build_recommendations(
-        league or default,
+        _league_or_default(league),
         _parse_ids(drafted_by_me),
         _parse_ids(drafted_all),
         round,
@@ -465,8 +468,7 @@ def export_board(
     CSV: flat, one row per player, category stats as columns. JSON: the full
     board payload (same shape as /api/board).
     """
-    default = Path(DEFAULT_LEAGUE).stem
-    board = build_board(league or default)
+    board = build_board(_league_or_default(league))
     if format == "json":
         return JSONResponse(board)
     if format == "csv":
@@ -485,8 +487,7 @@ def get_player(player_id: int, league: str | None = None) -> dict:
 
     ?league=roto_14 ; returns {} when the player has no projection data.
     """
-    default = Path(DEFAULT_LEAGUE).stem
-    return build_player_detail(player_id, league or default)
+    return build_player_detail(player_id, _league_or_default(league))
 
 
 @app.get("/")

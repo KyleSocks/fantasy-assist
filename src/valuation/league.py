@@ -9,6 +9,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, model_validator
 
+from src.paths import DEFAULT_LEAGUE_PATH
 from src.projections.projections import Projection
 
 # ─── Valid stat keys and their mapping to Projection attributes ───
@@ -145,10 +146,7 @@ class LeagueConfig(BaseModel):
 
 # Default league config (kyle_12_points) — used when load_league() is called
 # without an explicit path (e.g. from the API / CLI).
-DEFAULT_LEAGUE: str = str(
-    Path(__file__).resolve().parent.parent.parent
-    / "config" / "leagues" / "kyle_12_points.yaml"
-)
+DEFAULT_LEAGUE: str = str(DEFAULT_LEAGUE_PATH)
 
 
 def load_league(path: str | None = None) -> LeagueConfig:

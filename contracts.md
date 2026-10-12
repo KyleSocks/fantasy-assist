@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS skater_seasons (
     pp_points INTEGER,
     pp_toi_sec INTEGER,
     toi_sec INTEGER,
-    PRIMARY KEY (player_id, season_id, team_abbrev)
+    PRIMARY KEY (player_id, season_id)
 );
 
 CREATE TABLE IF NOT EXISTS goalie_seasons (
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS goalie_seasons (
     goals_against INTEGER,
     shutouts INTEGER,
     toi_sec INTEGER,
-    PRIMARY KEY (player_id, season_id, team_abbrev)
+    PRIMARY KEY (player_id, season_id)
 );
 
 CREATE TABLE IF NOT EXISTS teams (
