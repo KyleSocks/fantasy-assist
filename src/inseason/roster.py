@@ -28,6 +28,13 @@ def parse_players(ctx: Context, text: str) -> tuple[dict[int, set[str]], list[st
         hits = find_players(ctx, parts[0])
         if len(parts) > 1 and parts[1] and len(hits) > 1:
             hits = [h for h in hits if h.team == parts[1]] or hits
+        if len(parts) > 2 and parts[2] and len(hits) > 1:
+            # same name, same team (two Elias Petterssons on VAN): match the
+            # position family -- D vs G vs forward
+            want = {x.strip() for x in parts[2].split(",")}
+            fam = "D" if "D" in want else "G" if "G" in want else "F"
+            hits = [h for h in hits if {"D": "D", "G": "G"}.get(h.position, "F")
+                    == fam] or hits
         if not hits:
             missing.append(parts[0])
             continue

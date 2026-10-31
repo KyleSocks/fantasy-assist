@@ -86,10 +86,15 @@ def test_refresh_endpoint(monkeypatch, tmp_path):
     monkeypatch.setattr(yp, "fetch_lists", lambda *a, **k: (
         [YPlayer("Sam Bennett", "FLA", ("C",), "C")],
         [YPlayer("Viktor Arvidsson", "DET", ("LW", "RW"))]))
+    monkeypatch.setattr(yp, "fetch_league", lambda league_id: {
+        5: {"name": "Mine", "players": [YPlayer("Sam Bennett", "FLA", ("C",), "C")]}})
     monkeypatch.setattr(api, "_ctx", lambda league: type("C", (), {"lines": {}})())
     monkeypatch.setattr(api, "parse_players", lambda ctx, text: ({}, []))
     r = TestClient(app).post("/api/inseason/refresh").json()
     assert r["ingest"]["skater_current"] == 5 and r["yahoo_error"] is None
-    assert r["yahoo"] == {"roster": 1, "free_agents": 1, "unmatched": []}
+    assert r["yahoo"] == {"roster": 1, "free_agents": 1, "teams": 1, "unmatched": []}
+    import json
+    stored = json.loads((tmp_path / "league_rosters.json").read_text(encoding="utf-8"))
+    assert stored["teams"]["5"]["players"][0]["name"] == "Sam Bennett"
     assert (tmp_path / "my_roster.txt").read_text().endswith("Sam Bennett | FLA | C\n")
     assert Path(tmp_path / "fa.txt").read_text().endswith("Viktor Arvidsson | DET | LW,RW\n")

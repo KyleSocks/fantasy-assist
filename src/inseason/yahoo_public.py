@@ -61,16 +61,55 @@ def parse_rows(page: str) -> list[YPlayer]:
     return out
 
 
-def parse_roster(page: str) -> list[YPlayer]:
-    """Skaters on a team page (statTable0), excluding IR / IR+ / NA slots.
-    Goalies (statTable1) are left out: the planner covers skater slots."""
+def parse_roster(page: str, include_goalies: bool = False) -> list[YPlayer]:
+    """Players on a team page, excluding IR / IR+ / NA slots.
+
+    Skaters come from statTable0; goalies (statTable1) only when
+    ``include_goalies`` -- the streaming planner covers skater slots.
+    """
     start = page.find('id="statTable0"')
     if start < 0:
         raise ValueError("team page has no roster table (statTable0); is the "
                          "league public and the team id right?")
-    end = page.find('id="statTable1"', start)
-    players = parse_rows(page[start:end if end > 0 else None])
+    g = page.find('id="statTable1"', start)
+    players = parse_rows(page[start:g if g > 0 else None])
+    if include_goalies and g > 0:
+        end = page.find("</table>", g)
+        players += parse_rows(page[g:end if end > 0 else None])
     return [p for p in players if p.slot not in INACTIVE_SLOTS]
+
+
+_TEAM_LINK = re.compile(
+    r'href="(?:https://hockey\.fantasysports\.yahoo\.com)?/hockey/(\d+)/(\d+)"'
+    r'[^>]*>([^<]{2,80})</a>')
+
+
+def parse_team_links(page: str, league_id: int) -> dict[int, str]:
+    """{team_id: team name} from the league home page."""
+    out: dict[int, str] = {}
+    for lid, tid, name in _TEAM_LINK.findall(page):
+        if int(lid) == league_id and int(tid) not in out:
+            out[int(tid)] = html.unescape(name).strip()
+    return out
+
+
+def fetch_league(league_id: int, client: httpx.Client | None = None,
+                 ) -> dict[int, dict]:
+    """Every team: {team_id: {"name": str, "players": [YPlayer]}} (goalies
+    included, IR excluded). One request for the league page + one per team."""
+    own = client is None
+    client = client or httpx.Client(headers=HEADERS, timeout=30,
+                                    follow_redirects=True)
+    try:
+        teams = parse_team_links(_get(client, f"{BASE}/{league_id}"), league_id)
+        if not teams:
+            raise ValueError("no teams found on the league page; is it public?")
+        return {tid: {"name": name, "players": parse_roster(
+                    _get(client, f"{BASE}/{league_id}/{tid}"), include_goalies=True)}
+                for tid, name in sorted(teams.items())}
+    finally:
+        if own:
+            client.close()
 
 
 def _get(client: httpx.Client, url: str) -> str:

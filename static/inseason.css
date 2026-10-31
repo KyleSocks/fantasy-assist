@@ -41,3 +41,12 @@ button.primary { background: var(--accent); color: #fff; border: 0; padding: .45
                   border-radius: 6px; padding: .5rem; font: .85rem ui-monospace, Consolas, monospace; }
 label.inline { font-weight: 400; color: var(--muted); font-size: .85rem; display: inline-flex; gap: .3rem; }
 @media (max-width: 720px) { .lists { grid-template-columns: 1fr; } .navlink { margin-left: 0; } }
+.heat { border-radius: 4px; padding: .05rem .4rem; }
+.heat.p2 { background: #1d3a26; color: #7ee093; } .heat.p1 { background: #18291e; color: var(--pos); }
+.heat.n1 { background: #2e1c1e; color: #ff9b94; } .heat.n2 { background: #45201f; color: #ffb3ad; }
+.ins tr.mine td { background: #16233a; }
+.ins tr.click { cursor: pointer; }
+.team-card { background: var(--panel); border-radius: 8px; padding: .75rem 1rem; margin: 1rem 0; }
+.team-card h4 { margin: 0 0 .5rem; }
+.pill { display: inline-block; background: #222833; border-radius: 999px; padding: .1rem .55rem; margin: .15rem .2rem .15rem 0; font-size: .8rem; }
+.pill.sit { opacity: .55; }

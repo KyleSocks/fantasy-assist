@@ -209,6 +209,79 @@
   $("stream-date").addEventListener("change", () => loadStreams().catch((e) => status(e.message, true)));
   $("stream-all").addEventListener("change", () => loadStreams().catch((e) => status(e.message, true)));
 
+  // ── league: team strengths + trades ─────────────────────────────────
+  const SLOTS = ["C", "LW", "RW", "D", "Util", "G"];
+  let leagueData = null;
+  const heat = (v) => {
+    const k = v >= 20 ? "p2" : v >= 5 ? "p1" : v <= -20 ? "n2" : v <= -5 ? "n1" : "";
+    return `<span class="heat ${k}">${signed(v, 0)}</span>`;
+  };
+  loaders.league = async () => {
+    status("Simulating every team's lineup and every 1-for-1 trade (a few seconds)…");
+    try {
+      const L = await api(`/api/inseason/league?${new URLSearchParams({
+        league: $("league").value, start: $("start").value, days: $("league-days").value })}`);
+      leagueData = L;
+      $("league-meta").textContent = `${md(L.dates[0])}–${md(L.dates[L.dates.length - 1])}` +
+        ` · rosters from Yahoo ${L.fetched || "?"} · stats ${L.as_of}`;
+      const names = Object.fromEntries(L.teams.map((t) => [t.id, t.name]));
+      const el = $("league-table");
+      table(el, [
+        { key: "rank", label: "#", sort: (t) => t.rank },
+        { key: "name", label: "Team", left: true, fmt: (t) => `${t.mine ? "★ " : ""}${esc(t.name)}` },
+        { key: "total", label: `Lineup ${unit}`, fmt: (t) => `<b>${num(t.total, 0)}</b>` },
+        ...SLOTS.map((s) => ({ key: s, label: s, title: `${s} starters vs league avg (${num(L.league_avg[s], 0)})`,
+          sort: (t) => t.vs_avg[s], fmt: (t) => heat(t.vs_avg[s]) })),
+        { key: "bench", label: "Bench", title: "points from players who had to sit", fmt: (t) => num(t.bench, 0) },
+      ], L.teams.map((t, i) => ({ ...t, rank: i + 1 })));
+      decorateLeague(el, L);
+      showTeam(L.teams.find((t) => t.mine));
+      drawTrades(names);
+      status(L.unmatched.length ? `Unmatched rostered names: ${L.unmatched.join(", ")}` : "");
+    } catch (e) { status(e.message, true); }
+  };
+  function decorateLeague(el, L) {
+    el.querySelectorAll("tbody tr").forEach((tr) => {
+      const name = tr.children[1].textContent.replace(/^★ /, "");
+      const t = L.teams.find((x) => x.name === name);
+      if (!t) return;
+      tr.classList.add("click");
+      tr.classList.toggle("mine", t.mine);
+      tr.onclick = () => showTeam(t);
+    });
+    el.querySelectorAll("th").forEach((th) => th.addEventListener("click", () =>
+      setTimeout(() => decorateLeague(el, L), 0)));
+  }
+  function showTeam(t) {
+    if (!t) return;
+    const strong = SLOTS.filter((s) => t.vs_avg[s] >= 10), weak = SLOTS.filter((s) => t.vs_avg[s] <= -10);
+    $("team-detail").innerHTML = `<div class="team-card"><h4>${t.mine ? "★ " : ""}${esc(t.name)}</h4>
+      <div class="muted">Strong: ${strong.join(", ") || "–"} · Weak: ${weak.join(", ") || "–"}
+        · bench overflow ${num(t.bench, 0)}</div>
+      <div>${t.players.map((p) => `<span class="pill ${p.starts < p.games ? "sit" : ""}"
+        title="${esc(p.elig.join(","))} · starts ${p.starts}/${p.games} games">${esc(p.name)}
+        <b>${num(p.per_game)}</b>${p.starts < p.games ? ` · sits ${p.games - p.starts}` : ""}</span>`).join("")}</div></div>`;
+  }
+  function drawTrades(names) {
+    if (!leagueData) return;
+    const rows = leagueData.trades.filter((x) =>
+      (!$("tr-mutual").checked || x.mutual) && (!$("tr-pg").checked || x.pg_delta >= -0.1) &&
+      (!$("tr-fair").checked || x.pg_delta <= 0.5));
+    const pl = (p) => `${esc(p.name)} <span class="muted">${esc(p.team)} ${esc(p.elig.join(","))} ${num(p.per_game)}</span>`;
+    table($("trades-table"), [
+      { key: "partner", label: "With", left: true, sort: (x) => names[x.partner_id], fmt: (x) => esc(names[x.partner_id]) },
+      { key: "give", label: "You give", left: true, sort: (x) => x.give.name, fmt: (x) => pl(x.give) },
+      { key: "get", label: "You get", left: true, sort: (x) => x.get.name, fmt: (x) => pl(x.get) },
+      { key: "my_gain", label: "Me", fmt: (x) => `<b class="${cls(x.my_gain)}">${signed(x.my_gain)}</b>` },
+      { key: "their_gain", label: "Them", fmt: (x) => `<span class="${cls(x.their_gain)}">${signed(x.their_gain)}</span>` },
+      { key: "pg_delta", label: "Per-game", fmt: (x) => `<span class="${cls(x.pg_delta)}">${signed(x.pg_delta, 2)}</span>` },
+    ], rows);
+    if (!rows.length) $("trades-table").innerHTML += '<tbody><tr><td class="l" colspan="6">No trades pass these filters.</td></tr></tbody>';
+  }
+  ["tr-mutual", "tr-pg", "tr-fair"].forEach((id) => $(id).addEventListener("change", () =>
+    drawTrades(Object.fromEntries((leagueData?.teams || []).map((t) => [t.id, t.name])))));
+  $("league-days").addEventListener("change", () => loaders.league());
+
   // ── schedule ─────────────────────────────────────────────────────────
   loaders.schedule = async () => {
     status("Loading schedule…");
@@ -260,7 +333,7 @@
       const y = r.yahoo;
       const msg = `Updated in ${r.seconds}s: ${r.ingest.skater_current} skaters, ` +
         `${r.ingest.goalie_current} goalies` +
-        (y ? `; Yahoo roster ${y.roster}, free agents ${y.free_agents}` +
+        (y ? `; Yahoo roster ${y.roster}, free agents ${y.free_agents}, ${y.teams} team rosters` +
           (y.unmatched.length ? ` (no match: ${y.unmatched.join(", ")})` : "") : "");
       await load();
       status(r.yahoo_error ? `${msg}. ${r.yahoo_error}` : msg, !!r.yahoo_error);

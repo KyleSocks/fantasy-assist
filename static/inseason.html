@@ -23,6 +23,7 @@
     <button type="button" class="tab active" data-tab="roster">My roster</button>
     <button type="button" class="tab" data-tab="plan">Plan</button>
     <button type="button" class="tab" data-tab="fa">Free agents</button>
+    <button type="button" class="tab" data-tab="league">League</button>
     <button type="button" class="tab" data-tab="schedule">Schedule</button>
     <button type="button" class="tab" data-tab="lists">Lists</button>
   </nav>
@@ -55,6 +56,29 @@
       <h3>Single-game streams <input id="stream-date" type="date">
         <label class="inline"><input id="stream-all" type="checkbox"> include rostered pool</label></h3>
       <div class="scroll"><table id="streams-table"></table></div>
+    </section>
+
+    <section id="tab-league" class="panel" hidden>
+      <div class="form-row">
+        <label>Window <select id="league-days">
+          <option value="14">2 weeks</option><option value="21" selected>3 weeks</option>
+          <option value="28">4 weeks</option></select></label>
+        <span id="league-meta" class="muted"></span>
+      </div>
+      <p class="hint">Each team's best nightly lineup over the window (from the Start date),
+        split by the slot each starter fills, shown vs the league average. <b>Bench</b> =
+        points from players who had to sit (surplus to trade from). Click a team for its roster.</p>
+      <div class="scroll"><table id="league-table"></table></div>
+      <div id="team-detail"></div>
+      <h3>1-for-1 trades for your team
+        <label class="inline"><input id="tr-mutual" type="checkbox" checked> both teams gain</label>
+        <label class="inline"><input id="tr-pg" type="checkbox" checked> no per-game loss for me</label>
+        <label class="inline"><input id="tr-fair" type="checkbox" checked> realistic (they lose &le; 0.5/game)</label>
+      </h3>
+      <p class="hint"><b>Me / Them</b> = change in each lineup's total over the window.
+        <b>Per-game</b> = blended value you gain or give up long term; a window gain with a
+        negative per-game is a schedule play that costs you later.</p>
+      <div class="scroll"><table id="trades-table"></table></div>
     </section>
 
     <section id="tab-schedule" class="panel" hidden>
