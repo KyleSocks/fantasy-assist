@@ -1,6 +1,9 @@
-"""Uvicorn entry point: `uv run uvicorn src.api.main:app --reload`.
+"""ASGI entry point: uv run uvicorn src.api.main:app
 
-The FastAPI app object lives in src/api/routes.py; this module only
-re-exports it so the README command works.
+routes.py defines the draft-board app; the in-season router is mounted here
+so routes.py stays under the 500-line limit.
 """
+from src.api.inseason import router as inseason_router
 from src.api.routes import app  # noqa: F401
+
+app.include_router(inseason_router)

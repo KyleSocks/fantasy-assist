@@ -256,3 +256,43 @@ def test_ingest_current_writes_separate_tables(tmp_path):
     # The draft-board tables are untouched by the in-season ingest.
     assert conn.execute("SELECT COUNT(*) FROM skater_seasons").fetchone()[0] == 0
     conn.close()
+
+
+def test_load_taken_and_streams_exclusion(ctx, tmp_path):
+    from src.inseason.evaluate import load_taken
+    f = tmp_path / "taken.txt"
+    f.write_text("dee two   # my D\n\nNobody Here\n", encoding="utf-8")
+    ids, missing = load_taken(ctx, str(f))
+    assert ids == {5} and missing == ["Nobody Here"]
+    # with an explicit taken list the rostered-pool guess is not applied,
+    # so rank-1 players (4 Dee Man, 7 Goalie B) come back
+    got = [r["player_id"] for r in streams(ctx, "2026-11-02", taken=ids)]
+    assert 5 not in got and {2, 3, 4, 7} == set(got)
+
+
+def test_api_endpoints(db, tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from fastapi.testclient import TestClient
+
+    import src.api.inseason as api
+    from src.api.main import app
+    leagues = tmp_path / "leagues"
+    leagues.mkdir()
+    (leagues / "t_points.yaml").write_text(
+        Path("config/leagues/kyle_12_points.yaml").read_text())
+    monkeypatch.setattr(api, "DB_PATH", Path(db))
+    monkeypatch.setattr(api, "LEAGUE_DIR", leagues)
+    api._CACHE.clear()
+    c = TestClient(app)
+    r = c.get("/api/inseason/streams?date=2026-11-02&league=t_points&all=true")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["nhl_games"] == 1 and body["unit"] == "fpts"
+    assert {p["team"] for p in body["players"]} <= {"BBB", "CCC"}
+    r = c.get("/api/inseason/player/1?league=t_points&start=2026-11-01&days=4")
+    assert r.status_code == 200 and len(r.json()["window"]["games"]) == 2
+    r = c.get("/api/inseason/schedule?league=t_points&start=2026-11-01&days=4")
+    assert [t["games"] for t in r.json()["teams"]] == [3, 3, 2]
+    assert c.get("/api/inseason/player/999?league=t_points").status_code == 404
+    assert c.get("/api/inseason/streams?league=nope").status_code == 404

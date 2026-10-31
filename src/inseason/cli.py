@@ -21,6 +21,7 @@ from .evaluate import (
     build_context,
     find_players,
     hold_check,
+    load_taken,
     schedule_grid,
     streams,
 )
@@ -44,10 +45,18 @@ def _vs(pct: float | None, diff: float | None) -> str:
 
 
 def _print_streams(ctx, args, unit: str) -> None:
+    taken = None
+    if args.taken:
+        taken, missing = load_taken(ctx, args.taken)
+        if missing:
+            print(f"  warning: {len(missing)} name(s) in {args.taken} matched no"
+                  f" player: {', '.join(missing[:8])}")
     rows = streams(ctx, args.date, args.top, args.group,
-                   likely_available=not args.all)
+                   likely_available=not args.all, taken=taken)
     n_games = ctx.games_on(args.date)
-    scope = "all players" if args.all else "likely available (outside rostered pool)"
+    scope = ("excluding players in " + args.taken if taken is not None
+             else "all players" if args.all
+             else "likely available (outside rostered pool)")
     print(f"Streams for {args.date} -- {n_games} NHL games -- {ctx.league.name}"
           f" ({unit}/game) -- {scope}, stats as of {ctx.as_of}")
     if not rows:
@@ -110,6 +119,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--group", choices=["F", "D", "G"])
     s.add_argument("--all", action="store_true",
                    help="include players inside the rostered pool")
+    s.add_argument("--taken", metavar="FILE",
+                   help="text file of rostered player names (one per line)"
+                        " to exclude, instead of the rostered-pool guess")
     p = sub.add_parser("player", help="hold/drop check for one or more players")
     p.add_argument("names", nargs="+")
     p.add_argument("--start", default=today)

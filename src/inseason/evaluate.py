@@ -153,12 +153,14 @@ def _end(start: str, days: int) -> str:
 
 
 def streams(ctx: Context, date: str, top: int = 25, group: str | None = None,
-            likely_available: bool = True) -> list[dict]:
+            likely_available: bool = True,
+            taken: set[int] | None = None) -> list[dict]:
     """Best single-game plays on ``date`` (opponent-adjusted).
 
-    ``likely_available`` keeps only players ranked outside the league's
-    rosterable pool by blended per-game value -- an approximation of the
-    waiver wire, since league rosters aren't ingested.
+    ``taken``: player ids rostered in your league -- excluded when given.
+    Otherwise ``likely_available`` keeps only players ranked outside the
+    league's rosterable pool by blended per-game value, an approximation of
+    the waiver wire.
     """
     sc = ctx.scorer
     out = []
@@ -166,7 +168,10 @@ def streams(ctx: Context, date: str, top: int = 25, group: str | None = None,
         grp = value_group(line.position)
         if group and grp != group:
             continue
-        if likely_available and sc.group_rank[pid] <= sc.pool_sizes[grp]:
+        if taken is not None:
+            if pid in taken:
+                continue
+        elif likely_available and sc.group_rank[pid] <= sc.pool_sizes[grp]:
             continue
         g = ctx.team_games(line.team, date, date)
         if not g:
@@ -238,6 +243,26 @@ def schedule_grid(ctx: Context, start: str, days: int) -> list[dict]:
 def _fold(s: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", s or "")
                    if not unicodedata.combining(c)).lower()
+
+
+def load_taken(ctx: Context, path: str) -> tuple[set[int], list[str]]:
+    """Player ids from a text file of names (one per line, # comments).
+
+    Returns (ids, names that matched no player).
+    """
+    ids: set[int] = set()
+    missing: list[str] = []
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            name = raw.split("#", 1)[0].strip()
+            if not name:
+                continue
+            hits = find_players(ctx, name)
+            if hits:
+                ids.add(hits[0].player_id)
+            else:
+                missing.append(name)
+    return ids, missing
 
 
 def find_players(ctx: Context, query: str) -> list[Line]:
