@@ -129,7 +129,8 @@
         { key: "benched", label: "Benched", left: true, fmt: (n) => esc(n.benched.join(", ")) },
       ], a.nights);
       fillHold();
-      status(a.unmatched.length ? `Unmatched names in your lists: ${a.unmatched.join(", ")}` : "");
+      if (a.warning) status(a.warning, true);
+      else status(a.unmatched.length ? `Unmatched names in your lists: ${a.unmatched.join(", ")}` : "");
     } catch (e) { status(e.message, true); }
   };
 

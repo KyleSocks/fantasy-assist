@@ -44,6 +44,16 @@ def ingest_schedule(conn, fetcher: Fetcher, season_id: int,
             d += datetime.timedelta(days=step_days)
             continue
         for week in raw.get("gameWeek", []):
+            # Each gameWeek entry is one day: {"date": "2026-11-01", "games":
+            # [...]}. Use that date, never the request date -- a request
+            # returns a whole week of days.
+            game_date = week.get("date")
+            if not game_date:
+                if step_days > 1:
+                    notes.append(f"schedule {date_str}: gameWeek entry without"
+                                 " a date; skipped (would mis-date games)")
+                    continue
+                game_date = date_str
             for game in week.get("games", []):
                 home = (game.get("homeTeam") or {}).get("abbrev", "")
                 away = (game.get("awayTeam") or {}).get("abbrev", "")
@@ -61,7 +71,7 @@ def ingest_schedule(conn, fetcher: Fetcher, season_id: int,
                     " season_id=excluded.season_id, game_date=excluded.game_date,"
                     " home_abbrev=excluded.home_abbrev, away_abbrev=excluded.away_abbrev,"
                     " game_type=excluded.game_type",
-                    (gid, season_id, date_str, home, away, gtype),
+                    (gid, season_id, game_date, home, away, gtype),
                 )
                 counts["schedule"] += 1
         d += datetime.timedelta(days=step_days)

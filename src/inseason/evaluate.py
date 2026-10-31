@@ -56,6 +56,19 @@ class Context:
         n = sum(1 for d, _, _ in self.games if start <= d <= end)
         return 2 * n / len(teams) if teams else 0.0
 
+    def schedule_warning(self) -> str | None:
+        """Non-None when some date has more games than 32 teams can play
+        (a mis-dated schedule ingest)."""
+        per: dict[str, int] = {}
+        for d, _, _ in self.games:
+            per[d] = per.get(d, 0) + 1
+        bad = sorted(d for d, n in per.items() if n > 16)
+        if not bad:
+            return None
+        return (f"schedule looks wrong: {per[bad[0]]} games on {bad[0]}"
+                f" ({len(bad)} date(s) over 16). Press Refresh data / re-run"
+                " uv run python -m src.inseason.ingest")
+
     def season_end(self) -> str:
         return max((d for d, _, _ in self.games), default=self.as_of)
 

@@ -161,6 +161,7 @@ def get_audit(start: str | None = None, days: int = 9,
         raise HTTPException(400, f"no roster: add players to data/{ROSTER_FILE}")
     out = audit(ctx, roster, start or _today(), days, inactive)
     out.update(as_of=ctx.as_of, league=ctx.league.name, unmatched=missing,
+               warning=ctx.schedule_warning(),
                unit="fpts" if ctx.scorer.points else "z")
     return out
 
