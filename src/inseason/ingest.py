@@ -122,7 +122,8 @@ def ingest_current(db_path: str = DEFAULT_DB_ARG, season_id: int | None = None,
             if schedule:
                 sc, sn = ingest_schedule(conn, fetcher, season_id,
                                          start=schedule_start
-                                         or datetime.date.today())
+                                         or datetime.date.today(),
+                                         step_days=7)
                 counts.update(sc)
                 notes += sn
             log_ingest(conn, "inseason", season_id, sum(counts.values()),

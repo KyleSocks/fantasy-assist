@@ -93,6 +93,10 @@ How the numbers are made (tunable in `config/inseason.yaml`):
 **GUI:** run the server (`uv run uvicorn src.api.main:app`, or `server-start.bat`) and open
 http://127.0.0.1:8000/inseason -- tabs for the roster audit, the streaming plan, free
 agents + tonight's streams, the schedule grid, and editing your roster / free-agent lists.
+The **Refresh data** button re-ingests this season's stats, rosters and schedule and
+rewrites `data/my_roster.txt` / `data/fa.txt` from your public Yahoo league
+(`yahoo.league_id` / `team_id` in `config/inseason.yaml`; top 100 free agents by Yahoo
+rank, IR and goalies excluded). Takes about a minute.
 
 API (same data, for the UI): `/api/inseason/streams`, `/api/inseason/player/{id}`,
 `/api/inseason/schedule`.

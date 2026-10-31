@@ -15,11 +15,15 @@ _SCHED_SLEEP_S = 0.1
 def ingest_schedule(conn, fetcher: Fetcher, season_id: int,
                     dry_run: bool = False,
                     start: datetime.date | None = None,
+                    step_days: int = 1,
                     ) -> tuple[dict[str, int], list[str]]:
     """Fetch day-by-day schedule for one season and upsert games.
 
     ``start`` (optional) skips days before it -- the mid-season refresh only
     needs today onward. Default: the whole season from Oct 1.
+    ``step_days=7`` fetches one request per week: each /schedule/{date}
+    response already holds that date's whole game week, and games are
+    upserted, so nothing is missed.
     """
     notes: list[str] = []
     counts: dict[str, int] = {"schedule": 0}
@@ -37,7 +41,7 @@ def ingest_schedule(conn, fetcher: Fetcher, season_id: int,
                 f"https://api-web.nhle.com/v1/schedule/{date_str}")
         except (httpx.HTTPError, OSError) as e:
             notes.append(f"schedule {date_str}: {e}")
-            d += datetime.timedelta(days=1)
+            d += datetime.timedelta(days=step_days)
             continue
         for week in raw.get("gameWeek", []):
             for game in week.get("games", []):
@@ -60,6 +64,6 @@ def ingest_schedule(conn, fetcher: Fetcher, season_id: int,
                     (gid, season_id, date_str, home, away, gtype),
                 )
                 counts["schedule"] += 1
-        d += datetime.timedelta(days=1)
+        d += datetime.timedelta(days=step_days)
         time.sleep(_SCHED_SLEEP_S)
     return counts, notes

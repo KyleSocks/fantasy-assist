@@ -103,7 +103,7 @@
     document.querySelectorAll(".panel").forEach((p) => { p.hidden = p.id !== `tab-${current}`; });
     load();
   }));
-  function load() { status(""); (loaders[current] || (() => {}))(); }
+  function load() { status(""); return Promise.resolve((loaders[current] || (() => {}))()); }
 
   // ── roster ───────────────────────────────────────────────────────────
   loaders.roster = async () => {
@@ -245,6 +245,28 @@
       $("lists-msg").textContent = r.unmatched.length
         ? `Saved. No match for: ${r.unmatched.join(", ")}` : "Saved.";
     } catch (e) { $("lists-msg").textContent = e.message; }
+  });
+
+  // ── refresh: re-ingest stats + pull roster / free agents from Yahoo ──
+  $("refresh").addEventListener("click", async () => {
+    const btn = $("refresh");
+    btn.disabled = true;
+    btn.textContent = "Refreshing…";
+    status("Re-ingesting season stats, rosters and schedule, then reading Yahoo (about a minute)…");
+    try {
+      const r = await api(`/api/inseason/refresh?league=${encodeURIComponent($("league").value)}`,
+        { method: "POST" });
+      rosterPlayers = [];
+      const y = r.yahoo;
+      const msg = `Updated in ${r.seconds}s: ${r.ingest.skater_current} skaters, ` +
+        `${r.ingest.goalie_current} goalies` +
+        (y ? `; Yahoo roster ${y.roster}, free agents ${y.free_agents}` +
+          (y.unmatched.length ? ` (no match: ${y.unmatched.join(", ")})` : "") : "");
+      await load();
+      status(r.yahoo_error ? `${msg}. ${r.yahoo_error}` : msg, !!r.yahoo_error);
+    } catch (e) { status(`Refresh failed: ${e.message}`, true); }
+    btn.disabled = false;
+    btn.textContent = "Refresh data";
   });
 
   // ── boot ─────────────────────────────────────────────────────────────

@@ -32,3 +32,10 @@ off_night_max_games: 7
 # hold check: ROS per-game value at least this fraction above replacement
 # is a HOLD regardless of the short window.
 hold_margin: 0.15
+# Refresh button / src.inseason.yahoo_public: your public Yahoo league.
+# league_id and team_id are in the team page URL:
+#   hockey.fantasysports.yahoo.com/hockey/<league_id>/<team_id>
+yahoo:
+  league_id: 19725
+  team_id: 5
+  free_agent_pages: 4   # 25 players per page, Yahoo's own ranking

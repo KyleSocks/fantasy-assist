@@ -7,6 +7,7 @@ GET/PUT /api/inseason/lists          your roster + free-agent list text
 GET /api/inseason/audit?start=&days=9&league=
 GET /api/inseason/free-agents?start=&days=9&league=
 GET /api/inseason/plan?hold=<id>&adds=1,4&start=&days=9&locked=DET,STL
+POST /api/inseason/refresh            re-ingest stats + pull roster/FA from Yahoo
 
 The context (projection + blend + scorer) is cached per league and is
 rebuilt when data/hockey.db changes on disk.
@@ -174,3 +175,44 @@ def get_plan(hold: int, adds: str = "1,4", start: str | None = None,
 def get_leagues() -> dict:
     return {"leagues": sorted(p.stem for p in LEAGUE_DIR.glob("*.yaml")),
             "default": DEFAULT_LEAGUE_PATH.stem}
+
+
+@router.post("/refresh")
+def refresh(league: str | None = None) -> dict:
+    """Re-ingest season-to-date stats (+ rosters, schedule), then rewrite
+    data/my_roster.txt and data/fa.txt from the public Yahoo league pages.
+    A Yahoo failure keeps the old lists and is reported, not raised."""
+    import time
+
+    from src.inseason.ingest import ingest_current
+    from src.inseason.model import load_inseason_config
+    from src.inseason.yahoo_public import fetch_lists, render
+
+    t0 = time.monotonic()
+    try:
+        counts = ingest_current(str(DB_PATH))
+    except Exception as e:  # network / API errors surface to the page
+        raise HTTPException(502, f"stats ingest failed: {e}")
+    _CACHE.clear()
+    out = {"ingest": counts, "yahoo": None, "yahoo_error": None}
+    y = (load_inseason_config() or {}).get("yahoo") or {}
+    if not y.get("league_id") or not y.get("team_id"):
+        out["yahoo_error"] = "set yahoo.league_id / team_id in config/inseason.yaml"
+    else:
+        try:
+            roster, fas = fetch_lists(int(y["league_id"]), int(y["team_id"]),
+                                      int(y.get("free_agent_pages", 4)))
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            (DATA_DIR / ROSTER_FILE).write_text(
+                render(roster, "My roster"), encoding="utf-8")
+            (DATA_DIR / FA_FILE).write_text(
+                render(fas, "Free agents"), encoding="utf-8")
+            ctx = _ctx(league)
+            _, miss_r = parse_players(ctx, (DATA_DIR / ROSTER_FILE).read_text("utf-8"))
+            _, miss_f = parse_players(ctx, (DATA_DIR / FA_FILE).read_text("utf-8"))
+            out["yahoo"] = {"roster": len(roster), "free_agents": len(fas),
+                            "unmatched": miss_r + miss_f}
+        except Exception as e:
+            out["yahoo_error"] = f"Yahoo lists not updated: {e}"
+    out["seconds"] = round(time.monotonic() - t0, 1)
+    return out
