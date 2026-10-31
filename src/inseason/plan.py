@@ -11,6 +11,10 @@ Rules modelled:
   (weeks start on ``week_start`` weekday, Monday by default, like Yahoo).
 - A player you drop can't be re-added inside the horizon (he goes to waivers).
 - A player can't be added before his ``available_from`` date (waiver clears).
+- Only players eligible for the slot can be added: ``slot_positions`` (e.g.
+  {"LW"}) intersected with each player's ``eligibility`` (Yahoo positions,
+  e.g. {"C", "LW"}). Players missing from ``eligibility`` fall back to their
+  NHL primary position via nhl_eligibility().
 - The slot's player is assumed to START whenever his team plays. That holds
   when the slot is a streaming spot you keep open; it overstates value on
   nights your other starters already fill every eligible slot.
@@ -39,6 +43,26 @@ class Plan:
     adds_by_week: dict[str, int] = field(default_factory=dict)
 
 
+_NHL_TO_YAHOO = {"C": "C", "L": "LW", "R": "RW", "D": "D", "G": "G"}
+
+
+def nhl_eligibility(position: str) -> set[str]:
+    """Yahoo-style positions from an NHL primary position (C, L, R, D, G).
+
+    Yahoo often adds a second position (C,LW); this fallback only knows the
+    primary one, so it under-counts eligibility -- prefer Yahoo's list.
+    """
+    p = _NHL_TO_YAHOO.get(position)
+    return {p} if p else set()
+
+
+def slot_accepts(slot_positions: set[str], eligible: set[str]) -> bool:
+    """Util takes any skater; otherwise the positions must overlap."""
+    if "Util" in slot_positions and eligible - {"G"}:
+        return True
+    return bool(slot_positions & eligible)
+
+
 def week_key(date: str, week_start: int = 0) -> str:
     """ISO date of the first day of ``date``'s fantasy week (0 = Monday)."""
     d = datetime.date.fromisoformat(date)
@@ -53,6 +77,9 @@ def plan_slot(
     available_from: dict[int, str] | None = None,
     week_start: int = 0,
     beam: int = 3000,
+    slot_positions: set[str] | None = None,
+    eligibility: dict[int, set[str]] | None = None,
+    positions: dict[int, str] | None = None,
 ) -> Plan:
     """Best hold/switch sequence for one slot.
 
@@ -67,6 +94,12 @@ def plan_slot(
               else {w: adds_per_week.get(w, 0) for w in weeks})
     widx = {w: i for i, w in enumerate(weeks)}
     pool = [p for p in values if p != current]
+    if slot_positions:
+        eligibility = eligibility or {}
+        positions = positions or {}
+        pool = [p for p in pool if slot_accepts(
+            slot_positions,
+            eligibility.get(p) or nhl_eligibility(positions.get(p, "")))]
 
     # state: (score, holder, adds_used tuple, used frozenset, steps tuple)
     states = [(0.0, current, tuple(0 for _ in weeks), frozenset([current]), ())]

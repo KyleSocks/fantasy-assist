@@ -32,3 +32,19 @@ def test_waiver_player_not_addable_before_clearing():
 
 def test_zero_adds_keeps_current():
     assert plan_slot(1, VALUES, [D1, D2, D3], 0).total == 1.0
+
+
+def test_slot_eligibility_filters_pool():
+    from src.inseason.plan import nhl_eligibility, slot_accepts
+    # LW slot: 2 is C-only (Yahoo), 3 is C,LW -> only 3 can be added.
+    # best: 3 from D1 (2 + 2) = 4, even with 2 adds
+    p = plan_slot(1, VALUES, [D1, D2, D3], 2, slot_positions={"LW"},
+                  eligibility={2: {"C"}, 3: {"C", "LW"}})
+    assert p.total == 4.0 and p.steps == [Step(D1, 3, 1)]
+    # no Yahoo data -> NHL primary position fallback (2 is a winger "L")
+    p = plan_slot(1, VALUES, [D1, D2, D3], 1, slot_positions={"LW"},
+                  positions={2: "L", 3: "C"})
+    assert p.steps == [Step(D2, 2, 1)]
+    assert nhl_eligibility("R") == {"RW"} and nhl_eligibility("X") == set()
+    assert slot_accepts({"Util"}, {"D"}) and not slot_accepts({"Util"}, {"G"})
+    assert not slot_accepts({"LW"}, {"C", "RW"})
