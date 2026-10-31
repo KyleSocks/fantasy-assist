@@ -42,4 +42,5 @@ hold_margin: 0.15
 yahoo:
   league_id: 19725
   team_id: 5
-  free_agent_pages: 4   # 25 players per page, Yahoo's own ranking
+  free_agent_pages: 6   # per ranking (current + preseason), 25 per page;
+                        # free agents and waiver players

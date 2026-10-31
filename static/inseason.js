@@ -187,7 +187,11 @@
     status("Loading free agents…");
     try {
       const f = await api(`/api/inseason/free-agents?${params()}`);
-      table($("fa-table"), playerCols([{ key: "window_games", label: "Games" }]), f.players);
+      table($("fa-table"), playerCols([
+        { key: "window_games", label: "Games" },
+        { key: "waiver_until", label: "Avail", left: true, title: "waiver players can be added once they clear",
+          fmt: (r) => r.waiver_until ? `<span class="flag">W until ${md(r.waiver_until)}</span>` : "FA" },
+      ]), f.players);
       status(f.unmatched.length ? `Unmatched names: ${f.unmatched.join(", ")}` : "");
       await loadStreams();
     } catch (e) { status(e.message, true); }

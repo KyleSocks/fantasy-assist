@@ -171,7 +171,8 @@ def _end(start: str, days: int) -> str:
 
 def streams(ctx: Context, date: str, top: int = 25, group: str | None = None,
             likely_available: bool = True,
-            taken: set[int] | None = None) -> list[dict]:
+            taken: set[int] | None = None,
+            unavailable: set[int] = frozenset()) -> list[dict]:
     """Best single-game plays on ``date`` (opponent-adjusted).
 
     ``group``: "F", "D", "G", or "S" (all skaters). Goalies are valued as
@@ -193,6 +194,8 @@ def streams(ctx: Context, date: str, top: int = 25, group: str | None = None,
         elif group and grp != group:
             continue
         if line.is_goalie and line.start_share < min_share:
+            continue
+        if pid in unavailable:      # on waivers that day, or injured (OUT)
             continue
         if taken is not None:
             if pid in taken:

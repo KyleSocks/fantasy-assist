@@ -58,16 +58,23 @@ def test_fetch_lists_pages_until_short_page():
         calls.append(str(req.url))
         if req.url.path.endswith("/19725/5"):
             return httpx.Response(200, text=TEAM_PAGE)
+        assert req.url.params["status"] == "A"           # free agents + waivers
         start = int(req.url.params["count"])
         n = 25 if start == 0 else 3
+        # the preseason-rank sort (OR) finds 2 extra players beyond the AR list
+        extra = [_row(f"Slow Starter {i}", "MTL - D") for i in range(2)] \
+            if req.url.params["sort"] == "OR" and start == 0 else []
         return httpx.Response(200, text="".join(
-            _row(f"Free Agent {start + i}", "TB - C") for i in range(n)))
+            _row(f"Free Agent {start + i}", "TB - C") for i in range(n)) + "".join(extra))
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     roster, fas = fetch_lists(19725, 5, fa_pages=4, client=client)
-    assert len(roster) == 5 and len(fas) == 28        # IR player kept (marked)
+    assert len(roster) == 5                           # IR player kept (marked)
     assert [p.name for p in roster if p.inactive] == ["Aleksander Barkov"]
-    assert fas[0].team == "TBL" and len(calls) == 3   # team + 2 FA pages
+    # 28 by current rank + 2 only found by preseason rank, no duplicates
+    assert len(fas) == 30 and fas[0].team == "TBL"
+    assert {p.name for p in fas[-2:]} == {"Slow Starter 0", "Slow Starter 1"}
+    assert len(calls) == 5                            # team + 2 pages x 2 sorts
 
 
 def test_refresh_endpoint(monkeypatch, tmp_path):
@@ -106,3 +113,25 @@ def test_ir_players_kept_and_marked():
     barkov = next(p for p in r if p.name == "Aleksander Barkov")
     assert barkov.inactive and barkov.line() == "Aleksander Barkov | FLA | C | IR"
     assert not r[0].inactive and r[0].line() == "Sam Bennett | FLA | C"
+
+
+def test_waiver_and_injury_tags():
+    import datetime
+    w = _row("Alex Ovechkin", "WSH - LW,RW").replace(
+        "<td><div>FA</div></td>",
+        '<td class="Alt Ta-start Nowrap Bdrend"><div style="text-overflow: ellipsis;">'
+        'W (Nov 2)</div></td>')
+    hurt = _row("Matt Duchene", "DAL - C").replace(
+        '</a><span class="player-status',
+        '</a><span class="ysf-player-status Nowrap F-injury Fz-xxs"><span class="Pstart-sm"'
+        ' title="Injured Reserve – Long Term">IR-LT</span></span><span class="player-status')
+    dtd = hurt.replace("Matt Duchene", "Day Today").replace("IR-LT", "DTD")
+    ov, du, dt = parse_rows(w + hurt + dtd, today=datetime.date(2026, 10, 31))
+    assert ov.waiver_until == "2026-11-02" and not ov.out
+    assert ov.line() == "Alex Ovechkin | WSH | LW,RW | W 2026-11-02"
+    assert du.out and du.line() == "Matt Duchene | DAL | C | OUT  # IR-LT"
+    assert not dt.out and dt.line() == "Day Today | DAL | C  # DTD"
+    # a December waiver date read in late December stays this season; one
+    # read in January for "Jan 3" is next calendar year
+    from src.inseason.yahoo_public import _waiver_date
+    assert _waiver_date("Jan", "3", datetime.date(2026, 12, 30)) == "2027-01-03"

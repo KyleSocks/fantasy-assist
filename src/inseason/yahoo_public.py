@@ -31,6 +31,26 @@ _ROW = re.compile(r"<tr\b.*?</tr>", re.S)
 _NAME = re.compile(r'<a class="Nowrap name F-link[^"]*"[^>]*>([^<]+)</a>')
 _TEAM_POS = re.compile(r'<span class="Fz-xxs">([A-Za-z]{2,3}) - ([A-Za-z,+]+)</span>')
 _SLOT = re.compile(r'data-pos="([^"]+)"')
+# injury tag next to the name, e.g. <span ... F-injury ...><span ...>IR-LT</span>
+_INJURY = re.compile(r'F-injury[^"]*"[^>]*>\s*<span[^>]*>([^<]+)</span>')
+# roster-status cell on player lists: "FA" or "W (Nov 2)"
+_WAIVER = re.compile(r'>\s*W \(([A-Z][a-z]{2}) (\d{1,2})\)\s*<')
+# injury codes that mean "not playing": don't stream / add them
+OUT_CODES = {"O", "IR", "IR-LT", "IR-NR", "NA", "SUSP", "IR+"}
+_MONTHS = {m: i for i, m in enumerate(
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
+     "Nov", "Dec"], start=1)}
+
+
+def _waiver_date(mon: str, day: str, today: datetime.date | None = None) -> str:
+    """'Nov', '2' -> ISO date in the current hockey season."""
+    today = today or datetime.date.today()
+    d = datetime.date(today.year, _MONTHS[mon], int(day))
+    if (d - today).days < -180:          # Dec list read in Jan, etc.
+        d = d.replace(year=today.year + 1)
+    elif (d - today).days > 180:
+        d = d.replace(year=today.year - 1)
+    return d.isoformat()
 
 
 @dataclass(frozen=True)
@@ -39,17 +59,33 @@ class YPlayer:
     team: str          # NHL abbreviation
     positions: tuple[str, ...]
     slot: str | None = None   # roster lineup slot (C, BN, IR+ ...)
+    injury: str | None = None  # Yahoo tag: DTD, O, IR-LT ...
+    waiver_until: str | None = None  # ISO date he clears waivers
 
     @property
     def inactive(self) -> bool:
         return self.slot in INACTIVE_SLOTS
 
+    @property
+    def out(self) -> bool:
+        return (self.injury or "").upper() in OUT_CODES
+
     def line(self) -> str:
+        """List-file line. 4th field: IR (your IR slot), OUT (injured free
+        agent), or W <date> (on waivers until then). DTD is a comment."""
         base = f"{self.name} | {self.team} | {','.join(self.positions)}"
-        return base + " | IR" if self.inactive else base
+        if self.inactive:
+            base += " | IR"
+        elif self.out:
+            base += " | OUT"
+        elif self.waiver_until:
+            base += f" | W {self.waiver_until}"
+        if self.injury and not self.inactive:
+            base += f"  # {self.injury}"
+        return base
 
 
-def parse_rows(page: str) -> list[YPlayer]:
+def parse_rows(page: str, today: datetime.date | None = None) -> list[YPlayer]:
     """Every player row in an HTML fragment."""
     out = []
     for row in _ROW.findall(page):
@@ -57,12 +93,14 @@ def parse_rows(page: str) -> list[YPlayer]:
         if not name or not tp:
             continue
         team = tp.group(1).upper()
-        slot = _SLOT.search(row)
+        slot, inj, w = _SLOT.search(row), _INJURY.search(row), _WAIVER.search(row)
         out.append(YPlayer(
             html.unescape(name.group(1)).strip(),
             YAHOO_TO_NHL.get(team, team),
             tuple(p for p in tp.group(2).split(",") if p),
-            slot.group(1) if slot else None))
+            slot.group(1) if slot else None,
+            inj.group(1).strip() if inj else None,
+            _waiver_date(w.group(1), w.group(2), today) if w else None))
     return out
 
 
@@ -125,10 +163,16 @@ def _get(client: httpx.Client, url: str) -> str:
     return r.text
 
 
-def fetch_lists(league_id: int, team_id: int, fa_pages: int = 4,
+def fetch_lists(league_id: int, team_id: int, fa_pages: int = 6,
                 client: httpx.Client | None = None,
                 ) -> tuple[list[YPlayer], list[YPlayer]]:
-    """(your roster skaters, free-agent skaters ranked by Yahoo)."""
+    """(your roster skaters, available skaters).
+
+    Available = free agents AND waiver players (status=A), the union of
+    Yahoo's top ``fa_pages`` pages by current-season rank (AR) and by
+    preseason rank (OR) -- current rank alone buries slow starters (Mike
+    Matheson was 234th) that the blended model may still like.
+    """
     own = client is None
     client = client or httpx.Client(headers=HEADERS, timeout=30,
                                     follow_redirects=True)
@@ -138,15 +182,16 @@ def fetch_lists(league_id: int, team_id: int, fa_pages: int = 4,
                               include_inactive=True)
         fas: list[YPlayer] = []
         seen: set[str] = set()
-        for page in range(fa_pages):
-            rows = parse_rows(_get(client, (
-                f"{BASE}/{league_id}/players?status=FA&pos=P&sort=AR&sdir=1"
-                f"&count={page * PAGE_SIZE}")))
-            new = [p for p in rows if p.name not in seen]
-            seen.update(p.name for p in new)
-            fas += new
-            if len(rows) < PAGE_SIZE:
-                break
+        for sort in ("AR", "OR"):
+            for page in range(fa_pages):
+                rows = parse_rows(_get(client, (
+                    f"{BASE}/{league_id}/players?status=A&pos=P&sort={sort}"
+                    f"&sdir=1&count={page * PAGE_SIZE}")))
+                new = [p for p in rows if (p.name, p.team) not in seen]
+                seen.update((p.name, p.team) for p in new)
+                fas += new
+                if len(rows) < PAGE_SIZE:
+                    break
     finally:
         if own:
             client.close()
@@ -157,5 +202,6 @@ def fetch_lists(league_id: int, team_id: int, fa_pages: int = 4,
 
 def render(players: list[YPlayer], title: str) -> str:
     stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    return (f"# {title}, from Yahoo {stamp} (Name | TEAM | Yahoo positions)\n"
+    return (f"# {title}, from Yahoo {stamp} (Name | TEAM | Yahoo positions"
+            f" | IR / OUT / W <clears>)\n"
             + "".join(p.line() + "\n" for p in players))

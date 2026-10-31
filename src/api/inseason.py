@@ -71,7 +71,9 @@ def get_streams(date: str | None = None, league: str | None = None,
             "nhl_games": ctx.games_on(d),
             "unit": "fpts" if ctx.scorer.points else "z",
             "players": streams(ctx, d, top, group, likely_available=not all,
-                               taken=None if all else _league_taken(ctx)),
+                               taken=None if all else _league_taken(ctx),
+                               unavailable=frozenset() if all
+                               else _unavailable_on(ctx, d)),
             "availability": ("all players" if all else
                              "not rostered in your league" if (DATA_DIR / LEAGUE_FILE).exists()
                              else "outside the rosterable pool (estimate)")}
@@ -134,10 +136,21 @@ def put_lists(body: Lists, league: str | None = None) -> dict:
     return {"saved": True, "unmatched": miss_r + miss_f}
 
 
-def _lists(ctx, inactive: set[int] | None = None):
+def _lists(ctx, inactive: set[int] | None = None,
+           available_from: dict[int, str] | None = None,
+           fa_out: set[int] | None = None):
     roster, miss_r = parse_players(ctx, _read(ROSTER_FILE), inactive)
-    fas, miss_f = parse_players(ctx, _read(FA_FILE))
+    fas, miss_f = parse_players(ctx, _read(FA_FILE), fa_out, available_from)
     return roster, fas, miss_r + miss_f
+
+
+def _unavailable_on(ctx, date: str) -> set[int]:
+    """Free-agent-file players who can't be streamed on ``date``: injured
+    (OUT) or still on waivers."""
+    out: set[int] = set()
+    avail: dict[int, str] = {}
+    _lists(ctx, available_from=avail, fa_out=out)
+    return out | {p for p, d in avail.items() if d > date}
 
 
 def _league_taken(ctx) -> set[int] | None:
@@ -170,8 +183,9 @@ def get_audit(start: str | None = None, days: int = 9,
 def get_free_agents(start: str | None = None, days: int = 9,
                     league: str | None = None) -> dict:
     ctx = _ctx(league)
-    _, fas, missing = _lists(ctx)
-    return {"players": free_agent_table(ctx, fas, start or _today(), days),
+    avail: dict[int, str] = {}
+    _, fas, missing = _lists(ctx, available_from=avail)
+    return {"players": free_agent_table(ctx, fas, start or _today(), days, avail),
             "unmatched": missing, "as_of": ctx.as_of}
 
 
@@ -179,7 +193,8 @@ def get_free_agents(start: str | None = None, days: int = 9,
 def get_plan(hold: int, adds: str = "1,4", start: str | None = None,
              days: int = 9, locked: str = "", league: str | None = None) -> dict:
     ctx = _ctx(league)
-    roster, fas, _ = _lists(ctx)
+    avail: dict[int, str] = {}
+    roster, fas, _ = _lists(ctx, available_from=avail)
     if hold not in ctx.lines:
         raise HTTPException(404, f"Unknown player id {hold}")
     try:
@@ -188,7 +203,7 @@ def get_plan(hold: int, adds: str = "1,4", start: str | None = None,
         raise HTTPException(422, f"adds must look like 1,4 (got '{adds}')")
     lock = {t.strip() for t in locked.split(",") if t.strip()}
     return roster_plan(ctx, roster, fas, hold, start or _today(), days,
-                       budget or [0], lock)
+                       budget or [0], lock, avail)
 
 
 @router.get("/leagues")
@@ -221,7 +236,7 @@ def refresh(league: str | None = None) -> dict:
     else:
         try:
             roster, fas = fetch_lists(int(y["league_id"]), int(y["team_id"]),
-                                      int(y.get("free_agent_pages", 4)))
+                                      int(y.get("free_agent_pages", 6)))
             DATA_DIR.mkdir(parents=True, exist_ok=True)
             (DATA_DIR / ROSTER_FILE).write_text(
                 render(roster, "My roster"), encoding="utf-8")

@@ -338,3 +338,16 @@ def test_goalie_streams_skip_rare_starters_and_skater_group(ctx):
     assert 7 not in ids                       # Goalie B starts 40% < 50%
     sk = streams(ctx, "2026-11-02", group="S", likely_available=False)
     assert sk and all(r["pos"] != "G" for r in sk)
+
+
+def test_waiver_and_out_markers_in_lists(ctx):
+    from src.inseason.roster import parse_players
+    avail, out = {}, set()
+    fas, _ = parse_players(ctx, "Strong Center | BBB | C | W 2026-11-03\n"
+                                "Depth Wing | CCC | RW | OUT  # IR-LT\n"
+                                "Dee Two | CCC | D  # DTD\n", out, avail)
+    assert set(fas) == {2, 5} and out == {3} and avail == {2: "2026-11-03"}
+    # a waiver player can't be streamed before he clears
+    ids = {r["player_id"] for r in streams(ctx, "2026-11-02", likely_available=False,
+                                           unavailable={2})}
+    assert 2 not in ids and 5 in ids

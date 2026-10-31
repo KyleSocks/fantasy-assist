@@ -23,12 +23,14 @@ INACTIVE_MARKERS = {"IR", "IR+", "NA", "INJ", "OUT"}
 
 
 def parse_players(ctx: Context, text: str, inactive: set[int] | None = None,
+                  available_from: dict[int, str] | None = None,
                   ) -> tuple[dict[int, set[str]], list[str]]:
     """{player_id: eligible positions} from list text, plus unmatched names.
 
     Lines with a 4th field of IR / IR+ / NA ("Barkov | FLA | C | IR") are
     injured / inactive: left out of the returned (active) roster and added
-    to ``inactive`` when a set is passed.
+    to ``inactive`` when a set is passed. "W 2026-11-02" (on waivers) keeps
+    the player and records the date he can be added in ``available_from``.
     """
     out: dict[int, set[str]] = {}
     missing: list[str] = []
@@ -50,10 +52,14 @@ def parse_players(ctx: Context, text: str, inactive: set[int] | None = None,
             missing.append(parts[0])
             continue
         ln = hits[0]
-        if len(parts) > 3 and parts[3].upper() in INACTIVE_MARKERS:
+        status = parts[3].split() if len(parts) > 3 else []
+        if status and status[0].upper() in INACTIVE_MARKERS:
             if inactive is not None:
                 inactive.add(ln.player_id)
             continue
+        if (len(status) > 1 and status[0].upper() == "W"
+                and available_from is not None):
+            available_from[ln.player_id] = status[1]
         out[ln.player_id] = ({x.strip() for x in parts[2].split(",") if x.strip()}
                              if len(parts) > 2 and parts[2]
                              else nhl_eligibility(ln.position))
@@ -165,15 +171,22 @@ def audit(ctx: Context, roster: dict[int, set[str]], start: str,
 
 
 def free_agent_table(ctx: Context, fas: dict[int, set[str]], start: str,
-                     days: int = 9) -> list[dict]:
-    rows = [_player_row(ctx, p, e, start, days) for p, e in fas.items()]
+                     days: int = 9, available_from: dict[int, str] | None = None,
+                     ) -> list[dict]:
+    available_from = available_from or {}
+    rows = []
+    for p, e in fas.items():
+        row = _player_row(ctx, p, e, start, days)
+        row["waiver_until"] = available_from.get(p)
+        rows.append(row)
     rows.sort(key=lambda r: -r["blended"])
     return rows
 
 
 def roster_plan(ctx: Context, roster: dict[int, set[str]],
                 cands: dict[int, set[str]], hold: int, start: str, days: int,
-                adds: list[int], locked: set[str] = frozenset()) -> dict:
+                adds: list[int], locked: set[str] = frozenset(),
+                available_from: dict[int, str] | None = None) -> dict:
     """Roster-aware add/drop plan for ``hold``'s roster spot."""
     dates = dates_from(start, days)
     roster = dict(roster)
@@ -188,7 +201,8 @@ def roster_plan(ctx: Context, roster: dict[int, set[str]],
     weeks = sorted({week_key(d) for d in dates})
     budget = {w: (adds[i] if i < len(adds) else adds[-1])
               for i, w in enumerate(weeks)}
-    pl = plan_slot(hold, mv, dates, budget)
+    # waiver players can't be added before they clear
+    pl = plan_slot(hold, mv, dates, budget, available_from=available_from)
 
     def who(p):
         ln = ctx.lines[p]
