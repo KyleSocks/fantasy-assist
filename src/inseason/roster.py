@@ -15,10 +15,21 @@ from .plan import nhl_eligibility, plan_slot, week_key
 
 # EV TOI/GP drop (seconds) that flags a possible role change.
 TOI_FLAG_SEC = 90
+# Below this many games a skater's season-to-date line is a small sample:
+# no "below projection" / "ice time down" flags (the blend already leans
+# on the preseason projection). Skaters only miss games when hurt.
+MIN_GP_FLAGS = 8
+INACTIVE_MARKERS = {"IR", "IR+", "NA", "INJ", "OUT"}
 
 
-def parse_players(ctx: Context, text: str) -> tuple[dict[int, set[str]], list[str]]:
-    """{player_id: eligible positions} from list text, plus unmatched names."""
+def parse_players(ctx: Context, text: str, inactive: set[int] | None = None,
+                  ) -> tuple[dict[int, set[str]], list[str]]:
+    """{player_id: eligible positions} from list text, plus unmatched names.
+
+    Lines with a 4th field of IR / IR+ / NA ("Barkov | FLA | C | IR") are
+    injured / inactive: left out of the returned (active) roster and added
+    to ``inactive`` when a set is passed.
+    """
     out: dict[int, set[str]] = {}
     missing: list[str] = []
     for raw in text.splitlines():
@@ -39,6 +50,10 @@ def parse_players(ctx: Context, text: str) -> tuple[dict[int, set[str]], list[st
             missing.append(parts[0])
             continue
         ln = hits[0]
+        if len(parts) > 3 and parts[3].upper() in INACTIVE_MARKERS:
+            if inactive is not None:
+                inactive.add(ln.player_id)
+            continue
         out[ln.player_id] = ({x.strip() for x in parts[2].split(",") if x.strip()}
                              if len(parts) > 2 and parts[2]
                              else nhl_eligibility(ln.position))
@@ -79,9 +94,13 @@ def _player_row(ctx: Context, pid: int, elig: set[str], start: str,
     toi_drop = (ln.toi_pg_prior - ln.toi_pg_obs
                 if ln.toi_pg_prior and ln.toi_pg_obs else None)
     flags = []
-    if toi_drop is not None and toi_drop >= TOI_FLAG_SEC:
+    small = not ln.is_goalie and ln.gp < MIN_GP_FLAGS
+    if small:
+        flags.append(f"small sample ({ln.gp} GP)")
+    if not small and toi_drop is not None and toi_drop >= TOI_FLAG_SEC:
         flags.append("ice time down")
-    if f["vs_prior_pct"] is not None and f["vs_prior_pct"] <= -0.15:
+    if (not small and f["vs_prior_pct"] is not None
+            and f["vs_prior_pct"] <= -0.15):
         flags.append("producing below projection")
     if h["verdict"] != "HOLD":
         flags.append(h["verdict"].lower())
@@ -99,8 +118,10 @@ def _player_row(ctx: Context, pid: int, elig: set[str], start: str,
 
 
 def audit(ctx: Context, roster: dict[int, set[str]], start: str,
-          days: int = 9) -> dict:
-    """Per-player audit plus how much each adds to your nightly lineup."""
+          days: int = 9, inactive: set[int] = frozenset()) -> dict:
+    """Per-player audit plus how much each adds to your nightly lineup.
+    ``inactive`` (IR) players are listed as protected holds and kept out of
+    the lineup simulation."""
     dates = dates_from(start, days)
     slots = skater_slots(ctx)
     gv = {p: game_values(ctx, p, dates) for p in roster}
@@ -119,6 +140,15 @@ def audit(ctx: Context, roster: dict[int, set[str]], start: str,
         row["starts"] = sum(1 for _, a in nights if p in a)
         rows.append(row)
     rows.sort(key=lambda r: r["blended"])
+    for p in sorted(inactive, key=lambda q: -ctx.scorer.per_game.get(q, 0)):
+        if p not in ctx.lines:
+            continue
+        row = _player_row(ctx, p, nhl_eligibility(ctx.lines[p].position),
+                          start, days)
+        row.update(verdict="IR", lineup_adds=0.0, starts=0, window_games=0,
+                   flags=["injured reserve: hold"]
+                   + [f for f in row["flags"] if f.startswith("small")])
+        rows.append(row)
     night_rows = []
     for d, (total, assign) in zip(dates, nights):
         used: dict[str, int] = {}

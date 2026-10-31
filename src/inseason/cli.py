@@ -166,7 +166,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("streams", help="best single-game streams for a date")
     s.add_argument("--date", default=today)
     s.add_argument("--top", type=int, default=25)
-    s.add_argument("--group", choices=["F", "D", "G"])
+    s.add_argument("--group", choices=["F", "D", "G", "S"],
+                   help="S = all skaters")
     s.add_argument("--all", action="store_true",
                    help="include players inside the rostered pool")
     s.add_argument("--taken", metavar="FILE",

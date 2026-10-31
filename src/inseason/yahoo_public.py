@@ -40,8 +40,13 @@ class YPlayer:
     positions: tuple[str, ...]
     slot: str | None = None   # roster lineup slot (C, BN, IR+ ...)
 
+    @property
+    def inactive(self) -> bool:
+        return self.slot in INACTIVE_SLOTS
+
     def line(self) -> str:
-        return f"{self.name} | {self.team} | {','.join(self.positions)}"
+        base = f"{self.name} | {self.team} | {','.join(self.positions)}"
+        return base + " | IR" if self.inactive else base
 
 
 def parse_rows(page: str) -> list[YPlayer]:
@@ -61,7 +66,8 @@ def parse_rows(page: str) -> list[YPlayer]:
     return out
 
 
-def parse_roster(page: str, include_goalies: bool = False) -> list[YPlayer]:
+def parse_roster(page: str, include_goalies: bool = False,
+                 include_inactive: bool = False) -> list[YPlayer]:
     """Players on a team page, excluding IR / IR+ / NA slots.
 
     Skaters come from statTable0; goalies (statTable1) only when
@@ -76,7 +82,7 @@ def parse_roster(page: str, include_goalies: bool = False) -> list[YPlayer]:
     if include_goalies and g > 0:
         end = page.find("</table>", g)
         players += parse_rows(page[g:end if end > 0 else None])
-    return [p for p in players if p.slot not in INACTIVE_SLOTS]
+    return [p for p in players if include_inactive or not p.inactive]
 
 
 _TEAM_LINK = re.compile(
@@ -105,7 +111,8 @@ def fetch_league(league_id: int, client: httpx.Client | None = None,
         if not teams:
             raise ValueError("no teams found on the league page; is it public?")
         return {tid: {"name": name, "players": parse_roster(
-                    _get(client, f"{BASE}/{league_id}/{tid}"), include_goalies=True)}
+                    _get(client, f"{BASE}/{league_id}/{tid}"), include_goalies=True,
+                    include_inactive=True)}
                 for tid, name in sorted(teams.items())}
     finally:
         if own:
@@ -126,7 +133,9 @@ def fetch_lists(league_id: int, team_id: int, fa_pages: int = 4,
     client = client or httpx.Client(headers=HEADERS, timeout=30,
                                     follow_redirects=True)
     try:
-        roster = parse_roster(_get(client, f"{BASE}/{league_id}/{team_id}"))
+        # IR players are kept (marked "| IR") so they're protected, not lost
+        roster = parse_roster(_get(client, f"{BASE}/{league_id}/{team_id}"),
+                              include_inactive=True)
         fas: list[YPlayer] = []
         seen: set[str] = set()
         for page in range(fa_pages):

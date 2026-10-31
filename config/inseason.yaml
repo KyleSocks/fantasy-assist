@@ -29,6 +29,10 @@ start_share_k_games: 10
 opponent_k_games: 10
 # A night with this many NHL games or fewer counts as an "off-night".
 off_night_max_games: 7
+# Goalie single-game streams are valued as if he STARTS that game (you'd
+# only stream a confirmed starter), but goalies who start fewer than this
+# share of their team's games (third-stringers, call-ups) aren't listed.
+stream_goalie_min_start_share: 0.15
 # hold check: ROS per-game value at least this fraction above replacement
 # is a HOLD regardless of the short window.
 hold_margin: 0.15

@@ -50,3 +50,5 @@ label.inline { font-weight: 400; color: var(--muted); font-size: .85rem; display
 .team-card h4 { margin: 0 0 .5rem; }
 .pill { display: inline-block; background: #222833; border-radius: 999px; padding: .1rem .55rem; margin: .15rem .2rem .15rem 0; font-size: .8rem; }
 .pill.sit { opacity: .55; }
+.verdict.IR { background: #1f2a3a; color: #8cb4ff; }
+.flag.ok { background: #1f2a3a; color: #8cb4ff; }

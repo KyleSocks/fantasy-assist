@@ -86,7 +86,8 @@ def build_context(db_path: str, league: LeagueConfig,
     return Context(league, icfg, season, as_of, lines, factors, scorer, games)
 
 
-def expected_line(line: Line, opp: dict[str, float] | None) -> dict[str, float]:
+def expected_line(line: Line, opp: dict[str, float] | None,
+                  assume_start: bool = False) -> dict[str, float]:
     """Expected stats for one TEAM game (goalies weighted by start share).
 
     ``opp`` is the opponent's factor dict (None = league-average opponent).
@@ -97,7 +98,10 @@ def expected_line(line: Line, opp: dict[str, float] | None) -> dict[str, float]:
     f = opp or {"ga": 1.0, "sa": 1.0, "gf": 1.0, "sf": 1.0}
     b = line.blended
     if line.is_goalie:
-        s = line.start_share
+        # assume_start: value of a game he starts (single-game streams --
+        # you'd only stream a confirmed starter); otherwise weight by the
+        # share of team games he starts.
+        s = 1.0 if assume_start else line.start_share
         return {"wins": s * b["wins"], "saves": s * b["saves"] * f["sf"],
                 "goals_against": s * b["goals_against"] * f["gf"],
                 "shutouts": s * b["shutouts"], "games_started": s,
@@ -157,16 +161,25 @@ def streams(ctx: Context, date: str, top: int = 25, group: str | None = None,
             taken: set[int] | None = None) -> list[dict]:
     """Best single-game plays on ``date`` (opponent-adjusted).
 
+    ``group``: "F", "D", "G", or "S" (all skaters). Goalies are valued as
+    if they start (assume_start) but only listed when their blended start
+    share is at least ``stream_goalie_min_start_share``.
     ``taken``: player ids rostered in your league -- excluded when given.
     Otherwise ``likely_available`` keeps only players ranked outside the
     league's rosterable pool by blended per-game value, an approximation of
     the waiver wire.
     """
     sc = ctx.scorer
+    min_share = ctx.icfg.get("stream_goalie_min_start_share", 0.0)
     out = []
     for pid, line in ctx.lines.items():
         grp = value_group(line.position)
-        if group and grp != group:
+        if group == "S":
+            if grp == "G":
+                continue
+        elif group and grp != group:
+            continue
+        if line.is_goalie and line.start_share < min_share:
             continue
         if taken is not None:
             if pid in taken:
@@ -180,15 +193,38 @@ def streams(ctx: Context, date: str, top: int = 25, group: str | None = None,
         out.append({
             "player_id": pid, "name": line.name, "pos": line.position,
             "team": line.team, "opp": opp, "gp": line.gp,
-            "value": _value(ctx, line, expected_line(line, ctx.factors.get(opp))),
-            "per_game": sc.per_game[pid], "group_rank": sc.group_rank[pid],
+            "value": _value(ctx, line, expected_line(
+                line, ctx.factors.get(opp), assume_start=line.is_goalie)),
+            "per_game": (goalie_per_start(ctx)[pid] if line.is_goalie
+                         else sc.per_game[pid]),
+            "group_rank": sc.group_rank[pid],
             "pool_size": sc.pool_sizes[grp],
-            "replacement": sc.replacement[grp],
+            "replacement": (goalie_start_replacement(ctx) if line.is_goalie
+                            else sc.replacement[grp]),
             "start_share": line.start_share if line.is_goalie else None,
             **{k: v for k, v in form(ctx, line).items()
                if k in ("vs_prior_pct", "vs_prior_diff")}})
     out.sort(key=lambda r: (-r["value"], r["player_id"]))
     return out[:top]
+
+
+def goalie_per_start(ctx: Context) -> dict[int, float]:
+    """Opponent-neutral value of a game each goalie STARTS (cached)."""
+    cache = getattr(ctx, "_g_per_start", None)
+    if cache is None:
+        cache = {pid: _value(ctx, ln, expected_line(ln, None, assume_start=True))
+                 for pid, ln in ctx.lines.items() if ln.is_goalie}
+        ctx._g_per_start = cache
+    return cache
+
+
+def goalie_start_replacement(ctx: Context) -> float:
+    """Per-start value of the first goalie outside the rosterable pool."""
+    sc = ctx.scorer
+    n = sc.pool_sizes["G"]
+    ranked = sorted((p for p, ln in ctx.lines.items() if ln.is_goalie),
+                    key=lambda p: sc.group_rank[p])
+    return goalie_per_start(ctx)[ranked[n]] if n < len(ranked) else 0.0
 
 
 def hold_check(ctx: Context, pid: int, start: str, days: int) -> dict:

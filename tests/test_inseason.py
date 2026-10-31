@@ -296,3 +296,45 @@ def test_api_endpoints(db, tmp_path, monkeypatch):
     assert [t["games"] for t in r.json()["teams"]] == [3, 3, 2]
     assert c.get("/api/inseason/player/999?league=t_points").status_code == 404
     assert c.get("/api/inseason/streams?league=nope").status_code == 404
+
+
+def test_goalie_streams_assume_he_starts(ctx):
+    # Goalie B (BBB, blended start share .4) vs CCC on 11-02 (gf .8333,
+    # sf .825301). Per START: 3*.690476 + .1*27.857143*.825301
+    # - 2.023810*.833333 = 2.68398 -- not scaled down by the .4 share.
+    rows = {r["player_id"]: r for r in streams(ctx, "2026-11-02",
+                                               likely_available=False)}
+    g = rows[7]
+    assert g["value"] == pytest.approx(2.68398, abs=1e-4)
+    assert g["start_share"] == pytest.approx(0.4)
+    assert g["per_game"] == pytest.approx(3 * (9 / 14 * 10 + 6) / 18
+                                          + 0.1 * (380 / 14 * 10 + 230) / 18
+                                          - (30 / 14 * 10 + 15) / 18)
+    # the season / lineup path still weights by start share
+    assert ctx.scorer.per_game[7] == pytest.approx(0.4 * g["per_game"])
+
+
+def test_ir_players_protected_and_small_samples_not_flagged(ctx):
+    from src.inseason.roster import _player_row, audit, parse_players
+    inactive = set()
+    roster, _ = parse_players(ctx, "Alex Ovechkin | AAA | LW\nDee Two | CCC | D | IR\n",
+                              inactive)
+    assert set(roster) == {1} and inactive == {5}
+    a = audit(ctx, roster, "2026-11-01", 4, inactive)
+    ir = next(r for r in a["players"] if r["id"] == 5)
+    assert ir["verdict"] == "IR" and ir["lineup_adds"] == 0.0
+    assert ir["flags"][0] == "injured reserve: hold"
+    # Ovi: 10 GP, 49% below projection -> flagged
+    assert "producing below projection" in _player_row(ctx, 1, {"LW"}, "2026-11-01", 4)["flags"]
+    # same line over 5 GP (hurt for the rest) -> small sample, not a flag
+    ctx.lines[1].gp = 5
+    flags = _player_row(ctx, 1, {"LW"}, "2026-11-01", 4)["flags"]
+    assert "small sample (5 GP)" in flags and "producing below projection" not in flags
+
+
+def test_goalie_streams_skip_rare_starters_and_skater_group(ctx):
+    ctx.icfg = dict(ctx.icfg, stream_goalie_min_start_share=0.5)
+    ids = {r["player_id"] for r in streams(ctx, "2026-11-02", likely_available=False)}
+    assert 7 not in ids                       # Goalie B starts 40% < 50%
+    sk = streams(ctx, "2026-11-02", group="S", likely_available=False)
+    assert sk and all(r["pos"] != "G" for r in sk)

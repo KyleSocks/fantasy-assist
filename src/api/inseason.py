@@ -70,7 +70,11 @@ def get_streams(date: str | None = None, league: str | None = None,
     return {"league": ctx.league.name, "date": d, "as_of": ctx.as_of,
             "nhl_games": ctx.games_on(d),
             "unit": "fpts" if ctx.scorer.points else "z",
-            "players": streams(ctx, d, top, group, likely_available=not all)}
+            "players": streams(ctx, d, top, group, likely_available=not all,
+                               taken=None if all else _league_taken(ctx)),
+            "availability": ("all players" if all else
+                             "not rostered in your league" if (DATA_DIR / LEAGUE_FILE).exists()
+                             else "outside the rosterable pool (estimate)")}
 
 
 @router.get("/player/{player_id}")
@@ -130,20 +134,32 @@ def put_lists(body: Lists, league: str | None = None) -> dict:
     return {"saved": True, "unmatched": miss_r + miss_f}
 
 
-def _lists(ctx):
-    roster, miss_r = parse_players(ctx, _read(ROSTER_FILE))
+def _lists(ctx, inactive: set[int] | None = None):
+    roster, miss_r = parse_players(ctx, _read(ROSTER_FILE), inactive)
     fas, miss_f = parse_players(ctx, _read(FA_FILE))
     return roster, fas, miss_r + miss_f
+
+
+def _league_taken(ctx) -> set[int] | None:
+    """Every player rostered in your league (IR included), if pulled."""
+    path = DATA_DIR / LEAGUE_FILE
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    text = "\n".join(f"{p['name']} | {p['team']} | {','.join(p['positions'])}"
+                     for t in data["teams"].values() for p in t["players"])
+    return set(parse_players(ctx, text)[0])
 
 
 @router.get("/audit")
 def get_audit(start: str | None = None, days: int = 9,
               league: str | None = None) -> dict:
     ctx = _ctx(league)
-    roster, _, missing = _lists(ctx)
+    inactive: set[int] = set()
+    roster, _, missing = _lists(ctx, inactive)
     if not roster:
         raise HTTPException(400, f"no roster: add players to data/{ROSTER_FILE}")
-    out = audit(ctx, roster, start or _today(), days)
+    out = audit(ctx, roster, start or _today(), days, inactive)
     out.update(as_of=ctx.as_of, league=ctx.league.name, unmatched=missing,
                unit="fpts" if ctx.scorer.points else "z")
     return out
@@ -218,7 +234,8 @@ def refresh(league: str | None = None) -> dict:
                 "league_id": int(y["league_id"]), "my_team_id": int(y["team_id"]),
                 "fetched": datetime.datetime.now().isoformat(timespec="minutes"),
                 "teams": {str(tid): {"name": t["name"], "players": [
-                    {"name": p.name, "team": p.team, "positions": list(p.positions)}
+                    {"name": p.name, "team": p.team, "positions": list(p.positions),
+                     "inactive": p.inactive}
                     for p in t["players"]]} for tid, t in league.items()},
             }, ensure_ascii=False, indent=1), encoding="utf-8")
             out["yahoo"] = {"roster": len(roster), "free_agents": len(fas),

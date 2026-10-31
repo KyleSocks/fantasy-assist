@@ -32,7 +32,7 @@ def league_slots(ctx: Context) -> dict[str, int]:
 def team_players(ctx: Context, players: list[dict]) -> tuple[dict[int, set[str]], list[str]]:
     """{pid: positions} for a stored roster (list of {name, team, positions})."""
     text = "\n".join(f"{p['name']} | {p['team']} | {','.join(p['positions'])}"
-                     for p in players)
+                     + (" | IR" if p.get("inactive") else "") for p in players)
     return parse_players(ctx, text)
 
 

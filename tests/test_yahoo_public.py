@@ -65,7 +65,8 @@ def test_fetch_lists_pages_until_short_page():
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     roster, fas = fetch_lists(19725, 5, fa_pages=4, client=client)
-    assert len(roster) == 4 and len(fas) == 28
+    assert len(roster) == 5 and len(fas) == 28        # IR player kept (marked)
+    assert [p.name for p in roster if p.inactive] == ["Aleksander Barkov"]
     assert fas[0].team == "TBL" and len(calls) == 3   # team + 2 FA pages
 
 
@@ -98,3 +99,10 @@ def test_refresh_endpoint(monkeypatch, tmp_path):
     assert stored["teams"]["5"]["players"][0]["name"] == "Sam Bennett"
     assert (tmp_path / "my_roster.txt").read_text().endswith("Sam Bennett | FLA | C\n")
     assert Path(tmp_path / "fa.txt").read_text().endswith("Viktor Arvidsson | DET | LW,RW\n")
+
+
+def test_ir_players_kept_and_marked():
+    r = parse_roster(TEAM_PAGE, include_inactive=True)
+    barkov = next(p for p in r if p.name == "Aleksander Barkov")
+    assert barkov.inactive and barkov.line() == "Aleksander Barkov | FLA | C | IR"
+    assert not r[0].inactive and r[0].line() == "Sam Bennett | FLA | C"

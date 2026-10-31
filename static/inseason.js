@@ -69,7 +69,7 @@
 
   const verdict = (v) => `<span class="verdict ${esc(v.split(" ")[0])}">${esc(v)}</span>`;
   const flags = (r) => (r.flags || []).filter((f) => !/^(hold|borderline|drop)/.test(f))
-    .map((f) => `<span class="flag">${esc(f)}</span>`).join("");
+    .map((f) => `<span class="flag ${/^(small|injured)/.test(f) ? "ok" : ""}">${esc(f)}</span>`).join("");
 
   // Columns shared by the roster and free-agent tables.
   function playerCols(extra = []) {
@@ -192,19 +192,28 @@
     } catch (e) { status(e.message, true); }
   };
   async function loadStreams() {
-    const s = await api(`/api/inseason/streams?${new URLSearchParams({
-      league: $("league").value, date: $("stream-date").value, all: $("stream-all").checked, top: 25 })}`);
-    table($("streams-table"), [
+    const q = (group) => api(`/api/inseason/streams?${new URLSearchParams({
+      league: $("league").value, date: $("stream-date").value, all: $("stream-all").checked,
+      top: 25, group })}`);
+    const [sk, gl] = await Promise.all([q("S"), q("G")]);
+    const cols = (goalie) => [
       { key: "name", label: "Player", left: true },
       { key: "pos", label: "Pos", left: true },
       { key: "team", label: "Tm", left: true },
       { key: "opp", label: "Opp", left: true },
-      { key: "value", label: "Tonight", title: "opponent-adjusted", fmt: (r) => `<b>${num(r.value)}</b>` },
-      { key: "per_game", label: "Neutral", fmt: (r) => num(r.per_game) },
+      { key: "value", label: "Tonight", title: goalie ? "opponent-adjusted, if he starts" : "opponent-adjusted",
+        fmt: (r) => `<b>${num(r.value)}</b>` },
+      { key: "per_game", label: goalie ? "Per start" : "Neutral", fmt: (r) => num(r.per_game) },
       { key: "replacement", label: "Repl", fmt: (r) => num(r.replacement) },
-      { key: "vs_prior_pct", label: "vs pre", fmt: (r) => `<span class="${cls(r.vs_prior_pct)}">${pct(r.vs_prior_pct)}</span>` },
-      { key: "start_share", label: "Start %", fmt: (r) => r.start_share == null ? "" : Math.round(r.start_share * 100) + "%" },
-    ], s.players);
+      goalie
+        ? { key: "start_share", label: "Starts %", title: "share of team games he starts",
+            fmt: (r) => Math.round(r.start_share * 100) + "%" }
+        : { key: "vs_prior_pct", label: "vs pre",
+            fmt: (r) => `<span class="${cls(r.vs_prior_pct)}">${pct(r.vs_prior_pct)}</span>` },
+    ];
+    table($("streams-table"), cols(false), sk.players);
+    table($("gstreams-table"), cols(true), gl.players);
+    $("streams-note").textContent = `${sk.nhl_games} NHL games · showing ${sk.availability}`;
   }
   $("stream-date").addEventListener("change", () => loadStreams().catch((e) => status(e.message, true)));
   $("stream-all").addEventListener("change", () => loadStreams().catch((e) => status(e.message, true)));
