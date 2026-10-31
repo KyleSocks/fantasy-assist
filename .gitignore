@@ -37,3 +37,5 @@ goalie_rank_diag_vals.py
 check_valuation_pools.py
 verify_goalie_allocation.py
 verify_goalie_starts.py
+# league-specific inputs for `src.inseason plan` (roster / free agents)
+data/*.txt

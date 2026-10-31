@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import os
 import sys
 
 from src.paths import DB_PATH, DEFAULT_LEAGUE_PATH, LEAGUE_DIR
@@ -145,6 +146,11 @@ def _plan(ctx, args, unit: str) -> int:
     dates = [(start + datetime.timedelta(days=i)).isoformat()
              for i in range(args.days)]
     locked = {t.strip() for t in (args.locked or "").split(",") if t.strip()}
+    for path in (args.roster, args.free_agents):
+        if not os.path.exists(path):
+            print(f"error: file not found: {path} (paths are relative to "
+                  f"{os.getcwd()})", file=sys.stderr)
+            return 2
     roster, miss_r = _read_players(ctx, args.roster)
     cands, miss_c = _read_players(ctx, args.free_agents)
     hold = find_players(ctx, args.hold)
