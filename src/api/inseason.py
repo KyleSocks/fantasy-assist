@@ -3,6 +3,10 @@
 GET /api/inseason/streams?date=YYYY-MM-DD&league=&group=F|D|G&top=25&all=false
 GET /api/inseason/player/{player_id}?league=&start=&days=10
 GET /api/inseason/schedule?start=&days=10&league=
+GET/PUT /api/inseason/lists          your roster + free-agent list text
+GET /api/inseason/audit?start=&days=9&league=
+GET /api/inseason/free-agents?start=&days=9&league=
+GET /api/inseason/plan?hold=<id>&adds=1,4&start=&days=9&locked=DET,STL
 
 The context (projection + blend + scorer) is cached per league and is
 rebuilt when data/hockey.db changes on disk.
@@ -13,6 +17,7 @@ import datetime
 import os
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from src.inseason.evaluate import (
     Context,
@@ -21,7 +26,8 @@ from src.inseason.evaluate import (
     schedule_grid,
     streams,
 )
-from src.paths import DB_PATH, DEFAULT_LEAGUE_PATH, LEAGUE_DIR
+from src.inseason.roster import audit, free_agent_table, parse_players, roster_plan
+from src.paths import DATA_DIR, DB_PATH, DEFAULT_LEAGUE_PATH, LEAGUE_DIR
 from src.valuation.league import load_league
 
 router = APIRouter(prefix="/api/inseason")
@@ -86,3 +92,85 @@ def get_schedule(start: str | None = None, days: int = 10,
     ctx = _ctx(league)
     s = start or _today()
     return {"start": s, "days": days, "teams": schedule_grid(ctx, s, days)}
+
+
+# ── Roster / free-agent lists (data/my_roster.txt, data/fa.txt) ─────────
+
+ROSTER_FILE = "my_roster.txt"
+FA_FILE = "fa.txt"
+
+
+def _read(name: str) -> str:
+    path = DATA_DIR / name
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+class Lists(BaseModel):
+    roster: str
+    free_agents: str
+
+
+@router.get("/lists")
+def get_lists() -> dict:
+    return {"roster": _read(ROSTER_FILE), "free_agents": _read(FA_FILE)}
+
+
+@router.put("/lists")
+def put_lists(body: Lists, league: str | None = None) -> dict:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    (DATA_DIR / ROSTER_FILE).write_text(body.roster, encoding="utf-8")
+    (DATA_DIR / FA_FILE).write_text(body.free_agents, encoding="utf-8")
+    ctx = _ctx(league)
+    _, miss_r = parse_players(ctx, body.roster)
+    _, miss_f = parse_players(ctx, body.free_agents)
+    return {"saved": True, "unmatched": miss_r + miss_f}
+
+
+def _lists(ctx):
+    roster, miss_r = parse_players(ctx, _read(ROSTER_FILE))
+    fas, miss_f = parse_players(ctx, _read(FA_FILE))
+    return roster, fas, miss_r + miss_f
+
+
+@router.get("/audit")
+def get_audit(start: str | None = None, days: int = 9,
+              league: str | None = None) -> dict:
+    ctx = _ctx(league)
+    roster, _, missing = _lists(ctx)
+    if not roster:
+        raise HTTPException(400, f"no roster: add players to data/{ROSTER_FILE}")
+    out = audit(ctx, roster, start or _today(), days)
+    out.update(as_of=ctx.as_of, league=ctx.league.name, unmatched=missing,
+               unit="fpts" if ctx.scorer.points else "z")
+    return out
+
+
+@router.get("/free-agents")
+def get_free_agents(start: str | None = None, days: int = 9,
+                    league: str | None = None) -> dict:
+    ctx = _ctx(league)
+    _, fas, missing = _lists(ctx)
+    return {"players": free_agent_table(ctx, fas, start or _today(), days),
+            "unmatched": missing, "as_of": ctx.as_of}
+
+
+@router.get("/plan")
+def get_plan(hold: int, adds: str = "1,4", start: str | None = None,
+             days: int = 9, locked: str = "", league: str | None = None) -> dict:
+    ctx = _ctx(league)
+    roster, fas, _ = _lists(ctx)
+    if hold not in ctx.lines:
+        raise HTTPException(404, f"Unknown player id {hold}")
+    try:
+        budget = [int(x) for x in adds.split(",") if x.strip()]
+    except ValueError:
+        raise HTTPException(422, f"adds must look like 1,4 (got '{adds}')")
+    lock = {t.strip() for t in locked.split(",") if t.strip()}
+    return roster_plan(ctx, roster, fas, hold, start or _today(), days,
+                       budget or [0], lock)
+
+
+@router.get("/leagues")
+def get_leagues() -> dict:
+    return {"leagues": sorted(p.stem for p in LEAGUE_DIR.glob("*.yaml")),
+            "default": DEFAULT_LEAGUE_PATH.stem}

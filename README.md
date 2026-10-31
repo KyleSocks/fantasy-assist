@@ -90,5 +90,9 @@ How the numbers are made (tunable in `config/inseason.yaml`):
   player on a league-average schedule, plus the same over the rest of the
   season, and gives HOLD / BORDERLINE / DROP CANDIDATE.
 
+**GUI:** run the server (`uv run uvicorn src.api.main:app`, or `server-start.bat`) and open
+http://127.0.0.1:8000/inseason -- tabs for the roster audit, the streaming plan, free
+agents + tonight's streams, the schedule grid, and editing your roster / free-agent lists.
+
 API (same data, for the UI): `/api/inseason/streams`, `/api/inseason/player/{id}`,
 `/api/inseason/schedule`.

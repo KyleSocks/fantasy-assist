@@ -1,0 +1,43 @@
+/* Mid-season page; colour tokens come from style.css (:root). */
+.ins .controls label { display: inline-flex; gap: .35rem; align-items: center; color: var(--muted); }
+.ins .controls input { width: auto; }
+.navlink { color: var(--accent); text-decoration: none; margin-left: auto; }
+.ins-tabs { display: flex; gap: .25rem; padding: .5rem 1rem 0; border-bottom: 1px solid #262b34; overflow-x: auto; }
+.ins-main { padding: 1rem; max-width: 1400px; margin: 0 auto; }
+.panel h3 { margin: 1.25rem 0 .5rem; font-size: 1rem; display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+.hint { color: var(--muted); margin: 0 0 .75rem; font-size: .9rem; }
+.muted { color: var(--muted); font-size: .85rem; }
+.status { min-height: 1.25rem; color: var(--muted); margin-bottom: .5rem; }
+.status.err { color: var(--neg); }
+.scroll { overflow-x: auto; }
+.ins table { border-collapse: collapse; width: 100%; font-size: .875rem; font-variant-numeric: tabular-nums; }
+.ins th, .ins td { padding: .35rem .55rem; text-align: right; white-space: nowrap; border-bottom: 1px solid #222731; }
+.ins th { color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--bg); }
+.ins th.l, .ins td.l { text-align: left; }
+.ins tbody tr:hover { background: var(--panel); }
+.pos { color: var(--pos); } .neg { color: var(--neg); }
+.flag { display: inline-block; padding: 0 .4rem; margin-left: .25rem; border-radius: 999px; font-size: .75rem;
+        background: #3a2224; color: #ffb3ad; }
+.verdict { padding: .05rem .45rem; border-radius: 4px; font-size: .75rem; font-weight: 600; }
+.verdict.HOLD { background: #1d3324; color: var(--pos); }
+.verdict.BORDERLINE { background: #3a3220; color: #e3b341; }
+.verdict.DROP { background: #3a2224; color: var(--neg); }
+.form-row { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; align-items: end; margin-bottom: 1rem; }
+.form-row label { display: flex; flex-direction: column; gap: .25rem; color: var(--muted); font-size: .85rem; }
+button.primary { background: var(--accent); color: #fff; border: 0; padding: .45rem .9rem; border-radius: 6px; cursor: pointer; }
+.summary { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.stat { background: var(--panel); border-radius: 8px; padding: .65rem .9rem; min-width: 9rem; }
+.stat b { display: block; font-size: 1.35rem; }
+.stat span { color: var(--muted); font-size: .8rem; }
+.steps { list-style: none; padding: 0; margin: 0 0 1rem; }
+.steps li { padding: .4rem 0; border-bottom: 1px solid #222731; }
+.strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr)); gap: .35rem; margin-bottom: 1rem; }
+.night { background: var(--panel); border-radius: 6px; padding: .4rem; font-size: .8rem; }
+.night .bar { height: 6px; background: var(--accent); border-radius: 3px; margin: .3rem 0; }
+.night.zero .bar { background: #333a45; }
+.lists { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: .75rem; }
+.lists label { display: flex; flex-direction: column; gap: .35rem; color: var(--muted); }
+.lists textarea { min-height: 22rem; background: var(--panel); color: var(--text); border: 1px solid #2a303a;
+                  border-radius: 6px; padding: .5rem; font: .85rem ui-monospace, Consolas, monospace; }
+label.inline { font-weight: 400; color: var(--muted); font-size: .85rem; display: inline-flex; gap: .3rem; }
+@media (max-width: 720px) { .lists { grid-template-columns: 1fr; } .navlink { margin-left: 0; } }

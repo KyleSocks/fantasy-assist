@@ -116,36 +116,14 @@ def _print_hold(ctx, h: dict, unit: str) -> None:
 
 
 def _read_players(ctx, path: str) -> tuple[dict[int, set[str]], list[str]]:
-    from src.inseason.plan import nhl_eligibility
-    out: dict[int, set[str]] = {}
-    missing: list[str] = []
+    from src.inseason.roster import parse_players
     with open(path, encoding="utf-8") as f:
-        for raw in f:
-            parts = [x.strip() for x in raw.split("#", 1)[0].split("|")]
-            if not parts[0]:
-                continue
-            hits = find_players(ctx, parts[0])
-            if len(parts) > 1 and parts[1] and len(hits) > 1:
-                hits = [h for h in hits if h.team == parts[1]] or hits
-            if not hits:
-                missing.append(parts[0])
-                continue
-            ln = hits[0]
-            out[ln.player_id] = ({x.strip() for x in parts[2].split(",")}
-                                 if len(parts) > 2 and parts[2]
-                                 else nhl_eligibility(ln.position))
-    return out, missing
+        return parse_players(ctx, f.read())
 
 
 def _plan(ctx, args, unit: str) -> int:
-    from src.inseason.evaluate import expected_line
-    from src.inseason.lineup import marginal_values
-    from src.inseason.plan import nhl_eligibility, plan_slot, week_key
+    from src.inseason.roster import roster_plan
 
-    start = datetime.date.fromisoformat(args.start)
-    dates = [(start + datetime.timedelta(days=i)).isoformat()
-             for i in range(args.days)]
-    locked = {t.strip() for t in (args.locked or "").split(",") if t.strip()}
     for path in (args.roster, args.free_agents):
         if not os.path.exists(path):
             print(f"error: file not found: {path} (paths are relative to "
@@ -157,51 +135,25 @@ def _plan(ctx, args, unit: str) -> int:
     if not hold:
         print(f"error: no player matches --hold '{args.hold}'", file=sys.stderr)
         return 2
-    hold = hold[0]
     for m in miss_r + miss_c:
         print(f"  warning: no player matches '{m}'")
-    hold_elig = (cands.get(hold.player_id) or roster.get(hold.player_id)
-                 or nhl_eligibility(hold.position))
-    roster.pop(hold.player_id, None)
-    cands[hold.player_id] = hold_elig
-
-    def game_values(pid: int, can_lock: bool) -> dict[str, float]:
-        ln = ctx.lines[pid]
-        out = {}
-        for d, opp in ctx.team_games(ln.team, dates[0], dates[-1]):
-            if can_lock and d == dates[0] and ln.team in locked:
-                continue
-            out[d] = ctx.scorer.value_stats(pid, ln.position,
-                                            expected_line(ln, ctx.factors.get(opp)))
-        return out
-
-    games = {p: game_values(p, False) for p in roster}
-    games.update({p: game_values(p, True) for p in cands})
-    slots = {k: v for k, v in ctx.league.roster_slots.items()
-             if k not in ("BENCH", "G")}
-    slots["Util"] = slots.pop("UTIL", 0)
-    mv = marginal_values(roster, cands, games, dates, slots)
-    adds = [int(x) for x in args.adds.split(",")]
-    weeks = sorted({week_key(d) for d in dates})
-    budget = {w: (adds[i] if i < len(adds) else adds[-1]) for i, w in enumerate(weeks)}
-    pl = plan_slot(hold.player_id, mv, dates, budget)
-
-    name = lambda p: ctx.lines[p].name  # noqa: E731
-    keep = sum(mv[hold.player_id].values())
-    print(f"Streaming plan for {hold.name}'s roster spot, {dates[0]}..{dates[-1]}"
+    locked = {t.strip() for t in (args.locked or "").split(",") if t.strip()}
+    r = roster_plan(ctx, roster, cands, hold[0].player_id, args.start,
+                    args.days, [int(x) for x in args.adds.split(",")], locked)
+    d = r["dates"]
+    print(f"Streaming plan for {r['hold']['name']}'s roster spot, {d[0]}..{d[-1]}"
           f" ({ctx.league.name}, {unit} added to your nightly lineup)")
-    print(f"  keep {hold.name}: +{keep:.2f}   best plan: +{pl.total:.2f}"
-          f"   adds per week {budget}")
-    for st in pl.steps:
-        print(f"  {st.date}: drop {name(st.drop)} -> add {name(st.add)}"
-              f" ({','.join(sorted(cands[st.add]))}, {ctx.lines[st.add].team})")
-    print("  " + " ".join(f"{d[5:]}:{mv[pl.holder_by_date[d]].get(d, 0):.1f}"
-                          for d in dates))
+    print(f"  keep {r['hold']['name']}: +{r['keep_value']:.2f}   best plan:"
+          f" +{r['plan_value']:.2f}   adds per week {r['budget']}")
+    for st in r["steps"]:
+        print(f"  {st['date']}: drop {st['drop']['name']} -> add"
+              f" {st['add']['name']} ({','.join(st['add']['elig'])},"
+              f" {st['add']['team']})")
+    print("  " + " ".join(f"{n['date'][5:]}:{n['value']:.1f}" for n in r["nightly"]))
     print("\n  best single adds (value added over the window, nights that count):")
-    for p in sorted(mv, key=lambda p: -sum(mv[p].values()))[:10]:
-        print(f"    {name(p)[:22]:<23}{ctx.lines[p].team:<4}"
-              f"{','.join(sorted(cands[p])):<9}+{sum(mv[p].values()):6.2f}"
-              f"  {' '.join(d[5:] for d in mv[p])}")
+    for c in r["singles"][:10]:
+        print(f"    {c['name'][:22]:<23}{c['team']:<4}{','.join(c['elig']):<9}"
+              f"+{c['adds']:6.2f}  {' '.join(n[5:] for n in c['nights'])}")
     return 0
 
 
