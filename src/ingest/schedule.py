@@ -13,14 +13,22 @@ _SCHED_SLEEP_S = 0.1
 
 
 def ingest_schedule(conn, fetcher: Fetcher, season_id: int,
-                    dry_run: bool = False) -> tuple[dict[str, int], list[str]]:
-    """Fetch day-by-day schedule for one season and upsert games."""
+                    dry_run: bool = False,
+                    start: datetime.date | None = None,
+                    ) -> tuple[dict[str, int], list[str]]:
+    """Fetch day-by-day schedule for one season and upsert games.
+
+    ``start`` (optional) skips days before it -- the mid-season refresh only
+    needs today onward. Default: the whole season from Oct 1.
+    """
     notes: list[str] = []
     counts: dict[str, int] = {"schedule": 0}
     start_year = season_id // 10000
     end_year = season_id % 10000
     cur = conn.cursor()
     d = datetime.date(start_year, 10, 1)
+    if start is not None and start > d:
+        d = start
     end = datetime.date(end_year, 4, 30)
     while d <= end:
         date_str = d.isoformat()

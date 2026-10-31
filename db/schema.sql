@@ -82,3 +82,42 @@ CREATE INDEX IF NOT EXISTS idx_skater_season ON skater_seasons(season_id);
 CREATE INDEX IF NOT EXISTS idx_goalie_player ON goalie_seasons(player_id);
 CREATE INDEX IF NOT EXISTS idx_goalie_season ON goalie_seasons(season_id);
 CREATE INDEX IF NOT EXISTS idx_schedule_season ON schedule(season_id);
+
+-- ── In-season (season-to-date, regular season only) ─────────────────
+-- Written by src/inseason/ingest.py. Kept separate from skater_seasons /
+-- goalie_seasons so a mid-season refresh never changes the draft board's
+-- "next season" (MAX(skater_seasons.season_id) + 10001).
+CREATE TABLE IF NOT EXISTS skater_current (
+    player_id INTEGER NOT NULL,
+    season_id INTEGER NOT NULL,
+    team_abbrev TEXT NOT NULL,
+    gp INTEGER,
+    goals INTEGER,
+    assists INTEGER,
+    points INTEGER,
+    shots INTEGER,
+    blocks INTEGER,
+    hits INTEGER,
+    pp_points INTEGER,
+    pp_toi_sec INTEGER,
+    toi_sec INTEGER,
+    as_of TEXT NOT NULL,
+    PRIMARY KEY (player_id, season_id)
+);
+
+CREATE TABLE IF NOT EXISTS goalie_current (
+    player_id INTEGER NOT NULL,
+    season_id INTEGER NOT NULL,
+    team_abbrev TEXT NOT NULL,
+    gp INTEGER,
+    games_started INTEGER,
+    wins INTEGER,
+    losses INTEGER,
+    ot_losses INTEGER,
+    saves INTEGER,
+    shots_against INTEGER,
+    goals_against INTEGER,
+    shutouts INTEGER,
+    as_of TEXT NOT NULL,
+    PRIMARY KEY (player_id, season_id)
+);

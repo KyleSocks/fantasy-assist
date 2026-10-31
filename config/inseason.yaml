@@ -1,0 +1,34 @@
+# Mid-season assistant settings (src/inseason/).
+#
+# Blended per-game rate for every stat:
+#     blended = (preseason_rate * K + season_to_date_total) / (K + games)
+# K is the prior strength in games (starts for goalies): at games == K the
+# season so far and the preseason projection count equally. Small K = trust
+# this season quickly (stats that stabilise fast: shots, hits, blocks);
+# large K = lean on the projection (goals, shutouts are noisy).
+# These are starting values, not fitted -- see the follow-up prompt for a
+# backtest that tunes them.
+skater_k_games:
+  goals: 40
+  assists: 30
+  pp_points: 30
+  shots: 15
+  hits: 10
+  blocks: 10
+goalie_k_starts:
+  wins: 20
+  saves: 15
+  goals_against: 15
+  shutouts: 40
+# save_pct blends in shots against, same units as regression.yaml's k.
+goalie_save_pct_k_shots: 1000
+# Share of team games a goalie starts.
+start_share_k_games: 10
+# Opponent strength (goals/shots against and for per game) regresses to the
+# league mean with this many games of league-average prior.
+opponent_k_games: 10
+# A night with this many NHL games or fewer counts as an "off-night".
+off_night_max_games: 7
+# hold check: ROS per-game value at least this fraction above replacement
+# is a HOLD regardless of the short window.
+hold_margin: 0.15
