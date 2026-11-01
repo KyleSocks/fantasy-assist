@@ -59,7 +59,7 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
     # Get 3 most recent seasons before projected season, gp > 0
     seasons = conn.execute(
         "SELECT season_id, gp, goals, assists, shots, blocks, hits,"
-        " pp_points, pp_toi_sec, toi_sec, team_abbrev"
+        " pp_points, pp_toi_sec, toi_sec, team_abbrev, sh_points"
         " FROM skater_seasons WHERE player_id = ? AND season_id < ? AND gp > 0"
         " ORDER BY season_id DESC LIMIT 3", (pid, season_id)).fetchall()
     if not seasons:
@@ -183,6 +183,24 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
         finals[cat] = total
     terms["final"] = finals
 
+    # Shorthanded points (SHP): too rare for its own category machinery, so
+    # the same recipe with heavy shrinkage -- season-weighted per-GP rate,
+    # regressed toward the positional mean with n = TOI-minutes and
+    # k = sh_points from config/regression.yaml (default 600), rookie
+    # prior, age adjustment, x projected GP. Kept in terms["sh_points"].
+    sh_raw = sum(weights[i] * ((s[11] or 0) / s[1])
+                 for i, s in enumerate(seasons) if s[1] > 0)
+    sh_n = _regression_n(seasons, "assists")          # TOI-minutes
+    sh_k = float(cfg.get("sh_points", 600))
+    sh_pm = pos_means.get("sh_points", 0.0)
+    sh_rate = (sh_raw * sh_n + sh_pm * sh_k) / (sh_n + sh_k)
+    if career_gp < 100:
+        sh_rate = 0.5 * sh_rate + 0.5 * sh_pm
+    sh_final = sh_rate * age_adj * proj_gp
+    terms["sh_points"] = {"raw_rate": sh_raw, "pos_mean": sh_pm, "k": sh_k,
+                          "n": sh_n, "regressed_rate": sh_rate,
+                          "final": sh_final}
+
     return Projection(
         player_id=pid, season_id=season_id,
         gp=proj_gp, toi_per_gp=proj_toi_per_gp,
@@ -190,4 +208,5 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
         shots=finals["shots"], blocks=finals["blocks"],
         hits=finals["hits"], pp_points=finals["pp_points"],
         wins=None, save_pct=None, position=pos, terms=terms,
+        sh_points=sh_final,
     )

@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS skater_seasons (
     blocks INTEGER,
     hits INTEGER,
     pp_points INTEGER,
+    sh_points INTEGER,
     pp_toi_sec INTEGER,
     toi_sec INTEGER,
     PRIMARY KEY (player_id, season_id)
@@ -99,6 +100,7 @@ CREATE TABLE IF NOT EXISTS skater_current (
     blocks INTEGER,
     hits INTEGER,
     pp_points INTEGER,
+    sh_points INTEGER,
     pp_toi_sec INTEGER,
     toi_sec INTEGER,
     as_of TEXT NOT NULL,

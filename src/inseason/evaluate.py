@@ -122,7 +122,8 @@ def expected_line(line: Line, opp: dict[str, float] | None,
                 "save_pct": b["save_pct"]}
     return {"goals": b["goals"] * f["ga"], "assists": b["assists"] * f["ga"],
             "pp_points": b["pp_points"] * f["ga"], "shots": b["shots"] * f["sa"],
-            "hits": b["hits"], "blocks": b["blocks"]}
+            "hits": b["hits"], "blocks": b["blocks"],
+            "sh_points": b.get("sh_points", 0.0)}
 
 
 def _value(ctx: Context, line: Line, stats: dict[str, float]) -> float:

@@ -40,6 +40,7 @@ class SkaterSummary(_Row):
     points: Optional[int] = None
     shots: Optional[int] = None
     ppPoints: Optional[int] = None
+    shPoints: Optional[int] = None
     teamAbbrevs: Optional[str] = None
 
 
@@ -133,7 +134,24 @@ def init_db(db_path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     _migrate_schema(conn)
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+    _add_missing_columns(conn)
     return conn
+
+
+# Columns added after a table was first created: (table, column, type).
+_ADDED_COLUMNS = [
+    ("skater_seasons", "sh_points", "INTEGER"),
+    ("skater_current", "sh_points", "INTEGER"),
+]
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    """ALTER TABLE for columns newer than an existing DB (CREATE TABLE IF
+    NOT EXISTS never adds columns). New values stay NULL until re-ingest."""
+    for table, col, typ in _ADDED_COLUMNS:
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if cols and col not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
 
 
 def _migrate_schema(conn: sqlite3.Connection) -> None:

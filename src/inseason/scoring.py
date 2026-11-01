@@ -32,7 +32,7 @@ def to_projection(pid: int, position: str, stats: dict[str, float]) -> Projectio
         player_id=pid, season_id=0, gp=1.0, toi_per_gp=0.0,
         goals=g("goals", 0.0), assists=g("assists", 0.0),
         shots=g("shots", 0.0), blocks=g("blocks", 0.0), hits=g("hits", 0.0),
-        pp_points=g("pp_points", 0.0),
+        pp_points=g("pp_points", 0.0), sh_points=g("sh_points", 0.0),
         wins=g("wins", 0.0), save_pct=g("save_pct", 0.0),
         shutouts=g("shutouts", 0.0), games_started=g("games_started", 0.0),
         goals_against=g("goals_against", 0.0), saves=g("saves", 0.0),

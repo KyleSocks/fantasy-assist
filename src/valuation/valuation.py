@@ -10,8 +10,8 @@ from src.valuation.league import LeagueConfig, category_vector, points_value
 
 
 # Categories that belong to each position pool.
-_GOALIE_CAT_NAMES = {"W", "SO", "SV%", "GS", "GA", "SV", "SHP"}
-_SKATER_CAT_NAMES = {"G", "A", "PPP", "SOG", "HIT", "BLK", "HIT+BLK"}
+_GOALIE_CAT_NAMES = {"W", "SO", "SV%", "GS", "GA", "SV"}
+_SKATER_CAT_NAMES = {"G", "A", "PPP", "SHP", "SOG", "HIT", "BLK", "HIT+BLK"}
 
 
 def _cats_for_position(cfg: LeagueConfig, pos: str) -> list[str]:

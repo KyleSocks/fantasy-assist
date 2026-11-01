@@ -102,7 +102,7 @@ def _print_hold(ctx, h: dict, unit: str) -> None:
         print("  per game        " + "  ".join(f"{s[:5]:>6}" for s in ln.blended))
         for label, d in (("preseason", ln.prior), ("this season", ln.observed),
                          ("blended", ln.blended)):
-            print(f"    {label:<13} " + "  ".join(f"{d[s]:6.3f}" for s in ln.blended))
+            print(f"    {label:<13} " + "  ".join(f"{d.get(s, 0.0):6.3f}" for s in ln.blended))
     print(f"  {h['start']}..{h['end']}: {len(w['games'])} games"
           f" (league avg {h['avg_window_games']:.1f}), {w['off_nights']} off-night,"
           f" worth {w['value']:.2f} {unit}")

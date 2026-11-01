@@ -12,6 +12,7 @@ skater_k_games:
   goals: 40
   assists: 30
   pp_points: 30
+  sh_points: 60       # shorthanded points: rare, very noisy
   shots: 15
   hits: 10
   blocks: 10

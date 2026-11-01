@@ -24,7 +24,7 @@ INSEASON_CONFIG_PATH = CONFIG_DIR / "inseason.yaml"
 INSEASON_INGEST_COMMAND = "uv run python -m src.inseason.ingest"
 
 SKATER_STATS: tuple[str, ...] = (
-    "goals", "assists", "shots", "blocks", "hits", "pp_points")
+    "goals", "assists", "shots", "blocks", "hits", "pp_points", "sh_points")
 GOALIE_STATS: tuple[str, ...] = ("wins", "saves", "goals_against", "shutouts")
 
 
@@ -178,7 +178,7 @@ def priors_from_projections(projs) -> dict[int, dict]:
                                 "starts": gs}
         elif p.gp and p.gp > 0:
             out[p.player_id] = {
-                "pg": {s: getattr(p, s) / p.gp for s in SKATER_STATS},
+                "pg": {s: (getattr(p, s, 0.0) or 0.0) / p.gp for s in SKATER_STATS},
                 "toi_pg": p.toi_per_gp}
     return out
 
@@ -186,7 +186,7 @@ def priors_from_projections(projs) -> dict[int, dict]:
 def _skater_fallback(skaters: dict[int, dict]) -> dict[str, float]:
     """League per-game rates this season: the prior for unprojected skaters."""
     gp = sum(r["gp"] or 0 for r in skaters.values())
-    return {s: (sum(r[s] or 0 for r in skaters.values()) / gp if gp else 0.0)
+    return {s: (sum(r.get(s) or 0 for r in skaters.values()) / gp if gp else 0.0)
             for s in SKATER_STATS}
 
 
@@ -258,7 +258,8 @@ def build_lines(conn, season_id: int, priors: dict[int, dict], cfg: dict,
         prior = pr["pg"] if has_proj else sk_fb
         obs = {s: ((cur_s or {}).get(s) or 0) / gp if gp else 0.0
                for s in SKATER_STATS}
-        bl = {s: blend(prior[s], ((cur_s or {}).get(s) or 0), gp, kg[s])
+        bl = {s: blend(prior.get(s, 0.0), ((cur_s or {}).get(s) or 0), gp,
+                       kg.get(s, 40))
               for s in SKATER_STATS}
         toi_obs = ((cur_s or {}).get("toi_sec") or 0) / gp if gp else None
         lines[pid] = Line(pid, name, pos, team, gp, dict(prior), obs, bl,

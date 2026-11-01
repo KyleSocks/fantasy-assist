@@ -37,7 +37,8 @@ def _skaters(conn, fetcher, season_id: int, as_of: str) -> int:
         fetcher.get_paged(f"{_BASE}/skater/summary{_FILTER}",
                           "cur_skater_summary", season_id),
         SkaterSummary,
-        ["gamesPlayed", "goals", "assists", "points", "shots", "ppPoints"])
+        ["gamesPlayed", "goals", "assists", "points", "shots", "ppPoints",
+         "shPoints"])
     realtime, _ = _combine_rows(
         fetcher.get_paged(f"{_BASE}/skater/realtime{_FILTER}",
                           "cur_skater_realtime", season_id),
@@ -51,19 +52,20 @@ def _skaters(conn, fetcher, season_id: int, as_of: str) -> int:
         rt, ti = realtime.get(pid), toi.get(pid)
         conn.execute(
             "INSERT INTO skater_current (player_id, season_id, team_abbrev, gp,"
-            " goals, assists, points, shots, blocks, hits, pp_points,"
-            " pp_toi_sec, toi_sec, as_of) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            " goals, assists, points, shots, blocks, hits, pp_points, sh_points,"
+            " pp_toi_sec, toi_sec, as_of) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             " ON CONFLICT(player_id, season_id) DO UPDATE SET"
             " team_abbrev=excluded.team_abbrev, gp=excluded.gp,"
             " goals=excluded.goals, assists=excluded.assists,"
             " points=excluded.points, shots=excluded.shots,"
             " blocks=excluded.blocks, hits=excluded.hits,"
-            " pp_points=excluded.pp_points, pp_toi_sec=excluded.pp_toi_sec,"
+            " pp_points=excluded.pp_points, sh_points=excluded.sh_points,"
+            " pp_toi_sec=excluded.pp_toi_sec,"
             " toi_sec=excluded.toi_sec, as_of=excluded.as_of",
             (pid, season_id, team_map.get(pid, "UNK"), s.gamesPlayed, s.goals,
              s.assists, s.points, s.shots,
              rt.blockedShots if rt else None, rt.hits if rt else None,
-             s.ppPoints,
+             s.ppPoints, s.shPoints,
              int(ti.ppTimeOnIce) if ti and ti.ppTimeOnIce is not None else None,
              int(ti.evTimeOnIce) if ti and ti.evTimeOnIce is not None else None,
              as_of))
