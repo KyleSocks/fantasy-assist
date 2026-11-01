@@ -186,16 +186,34 @@
   loaders.fa = async () => {
     status("Loading free agents…");
     try {
-      const f = await api(`/api/inseason/free-agents?${params()}`);
-      table($("fa-table"), playerCols([
-        { key: "window_games", label: "Games" },
-        { key: "waiver_until", label: "Avail", left: true, title: "waiver players can be added once they clear",
-          fmt: (r) => r.waiver_until ? `<span class="flag">W until ${md(r.waiver_until)}</span>` : "FA" },
-      ]), f.players);
-      status(f.unmatched.length ? `Unmatched names: ${f.unmatched.join(", ")}` : "");
+      faData = await api(`/api/inseason/free-agents?${params()}`);
+      drawFreeAgents();
+      status(faData.unmatched_count ? `${faData.unmatched_count} Yahoo names have no NHL stats `
+        + "yet (mostly minor-leaguers) and aren't shown" : "");
       await loadStreams();
     } catch (e) { status(e.message, true); }
   };
+  let faData = null;
+  const statusCell = (r) => r.status === "W"
+    ? `<span class="flag">W until ${md(r.waiver_until)}</span>`
+    : r.status === "OUT" ? `<span class="flag">OUT${r.tag ? " " + esc(r.tag) : ""}</span>`
+    : `FA${r.tag ? ` <span class="muted">${esc(r.tag)}</span>` : ""}`;
+  function drawFreeAgents() {
+    if (!faData) return;
+    const q = $("fa-search").value.trim().toLowerCase(), pos = $("fa-pos").value;
+    const rows = faData.players.filter((r) => $(`fa-show-${r.status}`).checked
+      && (!q || `${r.name} ${r.team}`.toLowerCase().includes(q))
+      && (!pos || r.elig.includes(pos)));
+    const c = faData.counts;
+    $("fa-counts").textContent = `${rows.length} shown · ${c.FA} free agents, ${c.W} on waivers, ${c.OUT} injured`;
+    table($("fa-table"), playerCols([
+      { key: "window_games", label: "Games" },
+      { key: "status", label: "Status", left: true, title: "FA = add now; W = on waivers until the date; OUT = injured",
+        fmt: statusCell },
+    ]), rows);
+  }
+  ["fa-search", "fa-pos", "fa-show-FA", "fa-show-W", "fa-show-OUT"].forEach((id) =>
+    $(id).addEventListener(id === "fa-search" ? "input" : "change", drawFreeAgents));
   async function loadStreams() {
     const q = (group) => api(`/api/inseason/streams?${new URLSearchParams({
       league: $("league").value, date: $("stream-date").value, all: $("stream-all").checked,

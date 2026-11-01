@@ -52,3 +52,4 @@ label.inline { font-weight: 400; color: var(--muted); font-size: .85rem; display
 .pill.sit { opacity: .55; }
 .verdict.IR { background: #1f2a3a; color: #8cb4ff; }
 .flag.ok { background: #1f2a3a; color: #8cb4ff; }
+.verdict.OUT { background: #2a2d33; color: var(--muted); }

@@ -29,7 +29,13 @@ from src.inseason.evaluate import (
     schedule_grid,
     streams,
 )
-from src.inseason.roster import audit, free_agent_table, parse_players, roster_plan
+from src.inseason.roster import (
+    audit,
+    free_agent_table,
+    parse_list,
+    parse_players,
+    roster_plan,
+)
 from src.paths import DATA_DIR, DB_PATH, DEFAULT_LEAGUE_PATH, LEAGUE_DIR
 from src.valuation.league import load_league
 
@@ -147,10 +153,8 @@ def _lists(ctx, inactive: set[int] | None = None,
 def _unavailable_on(ctx, date: str) -> set[int]:
     """Free-agent-file players who can't be streamed on ``date``: injured
     (OUT) or still on waivers."""
-    out: set[int] = set()
-    avail: dict[int, str] = {}
-    _lists(ctx, available_from=avail, fa_out=out)
-    return out | {p for p, d in avail.items() if d > date}
+    pl = parse_list(ctx, _read(FA_FILE))
+    return set(pl.inactive) | {p for p, d in pl.available_from.items() if d > date}
 
 
 def _league_taken(ctx) -> set[int] | None:
@@ -179,14 +183,27 @@ def get_audit(start: str | None = None, days: int = 9,
     return out
 
 
+_FA_CACHE: dict = {}
+
+
 @router.get("/free-agents")
 def get_free_agents(start: str | None = None, days: int = 9,
                     league: str | None = None) -> dict:
     ctx = _ctx(league)
-    avail: dict[int, str] = {}
-    _, fas, missing = _lists(ctx, available_from=avail)
-    return {"players": free_agent_table(ctx, fas, start or _today(), days, avail),
-            "unmatched": missing, "as_of": ctx.as_of}
+    fa_path = DATA_DIR / FA_FILE
+    key = (id(ctx), start or _today(), days,
+           os.path.getmtime(fa_path) if fa_path.exists() else 0)
+    if _FA_CACHE.get("key") == key:
+        return _FA_CACHE["value"]
+    pl = parse_list(ctx, _read(FA_FILE))
+    rows = free_agent_table(ctx, pl, start or _today(), days)
+    counts = {k: sum(1 for r in rows if r["status"] == k) for k in ("FA", "W", "OUT")}
+    # names Yahoo lists that aren't in the NHL data (mostly minor-leaguers
+    # with no NHL games) are counted, not dumped into the status line
+    out = {"players": rows, "counts": counts, "unmatched": pl.missing,
+           "unmatched_count": len(pl.missing), "as_of": ctx.as_of}
+    _FA_CACHE.update(key=key, value=out)
+    return out
 
 
 @router.get("/plan")
@@ -236,7 +253,7 @@ def refresh(league: str | None = None) -> dict:
     else:
         try:
             roster, fas = fetch_lists(int(y["league_id"]), int(y["team_id"]),
-                                      int(y.get("free_agent_pages", 6)))
+                                      int(y.get("free_agent_pages", 0)))
             DATA_DIR.mkdir(parents=True, exist_ok=True)
             (DATA_DIR / ROSTER_FILE).write_text(
                 render(roster, "My roster"), encoding="utf-8")

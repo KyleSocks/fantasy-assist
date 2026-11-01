@@ -42,5 +42,6 @@ hold_margin: 0.15
 yahoo:
   league_id: 19725
   team_id: 5
-  free_agent_pages: 6   # per ranking (current + preseason), 25 per page;
-                        # free agents and waiver players
+  free_agent_pages: 0   # 0 = every available player (free agents, waivers,
+                        # injured). N = top N pages (25 each) by current
+                        # rank + top N by preseason rank (faster)

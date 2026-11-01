@@ -8,6 +8,7 @@ List format (data/my_roster.txt, data/fa.txt): one player per line,
 from __future__ import annotations
 
 import datetime
+from dataclasses import dataclass, field
 
 from .evaluate import Context, expected_line, find_players, form, hold_check
 from .lineup import best_lineup, marginal_values
@@ -22,48 +23,89 @@ MIN_GP_FLAGS = 8
 INACTIVE_MARKERS = {"IR", "IR+", "NA", "INJ", "OUT"}
 
 
+@dataclass
+class PlayerList:
+    """A parsed roster / free-agent list file."""
+
+    active: dict[int, set[str]] = field(default_factory=dict)
+    inactive: dict[int, set[str]] = field(default_factory=dict)  # IR / OUT
+    available_from: dict[int, str] = field(default_factory=dict)  # waivers
+    tags: dict[int, str] = field(default_factory=dict)  # "# IR-LT", "# DTD"
+    missing: list[str] = field(default_factory=list)
+
+    def status(self, pid: int) -> str:
+        """FA, W (waivers), OUT (injured free agent) or IR (your IR slot)."""
+        if pid in self.inactive:
+            return self.inactive_kind.get(pid, "OUT")
+        return "W" if pid in self.available_from else "FA"
+
+    inactive_kind: dict[int, str] = field(default_factory=dict)
+
+
+def _match(ctx: Context, parts: list[str]):
+    hits = find_players(ctx, parts[0])
+    if len(parts) > 1 and parts[1] and len(hits) > 1:
+        hits = [h for h in hits if h.team == parts[1]] or hits
+    if len(parts) > 2 and parts[2] and len(hits) > 1:
+        # same name, same team (two Elias Petterssons on VAN): match the
+        # position family -- D vs G vs forward
+        want = {x.strip() for x in parts[2].split(",")}
+        fam = "D" if "D" in want else "G" if "G" in want else "F"
+        hits = [h for h in hits if {"D": "D", "G": "G"}.get(h.position, "F")
+                == fam] or hits
+    return hits[0] if hits else None
+
+
+def parse_list(ctx: Context, text: str) -> PlayerList:
+    """Parse "Name | TEAM | C,LW [| IR | OUT | W 2026-11-02]  # tag" lines.
+
+    IR / OUT / NA players go to ``inactive`` (kept with their positions, so
+    they can be listed -- but they never enter lineups, plans or streams);
+    "W <date>" records when a waiver player can be added; the "# ..."
+    comment (Yahoo's injury tag) is kept in ``tags``.
+    """
+    pl = PlayerList()
+    for raw in text.splitlines():
+        body, _, comment = raw.partition("#")
+        parts = [x.strip() for x in body.split("|")]
+        if not parts[0]:
+            continue
+        # tolerate a hand-written "Name | TEAM | W 2026-11-02" (no positions)
+        if (len(parts) == 3 and parts[2]
+                and parts[2].split()[0].upper() in INACTIVE_MARKERS | {"W"}):
+            parts = [parts[0], parts[1], "", parts[2]]
+        ln = _match(ctx, parts)
+        if ln is None:
+            pl.missing.append(parts[0])
+            continue
+        pid = ln.player_id
+        elig = ({x.strip() for x in parts[2].split(",") if x.strip()}
+                if len(parts) > 2 and parts[2] else nhl_eligibility(ln.position))
+        if comment.strip():
+            pl.tags[pid] = comment.strip()
+        status = parts[3].split() if len(parts) > 3 else []
+        if status and status[0].upper() in INACTIVE_MARKERS:
+            pl.inactive[pid] = elig
+            pl.inactive_kind[pid] = "IR" if status[0].upper().startswith("IR") else "OUT"
+            continue
+        if len(status) > 1 and status[0].upper() == "W":
+            pl.available_from[pid] = status[1]
+        pl.active[pid] = elig
+    return pl
+
+
 def parse_players(ctx: Context, text: str, inactive: set[int] | None = None,
                   available_from: dict[int, str] | None = None,
                   ) -> tuple[dict[int, set[str]], list[str]]:
-    """{player_id: eligible positions} from list text, plus unmatched names.
-
-    Lines with a 4th field of IR / IR+ / NA ("Barkov | FLA | C | IR") are
-    injured / inactive: left out of the returned (active) roster and added
-    to ``inactive`` when a set is passed. "W 2026-11-02" (on waivers) keeps
-    the player and records the date he can be added in ``available_from``.
-    """
-    out: dict[int, set[str]] = {}
-    missing: list[str] = []
-    for raw in text.splitlines():
-        parts = [x.strip() for x in raw.split("#", 1)[0].split("|")]
-        if not parts[0]:
-            continue
-        hits = find_players(ctx, parts[0])
-        if len(parts) > 1 and parts[1] and len(hits) > 1:
-            hits = [h for h in hits if h.team == parts[1]] or hits
-        if len(parts) > 2 and parts[2] and len(hits) > 1:
-            # same name, same team (two Elias Petterssons on VAN): match the
-            # position family -- D vs G vs forward
-            want = {x.strip() for x in parts[2].split(",")}
-            fam = "D" if "D" in want else "G" if "G" in want else "F"
-            hits = [h for h in hits if {"D": "D", "G": "G"}.get(h.position, "F")
-                    == fam] or hits
-        if not hits:
-            missing.append(parts[0])
-            continue
-        ln = hits[0]
-        status = parts[3].split() if len(parts) > 3 else []
-        if status and status[0].upper() in INACTIVE_MARKERS:
-            if inactive is not None:
-                inactive.add(ln.player_id)
-            continue
-        if (len(status) > 1 and status[0].upper() == "W"
-                and available_from is not None):
-            available_from[ln.player_id] = status[1]
-        out[ln.player_id] = ({x.strip() for x in parts[2].split(",") if x.strip()}
-                             if len(parts) > 2 and parts[2]
-                             else nhl_eligibility(ln.position))
-    return out, missing
+    """{player_id: eligible positions} for the ACTIVE players in list text,
+    plus unmatched names (see parse_list). IR / OUT players are left out and
+    added to ``inactive``; waiver dates go to ``available_from``."""
+    pl = parse_list(ctx, text)
+    if inactive is not None:
+        inactive.update(pl.inactive)
+    if available_from is not None:
+        available_from.update(pl.available_from)
+    return pl.active, pl.missing
 
 
 def skater_slots(ctx: Context) -> dict[str, int]:
@@ -170,14 +212,33 @@ def audit(ctx: Context, roster: dict[int, set[str]], start: str,
             "replacement": ctx.scorer.replacement}
 
 
-def free_agent_table(ctx: Context, fas: dict[int, set[str]], start: str,
-                     days: int = 9, available_from: dict[int, str] | None = None,
-                     ) -> list[dict]:
-    available_from = available_from or {}
+def free_agent_table(ctx: Context, fas: dict[int, set[str]] | PlayerList,
+                     start: str, days: int = 9,
+                     available_from: dict[int, str] | None = None) -> list[dict]:
+    """Every available player, best blended value first. Pass a PlayerList
+    to include injured (OUT) free agents -- listed with ``status`` "OUT" so
+    you can stash one in an IR slot; they never start in plans or streams.
+    Each row has ``status`` (FA / W / OUT), ``waiver_until`` and ``tag``."""
+    if isinstance(fas, PlayerList):
+        pl = fas
+    else:
+        pl = PlayerList(active=dict(fas), available_from=dict(available_from or {}))
     rows = []
-    for p, e in fas.items():
+    for p, e in [*pl.active.items(), *pl.inactive.items()]:
+        if p not in ctx.lines:
+            continue
         row = _player_row(ctx, p, e, start, days)
-        row["waiver_until"] = available_from.get(p)
+        row.update(status=pl.status(p), waiver_until=pl.available_from.get(p),
+                   tag=pl.tags.get(p))
+        if row["status"] == "OUT":
+            # can't play now: no keep/drop verdict. Worth an IR slot if he's
+            # better than replacement once healthy.
+            grp_repl = ctx.scorer.replacement[
+                "G" if ctx.lines[p].is_goalie else
+                "D" if ctx.lines[p].position == "D" else "F"]
+            row["verdict"] = "IR STASH" if row["blended"] > grp_repl else "OUT"
+            row["flags"] = [f"injured ({row['tag'] or 'out'})"] + [
+                f for f in row["flags"] if f.startswith("small")]
         rows.append(row)
     rows.sort(key=lambda r: -r["blended"])
     return rows

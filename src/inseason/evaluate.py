@@ -42,11 +42,12 @@ class Context:
         """(date, opponent) for ``team`` with start <= date <= end."""
         if not team:
             return []
-        out = []
-        for d, h, a in self.games:
-            if start <= d <= end and team in (h, a):
-                out.append((d, a if h == team else h))
-        return out
+        cache = self.__dict__.setdefault("_tg_cache", {})
+        key = (team, start, end)
+        if key not in cache:
+            cache[key] = [(d, a if h == team else h) for d, h, a in self.games
+                          if start <= d <= end and team in (h, a)]
+        return list(cache[key])
 
     def games_on(self, date: str) -> int:
         return sum(1 for d, _, _ in self.games if d == date)
@@ -317,11 +318,22 @@ def load_taken(ctx: Context, path: str) -> tuple[set[int], list[str]]:
     return ids, missing
 
 
+def _name_index(ctx: Context) -> dict[str, list[Line]]:
+    idx = getattr(ctx, "_names", None)
+    if idx is None:
+        idx = {}
+        for ln in ctx.lines.values():
+            idx.setdefault(_fold(ln.name), []).append(ln)
+        ctx._names = idx
+    return idx
+
+
 def find_players(ctx: Context, query: str) -> list[Line]:
-    """Accent/case-insensitive substring match on full name."""
+    """Accent/case-insensitive match on full name: exact (indexed) first,
+    then substring."""
     q = _fold(query.strip())
-    exact = [ln for ln in ctx.lines.values() if _fold(ln.name) == q]
+    exact = _name_index(ctx).get(q)
     if exact:
-        return exact
+        return list(exact)
     return sorted((ln for ln in ctx.lines.values() if q in _fold(ln.name)),
                   key=lambda ln: -ctx.scorer.per_game[ln.player_id])

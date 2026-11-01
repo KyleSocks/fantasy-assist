@@ -51,7 +51,18 @@
     </section>
 
     <section id="tab-fa" class="panel" hidden>
-      <p class="hint">From your free-agent list (Lists tab), best blended value first.</p>
+      <p class="hint">Every player you can pick up: free agents, waiver players (addable once
+        they clear) and injured free agents (stash candidates for an IR slot), best blended
+        value first.</p>
+      <div class="form-row">
+        <label>Search <input id="fa-search" type="search" placeholder="name or team" size="16"></label>
+        <label class="inline"><input id="fa-show-FA" type="checkbox" checked> free agents</label>
+        <label class="inline"><input id="fa-show-W" type="checkbox" checked> waivers</label>
+        <label class="inline"><input id="fa-show-OUT" type="checkbox" checked> injured</label>
+        <label>Position <select id="fa-pos"><option value="">all</option><option>C</option>
+          <option>LW</option><option>RW</option><option>D</option><option>G</option></select></label>
+        <span id="fa-counts" class="muted"></span>
+      </div>
       <div class="scroll"><table id="fa-table"></table></div>
       <h3>Single-game streams <input id="stream-date" type="date">
         <label class="inline"><input id="stream-all" type="checkbox"> include rostered pool</label></h3>

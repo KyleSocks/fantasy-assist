@@ -163,15 +163,19 @@ def _get(client: httpx.Client, url: str) -> str:
     return r.text
 
 
-def fetch_lists(league_id: int, team_id: int, fa_pages: int = 6,
+MAX_PAGES = 60   # safety stop for "all" (60 x 25 = 1500 players)
+
+
+def fetch_lists(league_id: int, team_id: int, fa_pages: int = 0,
                 client: httpx.Client | None = None,
                 ) -> tuple[list[YPlayer], list[YPlayer]]:
     """(your roster skaters, available skaters).
 
-    Available = free agents AND waiver players (status=A), the union of
-    Yahoo's top ``fa_pages`` pages by current-season rank (AR) and by
-    preseason rank (OR) -- current rank alone buries slow starters (Mike
-    Matheson was 234th) that the blended model may still like.
+    Available = free agents AND waiver players (status=A), injured ones
+    included. ``fa_pages`` <= 0 (default) reads EVERY page of the list.
+    A positive ``fa_pages`` reads that many pages by current-season rank
+    (AR) plus that many by preseason rank (OR) -- current rank alone buries
+    slow starters (Mike Matheson was 234th) the blended model may like.
     """
     own = client is None
     client = client or httpx.Client(headers=HEADERS, timeout=30,
@@ -182,8 +186,10 @@ def fetch_lists(league_id: int, team_id: int, fa_pages: int = 6,
                               include_inactive=True)
         fas: list[YPlayer] = []
         seen: set[str] = set()
-        for sort in ("AR", "OR"):
-            for page in range(fa_pages):
+        plan = ([("AR", MAX_PAGES)] if fa_pages <= 0
+                else [("AR", fa_pages), ("OR", fa_pages)])
+        for sort, pages in plan:
+            for page in range(pages):
                 rows = parse_rows(_get(client, (
                     f"{BASE}/{league_id}/players?status=A&pos=P&sort={sort}"
                     f"&sdir=1&count={page * PAGE_SIZE}")))
