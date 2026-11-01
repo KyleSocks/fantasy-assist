@@ -42,18 +42,32 @@ class PlayerList:
     inactive_kind: dict[int, str] = field(default_factory=dict)
 
 
+def _family(position: str) -> str:
+    return {"D": "D", "G": "G"}.get(position, "F")
+
+
 def _match(ctx: Context, parts: list[str]):
     hits = find_players(ctx, parts[0])
-    if len(parts) > 1 and parts[1] and len(hits) > 1:
-        hits = [h for h in hits if h.team == parts[1]] or hits
-    if len(parts) > 2 and parts[2] and len(hits) > 1:
+    team = parts[1] if len(parts) > 1 and parts[1] else None
+    want = ({x.strip() for x in parts[2].split(",") if x.strip()}
+            if len(parts) > 2 and parts[2] else set())
+    fam = ("D" if "D" in want else "G" if "G" in want else "F") if want else None
+    if team and len(hits) > 1:
+        hits = [h for h in hits if h.team == team] or hits
+    if fam and len(hits) > 1:
         # same name, same team (two Elias Petterssons on VAN): match the
         # position family -- D vs G vs forward
-        want = {x.strip() for x in parts[2].split(",")}
-        fam = "D" if "D" in want else "G" if "G" in want else "F"
-        hits = [h for h in hits if {"D": "D", "G": "G"}.get(h.position, "F")
-                == fam] or hits
-    return hits[0] if hits else None
+        hits = [h for h in hits if _family(h.position) == fam] or hits
+    if not hits:
+        return None
+    h = hits[0]
+    # A different player who happens to share the name: wrong team AND wrong
+    # position family (Yahoo's "Sebastian Aho | NYI | D" is not CAR's centre).
+    # A team mismatch alone is accepted -- usually a trade one source hasn't
+    # caught up with.
+    if team and fam and h.team != team and _family(h.position) != fam:
+        return None
+    return h
 
 
 def parse_list(ctx: Context, text: str) -> PlayerList:

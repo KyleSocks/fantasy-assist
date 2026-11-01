@@ -157,7 +157,7 @@ def _unavailable_on(ctx, date: str) -> set[int]:
     return set(pl.inactive) | {p for p, d in pl.available_from.items() if d > date}
 
 
-def _league_taken(ctx) -> set[int] | None:
+def _league_taken(ctx, include_inactive: bool = True) -> set[int] | None:
     """Every player rostered in your league (IR included), if pulled."""
     path = DATA_DIR / LEAGUE_FILE
     if not path.exists():
@@ -165,7 +165,8 @@ def _league_taken(ctx) -> set[int] | None:
     data = json.loads(path.read_text(encoding="utf-8"))
     text = "\n".join(f"{p['name']} | {p['team']} | {','.join(p['positions'])}"
                      for t in data["teams"].values() for p in t["players"])
-    return set(parse_players(ctx, text)[0])
+    pl = parse_list(ctx, text)
+    return set(pl.active) | (set(pl.inactive) if include_inactive else set())
 
 
 @router.get("/audit")
@@ -196,6 +197,12 @@ def get_free_agents(start: str | None = None, days: int = 9,
     if _FA_CACHE.get("key") == key:
         return _FA_CACHE["value"]
     pl = parse_list(ctx, _read(FA_FILE))
+    # safety net: never list someone rostered in your league (a name clash
+    # in the free-agent file must not surface a rostered player)
+    taken = _league_taken(ctx, include_inactive=True) or set()
+    for bucket in (pl.active, pl.inactive):
+        for pid in [p for p in bucket if p in taken]:
+            del bucket[pid]
     rows = free_agent_table(ctx, pl, start or _today(), days)
     counts = {k: sum(1 for r in rows if r["status"] == k) for k in ("FA", "W", "OUT")}
     # names Yahoo lists that aren't in the NHL data (mostly minor-leaguers

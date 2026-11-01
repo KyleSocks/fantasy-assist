@@ -216,3 +216,43 @@ def test_injured_star_is_an_ir_stash(ctx):  # noqa: F811
     rows = free_agent_table(ctx, parse_list(ctx, "Alex Ovechkin | AAA | LW | OUT  # O\n"),
                             "2026-11-01", 4)
     assert rows[0]["status"] == "OUT" and rows[0]["verdict"] == "IR STASH"
+
+
+# ── name clashes: a different player with the same name ──────────────
+
+def test_same_name_wrong_team_and_position_is_not_matched(ctx):  # noqa: F811
+    # Yahoo lists an injured D "Alex Ovechkin" on BBB; our only Ovechkin is
+    # AAA's winger -> a different player, must not be attached to ours
+    pl = parse_list(ctx, "Alex Ovechkin | BBB | D | OUT  # IR\n")
+    assert pl.inactive == {} and pl.missing == ["Alex Ovechkin"]
+    # team differs but position family matches -> a trade: still matched
+    assert set(parse_list(ctx, "Alex Ovechkin | BBB | LW\n").active) == {1}
+    # no positions given -> can't tell, keep the name match
+    assert set(parse_list(ctx, "Alex Ovechkin | BBB\n").active) == {1}
+
+
+def test_api_free_agents_never_lists_league_rostered(db, tmp_path, monkeypatch):  # noqa: F811
+    from pathlib import Path
+
+    from fastapi.testclient import TestClient
+
+    import src.api.inseason as api
+    from src.api.main import app
+    leagues = tmp_path / "leagues"
+    leagues.mkdir()
+    (leagues / "t.yaml").write_text(Path("config/leagues/kyle_12_points.yaml").read_text())
+    monkeypatch.setattr(api, "DB_PATH", Path(db))
+    monkeypatch.setattr(api, "LEAGUE_DIR", leagues)
+    monkeypatch.setattr(api, "DATA_DIR", tmp_path)
+    api._CACHE.clear()
+    api._FA_CACHE.clear()
+    # the FA file wrongly contains Strong Center (rostered by team 2) and an
+    # injured line that resolves to rostered Depth Wing
+    (tmp_path / "fa.txt").write_text("Strong Center | BBB | C\nDepth Wing | CCC | RW | OUT\n"
+                                     "Dee Two | CCC | D\n", encoding="utf-8")
+    (tmp_path / "league_rosters.json").write_text(json.dumps({"my_team_id": 1, "teams": {
+        "2": {"name": "x", "players": [
+            {"name": "Strong Center", "team": "BBB", "positions": ["C"]},
+            {"name": "Depth Wing", "team": "CCC", "positions": ["RW"], "inactive": True}]}}}))
+    f = TestClient(app).get("/api/inseason/free-agents?league=t&start=2026-11-01&days=4").json()
+    assert [r["name"] for r in f["players"]] == ["Dee Two"]
