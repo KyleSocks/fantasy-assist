@@ -100,3 +100,9 @@ rank, IR and goalies excluded). Takes about a minute.
 
 API (same data, for the UI): `/api/inseason/streams`, `/api/inseason/player/{id}`,
 `/api/inseason/schedule`.
+
+## Running on a home server
+
+`docker compose up -d --build` runs the whole app (draft board + mid-season
+page) on port 8420, with a systemd timer for twice-daily refreshes. See
+[docs/DEPLOY.md](docs/DEPLOY.md).
