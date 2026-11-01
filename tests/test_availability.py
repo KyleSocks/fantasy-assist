@@ -256,3 +256,18 @@ def test_api_free_agents_never_lists_league_rostered(db, tmp_path, monkeypatch):
             {"name": "Depth Wing", "team": "CCC", "positions": ["RW"], "inactive": True}]}}}))
     f = TestClient(app).get("/api/inseason/free-agents?league=t&start=2026-11-01&days=4").json()
     assert [r["name"] for r in f["players"]] == ["Dee Two"]
+
+
+def test_screen_candidates_keeps_window_and_nightly_best():
+    from src.inseason.roster import screen_candidates
+    dates = ["d1", "d2"]
+    # 5 forwards with window totals 10..6; a D with one big night; hold = 99
+    games = {i: {"d1": 10 - i / 2, "d2": 10 - i / 2} for i in range(5)}
+    games[50] = {"d2": 3.0}
+    games[51] = {"d1": 0.5}              # weak forward, games only on d1
+    games[99] = {}
+    cands = {**{i: {"C"} for i in range(5)}, 50: {"D"}, 51: {"LW"}, 99: {"LW"}}
+    kept = screen_candidates(cands, games, dates, hold=99, max_candidates=2, per_night=1)
+    # top-2 by total (0, 1) + best F each night (0) + best D on d2 (50) + hold
+    assert set(kept) == {0, 1, 50, 99}
+    assert screen_candidates(cands, games, dates, 99, max_candidates=0) == cands

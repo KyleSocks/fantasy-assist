@@ -258,11 +258,44 @@ def free_agent_table(ctx: Context, fas: dict[int, set[str]] | PlayerList,
     return rows
 
 
+def screen_candidates(cands: dict[int, set[str]], games: dict[int, dict[str, float]],
+                      dates: list[str], hold: int, max_candidates: int = 60,
+                      per_night: int = 6) -> dict[int, set[str]]:
+    """Keep the candidates that can plausibly win a plan.
+
+    A candidate's lineup value on a night is at most his game value that
+    night, so the plan can only pick players who are strong over the window
+    or strong on some night. Kept: the top ``max_candidates`` by total game
+    value in the window, plus for every night the top ``per_night`` by that
+    night's game value in each position family (forwards, D, goalies) -- so a
+    D for a D-only open night survives. ``hold`` is always kept.
+    ``max_candidates`` <= 0 disables screening.
+    """
+    if max_candidates <= 0 or len(cands) <= max_candidates:
+        return dict(cands)
+    keep = {hold}
+    total = {p: sum(games.get(p, {}).values()) for p in cands}
+    keep.update(sorted(cands, key=lambda p: -total[p])[:max_candidates])
+
+    def fam(e: set[str]) -> str:
+        return "G" if e == {"G"} else "D" if e == {"D"} else "F"
+    for d in dates:
+        for f in ("F", "D", "G"):
+            pool = [p for p in cands if fam(cands[p]) == f and games.get(p, {}).get(d, 0) > 0]
+            keep.update(sorted(pool, key=lambda p: -games[p][d])[:per_night])
+    return {p: e for p, e in cands.items() if p in keep}
+
+
 def roster_plan(ctx: Context, roster: dict[int, set[str]],
                 cands: dict[int, set[str]], hold: int, start: str, days: int,
                 adds: list[int], locked: set[str] = frozenset(),
-                available_from: dict[int, str] | None = None) -> dict:
-    """Roster-aware add/drop plan for ``hold``'s roster spot."""
+                available_from: dict[int, str] | None = None,
+                max_candidates: int = 60) -> dict:
+    """Roster-aware add/drop plan for ``hold``'s roster spot.
+
+    Candidates are screened first (screen_candidates) so a full free-agent
+    list (~450 players) doesn't mean ~450 lineup simulations per night.
+    """
     dates = dates_from(start, days)
     roster = dict(roster)
     hold_elig = (cands.get(hold) or roster.get(hold)
@@ -272,6 +305,7 @@ def roster_plan(ctx: Context, roster: dict[int, set[str]],
     cands[hold] = hold_elig
     games = {p: game_values(ctx, p, dates) for p in roster}
     games.update({p: game_values(ctx, p, dates, locked) for p in cands})
+    cands = screen_candidates(cands, games, dates, hold, max_candidates)
     mv = marginal_values(roster, cands, games, dates, skater_slots(ctx))
     weeks = sorted({week_key(d) for d in dates})
     budget = {w: (adds[i] if i < len(adds) else adds[-1])
