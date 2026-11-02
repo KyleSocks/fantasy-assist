@@ -1,0 +1,16 @@
+# docker compose up -d --build   ->  http://marshall-home:8420
+services:
+  fantasy-assist:
+    build: .
+    image: fantasy-assist:latest
+    container_name: fantasy-assist
+    restart: unless-stopped
+    ports:
+      # LAN + Tailscale only -- the app has no login and can rewrite its
+      # data (Refresh, Lists). Never port-forward this on OPNsense.
+      - "8420:8000"
+    environment:
+      - TZ=America/New_York
+    volumes:
+      - ./data:/app/data        # hockey.db, roster / free-agent / league files
+      - ./config:/app/config    # league + model settings, editable without rebuild

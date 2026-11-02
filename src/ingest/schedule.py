@@ -13,14 +13,26 @@ _SCHED_SLEEP_S = 0.1
 
 
 def ingest_schedule(conn, fetcher: Fetcher, season_id: int,
-                    dry_run: bool = False) -> tuple[dict[str, int], list[str]]:
-    """Fetch day-by-day schedule for one season and upsert games."""
+                    dry_run: bool = False,
+                    start: datetime.date | None = None,
+                    step_days: int = 1,
+                    ) -> tuple[dict[str, int], list[str]]:
+    """Fetch day-by-day schedule for one season and upsert games.
+
+    ``start`` (optional) skips days before it -- the mid-season refresh only
+    needs today onward. Default: the whole season from Oct 1.
+    ``step_days=7`` fetches one request per week: each /schedule/{date}
+    response already holds that date's whole game week, and games are
+    upserted, so nothing is missed.
+    """
     notes: list[str] = []
     counts: dict[str, int] = {"schedule": 0}
     start_year = season_id // 10000
     end_year = season_id % 10000
     cur = conn.cursor()
     d = datetime.date(start_year, 10, 1)
+    if start is not None and start > d:
+        d = start
     end = datetime.date(end_year, 4, 30)
     while d <= end:
         date_str = d.isoformat()
@@ -29,9 +41,19 @@ def ingest_schedule(conn, fetcher: Fetcher, season_id: int,
                 f"https://api-web.nhle.com/v1/schedule/{date_str}")
         except (httpx.HTTPError, OSError) as e:
             notes.append(f"schedule {date_str}: {e}")
-            d += datetime.timedelta(days=1)
+            d += datetime.timedelta(days=step_days)
             continue
         for week in raw.get("gameWeek", []):
+            # Each gameWeek entry is one day: {"date": "2026-11-01", "games":
+            # [...]}. Use that date, never the request date -- a request
+            # returns a whole week of days.
+            game_date = week.get("date")
+            if not game_date:
+                if step_days > 1:
+                    notes.append(f"schedule {date_str}: gameWeek entry without"
+                                 " a date; skipped (would mis-date games)")
+                    continue
+                game_date = date_str
             for game in week.get("games", []):
                 home = (game.get("homeTeam") or {}).get("abbrev", "")
                 away = (game.get("awayTeam") or {}).get("abbrev", "")
@@ -49,9 +71,9 @@ def ingest_schedule(conn, fetcher: Fetcher, season_id: int,
                     " season_id=excluded.season_id, game_date=excluded.game_date,"
                     " home_abbrev=excluded.home_abbrev, away_abbrev=excluded.away_abbrev,"
                     " game_type=excluded.game_type",
-                    (gid, season_id, date_str, home, away, gtype),
+                    (gid, season_id, game_date, home, away, gtype),
                 )
                 counts["schedule"] += 1
-        d += datetime.timedelta(days=1)
+        d += datetime.timedelta(days=step_days)
         time.sleep(_SCHED_SLEEP_S)
     return counts, notes

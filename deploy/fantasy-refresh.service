@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh fantasy-assist (NHL stats, schedule, Yahoo rosters + free agents)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Same as the page's "Refresh data" button. A full free-agent pull takes a
+# couple of minutes, hence the long timeout.
+ExecStart=/usr/bin/curl -fsS -X POST --max-time 900 http://127.0.0.1:8420/api/inseason/refresh

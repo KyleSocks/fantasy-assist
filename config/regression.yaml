@@ -16,6 +16,9 @@ shots: 150
 blocks: 250
 hits: 250
 pp_points: 120
+# Shorthanded points (league stat SHP): n = total TOI-minutes. Rare and
+# noisy, so a large k leans hard on the positional mean.
+sh_points: 600
 # Goalie stats, same per-stat k/n rule (k in the same units as n):
 #   starts     n = total games started across observed seasons -> k in starts
 #   save_pct   n = total shots against across observed seasons -> k in shots

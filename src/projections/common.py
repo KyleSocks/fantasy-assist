@@ -58,6 +58,9 @@ class Projection:
     games_started: float = 0.0
     goals_against: float = 0.0
     saves: float = 0.0
+    # Shorthanded points (league stat SHP). Skaters only; projected outside
+    # SKATER_CATEGORIES so explain()/band charts are unchanged.
+    sh_points: float = 0.0
     position: str = "F"
     terms: dict = field(default_factory=dict)
 
@@ -158,13 +161,13 @@ def _compute_pos_means(conn: sqlite3.Connection, season_ids: list[int],
     # Skater positional means: per-GP rates
     cur = conn.execute(
         "SELECT s.goals, s.assists, s.shots, s.blocks, s.hits, s.pp_points,"
-        " s.gp, p.position"
+        " s.gp, p.position, s.sh_points"
         " FROM skater_seasons s JOIN players p ON s.player_id = p.player_id"
         " WHERE s.season_id IN ({}) AND s.gp > 0".format(
             ",".join(str(s) for s in season_ids)))
     rows = cur.fetchall()
     totals = {"goals": 0.0, "assists": 0.0, "shots": 0.0, "blocks": 0.0,
-              "hits": 0.0, "pp_points": 0.0}
+              "hits": 0.0, "pp_points": 0.0, "sh_points": 0.0}
     total_gp = 0
     for r in rows:
         if _pos_group(r[7]) != pos_group:
@@ -176,9 +179,10 @@ def _compute_pos_means(conn: sqlite3.Connection, season_ids: list[int],
             totals["blocks"] += r[3] or 0
             totals["hits"] += r[4] or 0
             totals["pp_points"] += r[5] or 0
+            totals["sh_points"] += r[8] or 0
             total_gp += r[6]
     means = {}
-    for cat in SKATER_STATS:
+    for cat in (*SKATER_STATS, "sh_points"):
         means[cat] = totals[cat] / total_gp if total_gp > 0 else 0.0
     return means
 

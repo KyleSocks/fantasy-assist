@@ -414,18 +414,22 @@ def test_new_stat_keys_valid_and_mapped():
     for key in ("SHP", "GS", "GA", "SV"):
         assert key in VALID_STAT_KEYS
         assert key in STAT_FIELD_MAP
-    assert STAT_FIELD_MAP["SHP"] == "shutouts"
+    # SHP = shorthanded points (skaters); it used to be mis-mapped to
+    # shutouts, which gave goalies +2 per shutout and skaters nothing.
+    assert STAT_FIELD_MAP["SHP"] == "sh_points"
     assert STAT_FIELD_MAP["GS"] == "games_started"
     assert STAT_FIELD_MAP["GA"] == "goals_against"
     assert STAT_FIELD_MAP["SV"] == "saves"
 
 
 def test_points_value_new_keys_goalie():
-    """SHP/GS/GA/SV contribute to a points value (hand-computed).
+    """GS/GA/SV/SO contribute to a goalie's points value (hand-computed).
 
     Goalie: gs=40, ga=120, sv=800, shutouts=1, w=10; all skater stats 0.
     Weights: GS=1, GA=-1.5, SV=0.3, SHP=2, SO=3, W=4.
-    Expected = 40*1 + 120*(-1.5) + 800*0.3 + 1*2 + 1*3 + 10*4 = 145.
+    SHP is shorthanded points -- a goalie has none, so the shutout counts
+    only once (SO), not again as SHP.
+    Expected = 40*1 + 120*(-1.5) + 800*0.3 + 1*3 + 10*4 = 143.
     """
     cfg = LeagueConfig(
         name="newkeys",
@@ -440,8 +444,8 @@ def test_points_value_new_keys_goalie():
         pp_points=0.0, wins=10.0, save_pct=0.92,
         shutouts=1.0, games_started=40.0, goals_against=120.0, saves=800.0,
     )
-    expected = 40.0 * 1.0 + 120.0 * (-1.5) + 800.0 * 0.3 + 1.0 * 2.0 + 1.0 * 3.0 + 10.0 * 4.0
-    assert expected == pytest.approx(145.0)
+    expected = 40.0 * 1.0 + 120.0 * (-1.5) + 800.0 * 0.3 + 1.0 * 3.0 + 10.0 * 4.0
+    assert expected == pytest.approx(143.0)
     assert points_value(g, cfg) == pytest.approx(expected, rel=1e-9)
 
 
