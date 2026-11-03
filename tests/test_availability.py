@@ -137,6 +137,9 @@ def _client(pages):
         if "/players" not in req.url.path:
             return httpx.Response(200, text=TEAM_PAGE)
         assert req.url.params["status"] == "A"
+        if req.url.params["pos"] == "G":           # 3 free-agent goalies
+            return httpx.Response(200, text="".join(
+                _row(f"Goalie {k}", "BOS - G") for k in range(3)))
         i = int(req.url.params["count"]) // 25
         n = pages[i] if i < len(pages) else 0
         return httpx.Response(200, text="".join(
@@ -147,8 +150,10 @@ def _client(pages):
 def test_fetch_lists_all_pages_until_short_page():
     client, calls = _client([25, 25, 7])
     _, fas = fetch_lists(19725, 5, fa_pages=0, client=client)
-    assert len(fas) == 57
-    assert [c.params["sort"] for c in calls[1:]] == ["AR", "AR", "AR"]
+    assert len(fas) == 57 + 3                        # skaters + goalies
+    assert [(c.params["pos"], c.params["sort"]) for c in calls[1:]] == [
+        ("P", "AR"), ("P", "AR"), ("P", "AR"), ("G", "AR")]
+    assert [p.positions for p in fas[-3:]] == [("G",)] * 3
 
 
 def test_fetch_lists_all_pages_safety_stop(monkeypatch):
@@ -156,7 +161,8 @@ def test_fetch_lists_all_pages_safety_stop(monkeypatch):
     monkeypatch.setattr(yp, "MAX_PAGES", 3)
     client, calls = _client([25] * 10)
     _, fas = fetch_lists(19725, 5, fa_pages=0, client=client)
-    assert len(fas) == 75 and len(calls) == 4         # team page + 3
+    # team page + 3 skater pages (stopped) + 1 goalie page
+    assert len(fas) == 75 + 3 and len(calls) == 5
 
 
 # ── planner respects waiver dates ─────────────────────────────────────

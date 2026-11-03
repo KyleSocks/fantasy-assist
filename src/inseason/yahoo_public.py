@@ -190,10 +190,11 @@ def fetch_lists(league_id: int, team_id: int, fa_pages: int = 0,
                 client: httpx.Client | None = None,
                 stats: dict | None = None,
                 ) -> tuple[list[YPlayer], list[YPlayer]]:
-    """(your roster skaters, available skaters).
+    """(your roster, available players) -- skaters AND goalies.
 
     Available = free agents AND waiver players (status=A), injured ones
-    included. ``fa_pages`` <= 0 (default) reads EVERY page of the list.
+    included; skaters (pos=P) and goalies (pos=G) are separate Yahoo lists,
+    each paged the same way. ``fa_pages`` <= 0 (default) reads EVERY page of the list.
     A positive ``fa_pages`` reads that many pages by current-season rank
     (AR) plus that many by preseason rank (OR) -- current rank alone buries
     slow starters (Mike Matheson was 234th) the blended model may like.
@@ -209,19 +210,21 @@ def fetch_lists(league_id: int, team_id: int, fa_pages: int = 0,
     try:
         # IR players are kept (marked "| IR") so they're protected, not lost
         roster = parse_roster(_get(client, f"{BASE}/{league_id}/{team_id}"),
-                              include_inactive=True)
+                              include_goalies=True, include_inactive=True)
         fas: list[YPlayer] = []
         seen: set[str] = set()
         plan = ([("AR", MAX_PAGES)] if fa_pages <= 0
                 else [("AR", fa_pages), ("OR", fa_pages)])
         unparsed = 0
-        for sort, pages in plan:
+        for pos, (sort, pages) in [(g, sp) for g in ("P", "G") for sp in plan]:
             for page in range(pages):
                 html_page = _get(client, (
-                    f"{BASE}/{league_id}/players?status=A&pos=P&sort={sort}"
+                    f"{BASE}/{league_id}/players?status=A&pos={pos}&sort={sort}"
                     f"&sdir=1&count={page * PAGE_SIZE}"))
                 raw = count_player_rows(html_page)
-                if page == 0 and raw == 0:
+                # a league always has free-agent skaters; zero rows on the
+                # first skater page is a wall or a redesign, not "nobody"
+                if pos == "P" and page == 0 and raw == 0:
                     raise YahooPageError(
                         f"the available-players page ({sort}) has no player "
                         "rows: login/consent wall or a page redesign")

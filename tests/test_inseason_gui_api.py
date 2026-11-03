@@ -51,3 +51,22 @@ def test_lists_audit_and_plan(db, tmp_path, monkeypatch):  # noqa: F811
 def test_audit_without_roster_is_400(db, tmp_path, monkeypatch):  # noqa: F811
     c = _client(db, tmp_path, monkeypatch)
     assert c.get("/api/inseason/audit?league=t").status_code == 400
+
+
+def test_goalies_show_up_in_audit_plan_and_free_agents(db, tmp_path, monkeypatch):  # noqa: F811
+    """Goalies in the list files (as Refresh now writes them) reach the
+    roster audit with real lineup value, can be planned, and are listed as
+    free agents."""
+    c = _client(db, tmp_path, monkeypatch)
+    c.put("/api/inseason/lists?league=t", json={
+        "roster": "Alex Ovechkin | AAA | LW\nDee Man | BBB | D\n"
+                  "Goalie B | BBB | G\n",
+        "free_agents": "Strong Center | BBB | C\nGoalie A | AAA | G\n"})
+    a = c.get("/api/inseason/audit?league=t&start=2026-11-01&days=4").json()
+    g = next(p for p in a["players"] if p["name"] == "Goalie B")
+    assert g["starts"] > 0 and g["lineup_adds"] > 0
+    fa = c.get("/api/inseason/free-agents?league=t&start=2026-11-01&days=4").json()
+    assert "Goalie A" in {p["name"] for p in fa["players"]}
+    p = c.get("/api/inseason/plan?league=t&hold=7&adds=2&start=2026-11-01"
+              "&days=4&force=true").json()
+    assert p["keep_value"] > 0

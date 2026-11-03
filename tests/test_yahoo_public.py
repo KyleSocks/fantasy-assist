@@ -59,6 +59,8 @@ def test_fetch_lists_pages_until_short_page():
         if req.url.path.endswith("/19725/5"):
             return httpx.Response(200, text=TEAM_PAGE)
         assert req.url.params["status"] == "A"           # free agents + waivers
+        if req.url.params["pos"] == "G":
+            return httpx.Response(200, text=_row("Free Goalie", "SEA - G"))
         start = int(req.url.params["count"])
         n = 25 if start == 0 else 3
         # the preseason-rank sort (OR) finds 2 extra players beyond the AR list
@@ -69,12 +71,15 @@ def test_fetch_lists_pages_until_short_page():
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     roster, fas = fetch_lists(19725, 5, fa_pages=4, client=client)
-    assert len(roster) == 5                           # IR player kept (marked)
+    assert len(roster) == 6                    # IR player kept, goalie included
     assert [p.name for p in roster if p.inactive] == ["Aleksander Barkov"]
-    # 28 by current rank + 2 only found by preseason rank, no duplicates
-    assert len(fas) == 30 and fas[0].team == "TBL"
-    assert {p.name for p in fas[-2:]} == {"Slow Starter 0", "Slow Starter 1"}
-    assert len(calls) == 5                            # team + 2 pages x 2 sorts
+    assert [p.name for p in roster if p.positions == ("G",)] == ["Jake Oettinger"]
+    # 28 by current rank + 2 only found by preseason rank, no duplicates,
+    # then the goalie list (one short page per sort)
+    assert len(fas) == 31 and fas[0].team == "TBL"
+    assert {p.name for p in fas[28:30]} == {"Slow Starter 0", "Slow Starter 1"}
+    assert fas[-1].name == "Free Goalie" and fas[-1].positions == ("G",)
+    assert len(calls) == 7       # team + skaters 2 pages x 2 sorts + goalies x 2
 
 
 def test_refresh_endpoint(monkeypatch, tmp_path):
@@ -154,6 +159,8 @@ def _fa_client(pages, bad_row_on=None, wall_on=None):
             return httpx.Response(200, text="<html>consent</html>")
         if "/players" not in req.url.path:
             return httpx.Response(200, text=TEAM_PAGE)
+        if req.url.params["pos"] == "G":
+            return httpx.Response(200, text="")       # no free-agent goalies
         i = int(req.url.params["count"]) // 25
         if i == wall_on:
             return httpx.Response(302, headers={
