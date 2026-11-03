@@ -129,6 +129,40 @@ def skater_slots(ctx: Context) -> dict[str, int]:
     return slots
 
 
+def active_slots(ctx: Context) -> dict[str, int]:
+    """Every nightly starting slot, goalies included. Goalie game values are
+    weighted by start share (expected_line), so G slots fill correctly."""
+    slots = skater_slots(ctx)
+    g = ctx.league.roster_slots.get("G", 0)
+    if g:
+        slots["G"] = g
+    return slots
+
+
+def drop_protection(ctx: Context, pid: int, start: str) -> str | None:
+    """Why ``pid`` must not be dropped for streamers, or None if he can be.
+
+    Drops are free (only adds count against the weekly limit), but a dropped
+    player is gone for good, so a light week or two is never a reason to cut
+    a good player. He's protected while his blended per-game value is a HOLD
+    (above replacement by ``hold_margin``) -- unless he is severely
+    underperforming: ``protect_min_gp`` games (starts for goalies) or more
+    and producing below replacement so far this season. Schedule is
+    deliberately ignored here.
+    """
+    ln = ctx.lines[pid]
+    h = hold_check(ctx, pid, start, 1)
+    if h["verdict"] != "HOLD":
+        return None
+    obs = form(ctx, ln)["observed"]
+    repl = h["replacement_pg"]
+    min_gp = ctx.icfg.get("protect_min_gp", 15)
+    if ln.gp >= min_gp and obs is not None and obs < repl:
+        return None
+    return (f"{ln.name} is a hold ({h['form']['blended']:.2f}/gm vs "
+            f"{repl:.2f} replacement): not dropped for streamers")
+
+
 def dates_from(start: str, days: int) -> list[str]:
     s = datetime.date.fromisoformat(start)
     return [(s + datetime.timedelta(days=i)).isoformat() for i in range(days)]
@@ -185,7 +219,7 @@ def audit(ctx: Context, roster: dict[int, set[str]], start: str,
     ``inactive`` (IR) players are listed as protected holds and kept out of
     the lineup simulation."""
     dates = dates_from(start, days)
-    slots = skater_slots(ctx)
+    slots = active_slots(ctx)
     gv = {p: game_values(ctx, p, dates) for p in roster}
 
     def per_night(r: dict[int, set[str]]):
@@ -267,21 +301,19 @@ def screen_candidates(cands: dict[int, set[str]], games: dict[int, dict[str, flo
     night, so the plan can only pick players who are strong over the window
     or strong on some night. Kept: the top ``max_candidates`` by total game
     value in the window, plus for every night the top ``per_night`` by that
-    night's game value in each position family (forwards, D, goalies) -- so a
-    D for a D-only open night survives. ``hold`` is always kept.
-    ``max_candidates`` <= 0 disables screening.
+    night's game value at EACH position (C, LW, RW, D, G) -- so an RW for an
+    RW-only open night survives even when dozens of C/LW outscore him.
+    ``hold`` is always kept. ``max_candidates`` <= 0 disables screening.
     """
     if max_candidates <= 0 or len(cands) <= max_candidates:
         return dict(cands)
     keep = {hold}
     total = {p: sum(games.get(p, {}).values()) for p in cands}
     keep.update(sorted(cands, key=lambda p: -total[p])[:max_candidates])
-
-    def fam(e: set[str]) -> str:
-        return "G" if e == {"G"} else "D" if e == {"D"} else "F"
     for d in dates:
-        for f in ("F", "D", "G"):
-            pool = [p for p in cands if fam(cands[p]) == f and games.get(p, {}).get(d, 0) > 0]
+        for pos in ("C", "LW", "RW", "D", "G"):
+            pool = [p for p in cands
+                    if pos in cands[p] and games.get(p, {}).get(d, 0) > 0]
             keep.update(sorted(pool, key=lambda p: -games[p][d])[:per_night])
     return {p: e for p, e in cands.items() if p in keep}
 
@@ -290,11 +322,14 @@ def roster_plan(ctx: Context, roster: dict[int, set[str]],
                 cands: dict[int, set[str]], hold: int, start: str, days: int,
                 adds: list[int], locked: set[str] = frozenset(),
                 available_from: dict[int, str] | None = None,
-                max_candidates: int = 60) -> dict:
+                max_candidates: int = 60, force: bool = False) -> dict:
     """Roster-aware add/drop plan for ``hold``'s roster spot.
 
     Candidates are screened first (screen_candidates) so a full free-agent
     list (~450 players) doesn't mean ~450 lineup simulations per night.
+    A protected hold (drop_protection) is never dropped unless ``force``;
+    the result's ``protected`` says why. Goalies count: the lineup has its
+    G slots.
     """
     dates = dates_from(start, days)
     roster = dict(roster)
@@ -306,12 +341,15 @@ def roster_plan(ctx: Context, roster: dict[int, set[str]],
     games = {p: game_values(ctx, p, dates) for p in roster}
     games.update({p: game_values(ctx, p, dates, locked) for p in cands})
     cands = screen_candidates(cands, games, dates, hold, max_candidates)
-    mv = marginal_values(roster, cands, games, dates, skater_slots(ctx))
+    mv = marginal_values(roster, cands, games, dates, active_slots(ctx))
     weeks = sorted({week_key(d) for d in dates})
     budget = {w: (adds[i] if i < len(adds) else adds[-1])
               for i, w in enumerate(weeks)}
-    # waiver players can't be added before they clear
-    pl = plan_slot(hold, mv, dates, budget, available_from=available_from)
+    protected = None if force else drop_protection(ctx, hold, start)
+    # waiver players can't be added before they clear; a protected hold
+    # keeps his spot (zero adds available for it)
+    pl = plan_slot(hold, mv, dates, {w: 0 for w in weeks} if protected else budget,
+                   available_from=available_from)
 
     def who(p):
         ln = ctx.lines[p]
@@ -320,6 +358,7 @@ def roster_plan(ctx: Context, roster: dict[int, set[str]],
 
     return {
         "hold": who(hold), "dates": dates, "budget": budget,
+        "protected": protected,
         "keep_value": sum(mv[hold].values()), "plan_value": pl.total,
         "steps": [{"date": s.date, "drop": who(s.drop), "add": who(s.add)}
                   for s in pl.steps],

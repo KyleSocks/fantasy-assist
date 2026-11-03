@@ -143,11 +143,12 @@
 
   // ── plan ─────────────────────────────────────────────────────────────
   loaders.plan = async () => { if (!rosterPlayers.length) await loaders.roster(); };
-  $("run-plan").addEventListener("click", async () => {
+  async function runPlan(force) {
     status("Planning… (simulating every candidate in your nightly lineup)");
     try {
       const r = await api(`/api/inseason/plan?${params({
-        hold: $("hold").value, adds: $("adds").value, locked: $("locked").value })}`);
+        hold: $("hold").value, adds: $("adds").value, locked: $("locked").value,
+        force: force ? "true" : "false" })}`);
       const max = Math.max(1e-9, ...r.nightly.map((n) => n.value));
       $("plan-out").innerHTML = `
         <div class="summary">
@@ -160,6 +161,8 @@
         <ul class="steps">${r.steps.length ? r.steps.map((s) =>
           `<li><b>${dow(s.date)} ${md(s.date)}</b>: drop ${esc(s.drop.name)} → add <b>${esc(s.add.name)}</b>
              <span class="muted">(${esc(s.add.team)}, ${esc(s.add.elig.join(","))})</span></li>`).join("")
+          : r.protected ? `<li>Keep ${esc(r.hold.name)}: ${esc(r.protected)}.
+              <a href="#" id="plan-force">Plan anyway</a></li>`
           : `<li>Keep ${esc(r.hold.name)}: no add beats him with these adds.</li>`}</ul>
         <h3>Who holds the spot each night</h3>
         <div class="strip">${r.nightly.map((n) => `
@@ -178,9 +181,12 @@
         { key: "nights", label: "Nights that count", left: true, sort: (c) => c.nights.length,
           fmt: (c) => c.nights.map((d) => `${dow(d)} ${md(d)}`).join(", ") },
       ], r.singles);
+      const f = $("plan-force");
+      if (f) f.addEventListener("click", (e) => { e.preventDefault(); runPlan(true); });
       status("");
     } catch (e) { status(e.message, true); }
-  });
+  }
+  $("run-plan").addEventListener("click", () => runPlan(false));
 
   // ── free agents + streams ────────────────────────────────────────────
   loaders.fa = async () => {

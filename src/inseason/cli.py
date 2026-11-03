@@ -139,12 +139,15 @@ def _plan(ctx, args, unit: str) -> int:
         print(f"  warning: no player matches '{m}'")
     locked = {t.strip() for t in (args.locked or "").split(",") if t.strip()}
     r = roster_plan(ctx, roster, cands, hold[0].player_id, args.start,
-                    args.days, [int(x) for x in args.adds.split(",")], locked)
+                    args.days, [int(x) for x in args.adds.split(",")], locked,
+                    force=args.force)
     d = r["dates"]
     print(f"Streaming plan for {r['hold']['name']}'s roster spot, {d[0]}..{d[-1]}"
           f" ({ctx.league.name}, {unit} added to your nightly lineup)")
     print(f"  keep {r['hold']['name']}: +{r['keep_value']:.2f}   best plan:"
           f" +{r['plan_value']:.2f}   adds per week {r['budget']}")
+    if r["protected"]:
+        print(f"  protected: {r['protected']} (--force to plan anyway)")
     for st in r["steps"]:
         print(f"  {st['date']}: drop {st['drop']['name']} -> add"
               f" {st['add']['name']} ({','.join(st['add']['elig'])},"
@@ -189,6 +192,8 @@ def main(argv: list[str] | None = None) -> int:
     pl.add_argument("--start", default=today)
     pl.add_argument("--days", type=int, default=9)
     pl.add_argument("--locked", help="NHL teams whose game today has started")
+    pl.add_argument("--force", action="store_true",
+                    help="plan even if --hold is a protected player")
     args = ap.parse_args(argv)
 
     cfg = load_league(str(LEAGUE_DIR / f"{args.league}.yaml"))

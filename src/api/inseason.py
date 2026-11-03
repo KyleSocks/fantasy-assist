@@ -215,7 +215,8 @@ def get_free_agents(start: str | None = None, days: int = 9,
 
 @router.get("/plan")
 def get_plan(hold: int, adds: str = "1,4", start: str | None = None,
-             days: int = 9, locked: str = "", league: str | None = None) -> dict:
+             days: int = 9, locked: str = "", league: str | None = None,
+             force: bool = False) -> dict:
     ctx = _ctx(league)
     avail: dict[int, str] = {}
     roster, fas, _ = _lists(ctx, available_from=avail)
@@ -227,7 +228,7 @@ def get_plan(hold: int, adds: str = "1,4", start: str | None = None,
         raise HTTPException(422, f"adds must look like 1,4 (got '{adds}')")
     lock = {t.strip() for t in locked.split(",") if t.strip()}
     return roster_plan(ctx, roster, fas, hold, start or _today(), days,
-                       budget or [0], lock, avail)
+                       budget or [0], lock, avail, force=force)
 
 
 @router.get("/leagues")
