@@ -357,3 +357,26 @@ def get_league(start: str | None = None, days: int = 21,
                    unit="fpts" if ctx.scorer.points else "z")
         _LEAGUE_CACHE[key] = out
     return _LEAGUE_CACHE[key]
+
+
+@router.get("/trade-options")
+def get_trade_options(give: int, start: str | None = None, days: int = 21,
+                      league: str | None = None) -> dict:
+    """1-for-1 deals for one of your players, from ones the market sees as
+    favouring you to ones favouring the other side (teams.trade_options)."""
+    from src.inseason.teams import trade_options
+
+    path = DATA_DIR / LEAGUE_FILE
+    if not path.exists():
+        raise HTTPException(400, "no league rosters yet: press Refresh data")
+    ctx = _ctx(league)
+    if give not in ctx.lines:
+        raise HTTPException(404, f"Unknown player id {give}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        out = trade_options(ctx, data, int(data["my_team_id"]), give,
+                            start or _today(), days)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    out.update(as_of=ctx.as_of, unit="fpts" if ctx.scorer.points else "z")
+    return out

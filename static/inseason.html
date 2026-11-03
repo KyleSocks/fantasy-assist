@@ -94,6 +94,24 @@
         <b>Per-game</b> = blended value you gain or give up long term; a window gain with a
         negative per-game is a schedule play that costs you later.</p>
       <div class="scroll"><table id="trades-table"></table></div>
+
+      <h3>Shop a player</h3>
+      <div class="form-row">
+        <label>Trade away <select id="shop-give"></select></label>
+        <label>Want <select id="shop-pos"><option value="">any position</option><option>C</option>
+          <option>LW</option><option>RW</option><option>D</option><option>G</option></select></label>
+        <label class="inline"><input id="shop-gain" type="checkbox"> only deals I win (my model)</label>
+        <button id="shop-run">Find deals</button>
+      </div>
+      <p class="hint">Every 1-for-1 for that player, ordered by how the deal looks to a
+        <b>typical manager</b> (who mostly goes by this season's stats): top = looks like you
+        win (harder sell), bottom = looks like they win. <b>My gain</b> is what it's really
+        worth to you by your model, rest of season above replacement on each player's real
+        schedule. <b>★</b> = you gain, but to them it looks even or in their favour &mdash;
+        the ones worth proposing. <b>Fit</b> = change in each lineup over the window
+        (positional need).</p>
+      <div id="shop-meta" class="muted"></div>
+      <div class="scroll"><table id="shop-table"></table></div>
     </section>
 
     <section id="tab-schedule" class="panel" hidden>

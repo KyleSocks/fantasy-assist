@@ -41,6 +41,10 @@ hold_margin: 0.15
 # final). The exception is severe underperformance: at least this many games
 # played AND season-to-date per-game value below replacement.
 protect_min_gp: 15
+# Trade explorer: how the "market" (a typical manager) values a player --
+# season-to-date production with only this many games of preseason prior
+# (the model above uses 10-60). Bigger = the market trusts projections more.
+market_k_games: 5
 # Refresh button / src.inseason.yahoo_public: your public Yahoo league.
 # league_id and team_id are in the team page URL:
 #   hockey.fantasysports.yahoo.com/hockey/<league_id>/<team_id>

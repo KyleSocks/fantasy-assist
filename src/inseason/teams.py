@@ -15,7 +15,9 @@ pg_delta is a schedule play that costs you later in the season.
 """
 from __future__ import annotations
 
-from .evaluate import Context
+from src.valuation.valuation import value_group
+
+from .evaluate import Context, form, player_window
 from .lineup import best_lineup
 from .roster import dates_from, game_values, parse_players
 
@@ -148,3 +150,102 @@ def find_trades(sim: _Sim, rosters: dict[int, dict[int, set[str]]],
                             -(min(t["my_gain"], t["their_gain"]) if t["mutual"]
                               else t["my_gain"])))
     return out[:limit]
+
+
+# ── trade explorer: shop one of your players ─────────────────────────────
+
+def market_per_game(ctx: Context, pid: int) -> float:
+    """How a typical manager values ``pid`` per game: mostly what he's done
+    THIS season (the Yahoo player card), with only ``market_k_games`` games
+    of preseason prior -- versus the model's 10-60 games per stat. The gap
+    between this and the model's blended value is where buy-low (cold star)
+    and sell-high (hot depth player) trades come from."""
+    f = form(ctx, ctx.lines[pid])
+    obs, prior, gp = f["observed"], f["prior"], ctx.lines[pid].gp
+    if obs is None or not gp:
+        return prior
+    k = float(ctx.icfg.get("market_k_games", 5))
+    return (obs * gp + prior * k) / (gp + k)
+
+
+def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
+                  start: str, days: int = 21, max_tilt: float = 0.6) -> dict:
+    """Every 1-for-1 deal for ``give`` (one of your players), from deals the
+    market would see as favouring you to ones that favour the other side.
+
+    Two lenses, rest of season, per game above replacement x games:
+    - ``my_gain`` -- YOUR model: blended value and each player's actual
+      remaining schedule (what the trade is really worth to you);
+    - ``market_edge`` -- the MARKET view (market_per_game, league-average
+      schedule), from your side: > 0 = the other manager sees you winning.
+    ``tilt`` = market_edge / ``give``'s whole rest-of-season output as the
+    market sees it (market per game x games) -- the gap as a share of what
+    he's worth; deals with |tilt| > ``max_tilt`` are dropped (no one accepts
+    those, or it's a gift).
+    ``sweet_spot``: you gain by your model while the market sees it as even
+    or in their favour -- the deals worth proposing. ``my_fit`` /
+    ``their_fit``: change in each lineup's total over the next ``days`` --
+    positional need, which also makes a deal easier to sell.
+    Ordered by market_edge, favours-you first.
+    """
+    dates = dates_from(start, days)
+    sim = _Sim(ctx, dates, league_slots(ctx))
+    rosters = {int(t): team_players(ctx, v["players"])[0]
+               for t, v in league["teams"].items()}
+    names = {int(k): v["name"] for k, v in league["teams"].items()}
+    mine = rosters[my_team_id]
+    if give not in mine:
+        raise ValueError(f"{ctx.lines[give].name} isn't on your active roster")
+    end = ctx.season_end()
+    avg_ros = ctx.avg_team_games(start, end)
+    repl = ctx.scorer.replacement
+    cache: dict[int, tuple[float, float]] = {}
+
+    def values(pid: int) -> tuple[float, float]:
+        """(model ROS value over replacement, market ROS value over repl)."""
+        if pid not in cache:
+            r = repl[value_group(ctx.lines[pid].position)]
+            ours = player_window(ctx, pid, start, end)["value"] - r * avg_ros
+            cache[pid] = (ours, (market_per_game(ctx, pid) - r) * avg_ros)
+        return cache[pid]
+
+    g_ours, g_mkt = values(give)
+    scale = max(abs(market_per_game(ctx, give)) * avg_ros, 1e-9)
+    ge = mine[give]
+    rows = []
+    for tid, theirs in rosters.items():
+        if tid == my_team_id:
+            continue
+        for get, te in theirs.items():
+            ours, mkt = values(get)
+            edge = mkt - g_mkt
+            tilt = edge / scale
+            if abs(tilt) > max_tilt:
+                continue
+            nights = set(sim.games(give)) | set(sim.games(get))
+            m_after = {**{p: e for p, e in mine.items() if p != give}, get: te}
+            t_after = {**{p: e for p, e in theirs.items() if p != get}, give: ge}
+            my_gain = ours - g_ours
+            rows.append({
+                "partner_id": tid, "partner": names[tid],
+                "get": {"id": get, "name": ctx.lines[get].name,
+                        "team": ctx.lines[get].team, "elig": sorted(te),
+                        "per_game": ctx.scorer.per_game[get],
+                        "market_pg": market_per_game(ctx, get)},
+                "my_gain": my_gain, "market_edge": edge, "tilt": tilt,
+                "lean": ("favors you" if tilt > 0.15 else
+                         "favors them" if tilt < -0.15 else "even"),
+                "sweet_spot": my_gain > 0 and tilt <= 0.15,
+                "my_fit": sim.total(m_after, nights) - sim.total(mine, nights),
+                "their_fit": sim.total(t_after, nights) - sim.total(theirs, nights),
+            })
+    rows.sort(key=lambda r: -r["market_edge"])
+    gl = ctx.lines[give]
+    return {
+        "give": {"id": give, "name": gl.name, "team": gl.team,
+                 "elig": sorted(ge), "per_game": ctx.scorer.per_game[give],
+                 "market_pg": market_per_game(ctx, give),
+                 "ros_value": g_ours, "market_value": g_mkt},
+        "dates": dates, "ros_games": avg_ros, "options": rows,
+        "market_k_games": float(ctx.icfg.get("market_k_games", 5)),
+    }

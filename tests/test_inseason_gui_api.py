@@ -70,3 +70,16 @@ def test_goalies_show_up_in_audit_plan_and_free_agents(db, tmp_path, monkeypatch
     p = c.get("/api/inseason/plan?league=t&hold=7&adds=2&start=2026-11-01"
               "&days=4&force=true").json()
     assert p["keep_value"] > 0
+
+
+def test_trade_options_endpoint(db, tmp_path, monkeypatch):  # noqa: F811
+    import json
+
+    from tests.test_inseason_teams import LEAGUE
+    c = _client(db, tmp_path, monkeypatch)
+    assert c.get("/api/inseason/trade-options?league=t&give=1").status_code == 400
+    (tmp_path / "league_rosters.json").write_text(json.dumps(dict(LEAGUE, my_team_id=1)))
+    r = c.get("/api/inseason/trade-options?league=t&give=1&start=2026-11-01&days=4")
+    assert r.status_code == 200 and r.json()["give"]["name"] == "Alex Ovechkin"
+    assert c.get("/api/inseason/trade-options?league=t&give=2").status_code == 400
+    assert c.get("/api/inseason/trade-options?league=t&give=999").status_code == 404

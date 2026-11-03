@@ -283,6 +283,7 @@
       decorateLeague(el, L);
       showTeam(L.teams.find((t) => t.mine));
       drawTrades(names);
+      fillShop(L);
       status(L.unmatched.length ? `Unmatched rostered names: ${L.unmatched.join(", ")}` : "");
     } catch (e) { status(e.message, true); }
   };
@@ -324,6 +325,61 @@
     ], rows);
     if (!rows.length) $("trades-table").innerHTML += '<tbody><tr><td class="l" colspan="6">No trades pass these filters.</td></tr></tbody>';
   }
+  // ── shop a player: deals from "looks like I win" to "looks like they win"
+  let shopData = null;
+  function fillShop(L) {
+    const me = L.teams.find((t) => t.mine);
+    const sel = $("shop-give"), prev = sel.value;
+    sel.innerHTML = (me ? me.players : []).map((p) =>
+      `<option value="${p.id}">${esc(p.name)} (${esc(p.elig.join(","))}, ${num(p.per_game)})</option>`).join("");
+    if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  }
+  const leanCell = (x) => {
+    const k = x.lean === "favors you" ? "p1" : x.lean === "favors them" ? "n1" : "";
+    return `<span class="heat ${k}" title="market edge ${signed(x.market_edge, 0)}">${esc(x.lean)}
+      ${signed(100 * x.tilt, 0)}%</span>`;
+  };
+  function drawShop() {
+    if (!shopData) return;
+    const pos = $("shop-pos").value, gain = $("shop-gain").checked;
+    const rows = shopData.options.filter((x) =>
+      (!pos || x.get.elig.includes(pos)) && (!gain || x.my_gain > 0));
+    const g = shopData.give;
+    $("shop-meta").innerHTML = `Trading <b>${esc(g.name)}</b>: your model ${num(g.per_game)}/gm,
+      market ~${num(g.market_pg)}/gm (season-to-date with ${num(shopData.market_k_games, 0)} games of prior).
+      ${g.per_game > g.market_pg + 0.1 ? "You value him more than the market: hard to get full value."
+        : g.market_pg > g.per_game + 0.1 ? "The market values him more than you do: good time to sell." : ""}
+      ${rows.length} deals shown.`;
+    const el = $("shop-table");
+    el._sort = {};   // default: market order, favours-you first
+    table(el, [
+      { key: "star", label: "★", sort: (x) => (x.sweet_spot ? 1 : 0), fmt: (x) => (x.sweet_spot ? "★" : "") },
+      { key: "partner", label: "With", left: true },
+      { key: "get", label: "You get", left: true, sort: (x) => x.get.name,
+        fmt: (x) => `${esc(x.get.name)} <span class="muted">${esc(x.get.team)} ${esc(x.get.elig.join(","))}</span>` },
+      { key: "pg", label: "Model / mkt", title: "per game: your model vs the market's view",
+        sort: (x) => x.get.per_game, fmt: (x) => `${num(x.get.per_game)} / ${num(x.get.market_pg)}` },
+      { key: "market_edge", label: "Looks to them", title: "how a typical manager sees it (tilt vs the value of your player)",
+        fmt: leanCell },
+      { key: "my_gain", label: "My gain", title: `rest of season, ${unit} above replacement, your model`,
+        fmt: (x) => `<b class="${cls(x.my_gain)}">${signed(x.my_gain, 0)}</b>` },
+      { key: "my_fit", label: "Fit me", fmt: (x) => `<span class="${cls(x.my_fit)}">${signed(x.my_fit)}</span>` },
+      { key: "their_fit", label: "Fit them", fmt: (x) => `<span class="${cls(x.their_fit)}">${signed(x.their_fit)}</span>` },
+    ], rows);
+    if (!rows.length) el.innerHTML += '<tbody><tr><td class="l" colspan="8">No deals pass these filters.</td></tr></tbody>';
+  }
+  $("shop-run").addEventListener("click", async () => {
+    status("Valuing every player in the league for this trade…");
+    try {
+      shopData = await api(`/api/inseason/trade-options?${new URLSearchParams({
+        league: $("league").value, start: $("start").value, days: $("league-days").value,
+        give: $("shop-give").value })}`);
+      drawShop();
+      status("");
+    } catch (e) { status(e.message, true); }
+  });
+  ["shop-pos", "shop-gain"].forEach((id) => $(id).addEventListener("change", drawShop));
+
   ["tr-mutual", "tr-pg", "tr-fair"].forEach((id) => $(id).addEventListener("change", () =>
     drawTrades(Object.fromEntries((leagueData?.teams || []).map((t) => [t.id, t.name])))));
   $("league-days").addEventListener("change", () => loaders.league());
