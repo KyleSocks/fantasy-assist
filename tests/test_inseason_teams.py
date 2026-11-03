@@ -108,3 +108,41 @@ def test_trade_options_requires_my_player(db):  # noqa: F811
     from src.inseason.teams import trade_options
     with pytest.raises(ValueError):
         trade_options(_trade_ctx(db), LEAGUE, 1, 2, "2026-11-01", 4)   # theirs
+
+
+def test_market_ranks_by_yahoo_signals_and_maps_to_model_values(db):  # noqa: F811
+    """The crowd loves Strong Center (100% rostered, hot Fan Pts) and has
+    soured on Ovi (20%): Strong Center gets the best forward model value,
+    Ovi the next -- the market's rank, priced in model points."""
+    from src.inseason.teams import Market
+    ctx = _trade_ctx(db)
+    rows = [
+        {"name": "Strong Center", "team": "BBB", "positions": ["C"], "gp": 10,
+         "fpts": 40.0, "pre_rank": 150, "pct_ros": 100.0},
+        {"name": "Alex Ovechkin", "team": "AAA", "positions": ["LW"], "gp": 10,
+         "fpts": 19.0, "pre_rank": 20, "pct_ros": 20.0},
+        {"name": "Depth Wing", "team": "CCC", "positions": ["RW"], "gp": 10,
+         "fpts": 8.0, "pre_rank": 400, "pct_ros": 5.0},
+    ]
+    m = Market(ctx, rows)
+    model_f = sorted((ctx.scorer.per_game[p] for p in (1, 2, 3)), reverse=True)
+    assert m.per_game(2) == pytest.approx(model_f[0])     # Strong Center
+    assert m.per_game(1) == pytest.approx(model_f[1])     # Ovi
+    assert m.per_game(3) == pytest.approx(model_f[2])
+    assert m.card(2)["pct_ros"] == 100.0 and m.card(2)["market_source"] == "yahoo"
+    # name recognition only: Ovi's pre-season rank wins
+    m2 = Market(ctx, rows, {"rostered": 0, "points": 0, "name": 1})
+    assert m2.per_game(1) == pytest.approx(model_f[0])
+    # no Yahoo row -> season-to-date fallback
+    from src.inseason.teams import market_per_game
+    assert m.per_game(4) == pytest.approx(market_per_game(ctx, 4))
+    assert m.card(4)["market_source"] == "season-to-date"
+    # in trade_options: Ovi for the crowd's favourite looks like I'm winning
+    r = trade_options_with(ctx, m)
+    sc = next(o for o in r["options"] if o["get"]["name"] == "Strong Center")
+    assert sc["market_edge"] > 0 and sc["get"]["pct_ros"] == 100.0
+
+
+def trade_options_with(ctx, market):
+    from src.inseason.teams import trade_options
+    return trade_options(ctx, LEAGUE, 1, 1, "2026-11-01", 4, max_tilt=99, market=market)

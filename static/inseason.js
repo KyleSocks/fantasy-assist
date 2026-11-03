@@ -345,8 +345,12 @@
     const rows = shopData.options.filter((x) =>
       (!pos || x.get.elig.includes(pos)) && (!gain || x.my_gain > 0));
     const g = shopData.give;
+    const src = g.market_source === "yahoo"
+      ? `${num(g.pct_ros, 0)}% rostered, Yahoo pre-season #${g.pre_rank ?? "–"}, ${num(g.fpts, 1)} Fan Pts`
+        + ` in ${g.yahoo_gp ?? "?"} GP (Yahoo data ${esc(shopData.market_fetched || "?")})`
+      : `no Yahoo data yet (press Refresh data): season-to-date with ${num(shopData.market_k_games, 0)} games of prior`;
     $("shop-meta").innerHTML = `Trading <b>${esc(g.name)}</b>: your model ${num(g.per_game)}/gm,
-      market ~${num(g.market_pg)}/gm (season-to-date with ${num(shopData.market_k_games, 0)} games of prior).
+      market ~${num(g.market_pg)}/gm &mdash; ${src}.
       ${g.per_game > g.market_pg + 0.1 ? "You value him more than the market: hard to get full value."
         : g.market_pg > g.per_game + 0.1 ? "The market values him more than you do: good time to sell." : ""}
       ${rows.length} deals shown.`;
@@ -359,6 +363,11 @@
         fmt: (x) => `${esc(x.get.name)} <span class="muted">${esc(x.get.team)} ${esc(x.get.elig.join(","))}</span>` },
       { key: "pg", label: "Model / mkt", title: "per game: your model vs the market's view",
         sort: (x) => x.get.per_game, fmt: (x) => `${num(x.get.per_game)} / ${num(x.get.market_pg)}` },
+      { key: "pct_ros", label: "% Ros", title: "% of Yahoo leagues rostering him",
+        sort: (x) => x.get.pct_ros, fmt: (x) => (x.get.pct_ros == null ? "–" : `${num(x.get.pct_ros, 0)}%`) },
+      { key: "pre_rank", label: "Pre", title: "Yahoo pre-season rank (name value)",
+        sort: (x) => (x.get.pre_rank == null ? null : -x.get.pre_rank),
+        fmt: (x) => (x.get.pre_rank == null ? "–" : `#${num(x.get.pre_rank, 0)}`) },
       { key: "market_edge", label: "Looks to them", title: "how a typical manager sees it (tilt vs the value of your player)",
         fmt: leanCell },
       { key: "my_gain", label: "My gain", title: `rest of season, ${unit} above replacement, your model`,
@@ -366,7 +375,7 @@
       { key: "my_fit", label: "Fit me", fmt: (x) => `<span class="${cls(x.my_fit)}">${signed(x.my_fit)}</span>` },
       { key: "their_fit", label: "Fit them", fmt: (x) => `<span class="${cls(x.their_fit)}">${signed(x.their_fit)}</span>` },
     ], rows);
-    if (!rows.length) el.innerHTML += '<tbody><tr><td class="l" colspan="8">No deals pass these filters.</td></tr></tbody>';
+    if (!rows.length) el.innerHTML += '<tbody><tr><td class="l" colspan="10">No deals pass these filters.</td></tr></tbody>';
   }
   $("shop-run").addEventListener("click", async () => {
     status("Valuing every player in the league for this trade…");
@@ -436,9 +445,11 @@
       const msg = `Updated in ${r.seconds}s: ${r.ingest.skater_current} skaters, ` +
         `${r.ingest.goalie_current} goalies` +
         (y ? `; Yahoo roster ${y.roster}, free agents ${y.free_agents}, ${y.teams} team rosters` +
-          (y.unmatched.length ? ` (no match: ${y.unmatched.join(", ")})` : "") : "");
+          (y.unmatched.length ? ` (no match: ${y.unmatched.join(", ")})` : "") : "") +
+        (r.market != null ? `; market data for ${r.market} rostered players` : "");
       await load();
-      status(r.yahoo_error ? `${msg}. ${r.yahoo_error}` : msg, !!r.yahoo_error);
+      const err = [r.yahoo_error, r.market_error].filter(Boolean).join(". ");
+      status(err ? `${msg}. ${err}` : msg, !!err);
     } catch (e) { status(`Refresh failed: ${e.message}`, true); }
     btn.disabled = false;
     btn.textContent = "Refresh data";

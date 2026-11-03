@@ -250,3 +250,83 @@ def render(players: list[YPlayer], title: str) -> str:
     return (f"# {title}, from Yahoo {stamp} (Name | TEAM | Yahoo positions"
             f" | IR / OUT / W <clears>)\n"
             + "".join(p.line() + "\n" for p in players))
+
+
+# ── market data: how Yahoo managers value players ──────────────────────
+# Player-list rows carry, after the GP cell: Fan Pts (season to date, in
+# the league's scoring), Pre-Season rank, Current rank and % Ros (share of
+# all Yahoo leagues rostering him). The Roster Status cell links the
+# owning team in this league.
+
+_TD = re.compile(r"<td\b([^>]*)>(.*?)</td>", re.S)
+_TAG = re.compile(r"<[^>]+>")
+_OWNER = re.compile(r'href="(?:https://hockey\.fantasysports\.yahoo\.com)?/hockey/\d+/(\d+)"')
+
+
+def _num(text: str) -> float | None:
+    t = text.replace(",", "").replace("%", "").strip()
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def parse_market_rows(page: str) -> list[dict]:
+    """{name, team, positions, owner, gp, fpts, pre_rank, cur_rank,
+    pct_ros} for every player row whose stat cells can be read. Cells are
+    located from the Fan Pts cell (class "pts"), not by absolute position."""
+    out = []
+    for row in _ROW.findall(page):
+        name, tp = _NAME.search(row), _TEAM_POS.search(row)
+        if not name or not tp:
+            continue
+        cells = _TD.findall(row)
+        texts = [html.unescape(_TAG.sub("", c)).strip() for _, c in cells]
+        i = next((k for k, (attrs, _) in enumerate(cells)
+                  if re.search(r'class="[^"]*\bpts\b', attrs)), None)
+        if i is None or i + 3 >= len(cells) or not texts[i + 3].endswith("%"):
+            continue
+        owner = None
+        for attrs, body in cells[:i]:
+            m = _OWNER.search(body)
+            if m and "playernote" not in body:
+                owner = int(m.group(1))
+        team = tp.group(1).upper()
+        out.append({
+            "name": html.unescape(name.group(1)).strip(),
+            "team": YAHOO_TO_NHL.get(team, team),
+            "positions": [p for p in tp.group(2).split(",") if p],
+            "owner": owner,
+            "gp": _num(texts[i - 1]) if i else None,
+            "fpts": _num(texts[i]),
+            "pre_rank": _num(texts[i + 1]),
+            "cur_rank": _num(texts[i + 2]),
+            "pct_ros": _num(texts[i + 3]),
+        })
+    return out
+
+
+def fetch_market(league_id: int, client: httpx.Client | None = None) -> list[dict]:
+    """Market data (parse_market_rows) for every player ROSTERED in the
+    league (status=T), skaters and goalies -- the trade market."""
+    own = client is None
+    client = client or httpx.Client(headers=HEADERS, timeout=30,
+                                    follow_redirects=True)
+    out: list[dict] = []
+    try:
+        for pos in ("P", "G"):
+            for page in range(MAX_PAGES):
+                html_page = _get(client, (
+                    f"{BASE}/{league_id}/players?status=T&pos={pos}&sort=AR"
+                    f"&sdir=1&count={page * PAGE_SIZE}"))
+                raw = count_player_rows(html_page)
+                if pos == "P" and page == 0 and raw == 0:
+                    raise YahooPageError("the rostered-players page has no "
+                                         "player rows: wall or redesign")
+                out += parse_market_rows(html_page)
+                if raw < PAGE_SIZE:
+                    break
+    finally:
+        if own:
+            client.close()
+    return out

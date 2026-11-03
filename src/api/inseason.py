@@ -114,6 +114,7 @@ def get_schedule(start: str | None = None, days: int = 10,
 ROSTER_FILE = "my_roster.txt"
 FA_FILE = "fa.txt"
 LEAGUE_FILE = "league_rosters.json"
+MARKET_FILE = "market.json"
 
 
 def _read(name: str) -> str:
@@ -281,7 +282,12 @@ def refresh(league: str | None = None, force: bool = False) -> dict:
 
     from src.inseason.ingest import ingest_current
     from src.inseason.model import load_inseason_config
-    from src.inseason.yahoo_public import fetch_league, fetch_lists, render
+    from src.inseason.yahoo_public import (
+        fetch_league,
+        fetch_lists,
+        fetch_market,
+        render,
+    )
 
     t0 = time.monotonic()
     try:
@@ -329,6 +335,16 @@ def refresh(league: str | None = None, force: bool = False) -> dict:
                             "unparsed_rows": stats.get("unparsed", 0)}
         except Exception as e:
             out["yahoo_error"] = f"Yahoo lists not updated: {e}"
+        # trade-market data (% rostered, Fan Pts, ranks): optional extra
+        try:
+            rows = fetch_market(int(y["league_id"]))
+            if rows:
+                _write_atomic({DATA_DIR / MARKET_FILE: json.dumps({
+                    "fetched": datetime.datetime.now().isoformat(timespec="minutes"),
+                    "players": rows}, ensure_ascii=False)})
+            out["market"] = len(rows)
+        except Exception as e:
+            out["market_error"] = f"market data not updated: {e}"
     out["seconds"] = round(time.monotonic() - t0, 1)
     return out
 
@@ -364,7 +380,7 @@ def get_trade_options(give: int, start: str | None = None, days: int = 21,
                       league: str | None = None) -> dict:
     """1-for-1 deals for one of your players, from ones the market sees as
     favouring you to ones favouring the other side (teams.trade_options)."""
-    from src.inseason.teams import trade_options
+    from src.inseason.teams import Market, trade_options
 
     path = DATA_DIR / LEAGUE_FILE
     if not path.exists():
@@ -373,10 +389,14 @@ def get_trade_options(give: int, start: str | None = None, days: int = 21,
     if give not in ctx.lines:
         raise HTTPException(404, f"Unknown player id {give}")
     data = json.loads(path.read_text(encoding="utf-8"))
+    mpath = DATA_DIR / MARKET_FILE
+    mdata = json.loads(mpath.read_text(encoding="utf-8")) if mpath.exists() else None
+    market = Market(ctx, mdata["players"]) if mdata else None
     try:
         out = trade_options(ctx, data, int(data["my_team_id"]), give,
-                            start or _today(), days)
+                            start or _today(), days, market=market)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    out.update(as_of=ctx.as_of, unit="fpts" if ctx.scorer.points else "z")
+    out.update(as_of=ctx.as_of, unit="fpts" if ctx.scorer.points else "z",
+               market_fetched=mdata.get("fetched") if mdata else None)
     return out
