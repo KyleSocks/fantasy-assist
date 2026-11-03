@@ -50,10 +50,12 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
     pg = _pos_group(pos)
     age = age_at(birth_date, season_id)
 
-    # Career GP (all seasons)
+    # Career GP before the projected season (no look-ahead: a backtest of
+    # season X must not see X's or later games)
     career_row = conn.execute(
-        "SELECT COALESCE(SUM(gp),0) FROM skater_seasons WHERE player_id = ?",
-        (pid,)).fetchone()
+        "SELECT COALESCE(SUM(gp),0) FROM skater_seasons"
+        " WHERE player_id = ? AND season_id < ?",
+        (pid, season_id)).fetchone()
     career_gp = career_row[0]
 
     # Get 3 most recent seasons before projected season, gp > 0
@@ -146,8 +148,9 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
     # career team games available
     team_games = 0
     all_seasons = conn.execute(
-        "SELECT season_id, team_abbrev FROM skater_seasons WHERE player_id = ?",
-        (pid,)).fetchall()
+        "SELECT season_id, team_abbrev FROM skater_seasons"
+        " WHERE player_id = ? AND season_id < ?",
+        (pid, season_id)).fetchall()
     for sid, team in all_seasons:
         g = conn.execute(
             "SELECT COUNT(*) FROM schedule WHERE season_id = ? AND"
