@@ -71,12 +71,20 @@
   const flags = (r) => (r.flags || []).filter((f) => !/^(hold|borderline|drop)/.test(f))
     .map((f) => `<span class="flag ${/^(small|injured)/.test(f) ? "ok" : ""}">${esc(f)}</span>`).join("");
 
+  // Pos header: group C, LW, RW, D, G (by first eligible position), best
+  // blended value first inside each group.
+  const POS_ORDER = ["C", "LW", "RW", "D", "G"];
+  const posSort = (r) => {
+    const i = POS_ORDER.indexOf((r.elig || [])[0]);
+    return -((i < 0 ? POS_ORDER.length : i) * 1e6 - (r.blended || 0));
+  };
+
   // Columns shared by the roster and free-agent tables.
   function playerCols(extra = []) {
     return [
       { key: "name", label: "Player", left: true, fmt: (r) => `${esc(r.name)}${flags(r)}` },
       { key: "team", label: "Tm", left: true },
-      { key: "elig", label: "Pos", left: true, fmt: (r) => esc(r.elig.join(",")), sort: (r) => r.elig.join(",") },
+      { key: "elig", label: "Pos", left: true, fmt: (r) => esc(r.elig.join(",")), sort: posSort },
       { key: "gp", label: "GP" },
       { key: "prior", label: "Pre", title: `preseason ${unit}/game`, fmt: (r) => num(r.prior) },
       { key: "now", label: "Now", title: `this season ${unit}/game`, fmt: (r) => num(r.now) },
