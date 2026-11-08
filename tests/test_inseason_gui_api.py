@@ -1,5 +1,6 @@
 """GUI endpoints: lists round-trip, roster audit, plan -- on the tiny
 hand-computed world from tests/test_inseason.py."""
+import pytest
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -83,3 +84,19 @@ def test_trade_options_endpoint(db, tmp_path, monkeypatch):  # noqa: F811
     assert r.status_code == 200 and r.json()["give"]["name"] == "Alex Ovechkin"
     assert c.get("/api/inseason/trade-options?league=t&give=2").status_code == 400
     assert c.get("/api/inseason/trade-options?league=t&give=999").status_code == 404
+
+
+def test_streams_report_what_they_add_to_my_lineup(db, tmp_path, monkeypatch):  # noqa: F811
+    c = _client(db, tmp_path, monkeypatch)
+    r = c.get("/api/inseason/streams?league=t&date=2026-11-02&all=true").json()
+    assert all(p["adds"] is None for p in r["players"])        # no roster yet
+    c.put("/api/inseason/lists?league=t", json={
+        "roster": "Alex Ovechkin | AAA | LW\n", "free_agents": ""})
+    r = c.get("/api/inseason/streams?league=t&date=2026-11-02&all=true").json()
+    assert r["players"] and all(p["adds"] is not None and "elig" in p
+                                for p in r["players"])
+    # an empty lineup takes anyone who plays: adds == his whole game
+    for p in r["players"]:
+        assert p["adds"] == pytest.approx(p["value"])
+    a = c.get("/api/inseason/audit?league=t&start=2026-11-02&days=1").json()
+    assert a["nights"][0]["can_fit"]["F"] >= 1

@@ -11,7 +11,7 @@ import datetime
 from dataclasses import dataclass, field
 
 from .evaluate import Context, expected_line, find_players, form, hold_check
-from .lineup import best_lineup, marginal_values
+from .lineup import best_lineup, can_fit, marginal_values
 from .plan import nhl_eligibility, plan_slot, week_key
 
 # EV TOI/GP drop (seconds) that flags a possible role change.
@@ -251,10 +251,15 @@ def audit(ctx: Context, roster: dict[int, set[str]], start: str,
         for s in assign.values():
             used[s] = used.get(s, 0) + 1
         playing = [p for p in roster if gv[p].get(d, 0.0) > 0]
+        tonight = [(p, roster[p], gv[p].get(d, 0.0)) for p in playing]
         night_rows.append({
             "date": d, "playing": len(playing), "lineup": total,
+            # one arrangement's empty seats ...
             "open": {s: n - used.get(s, 0) for s, n in slots.items()
                      if n - used.get(s, 0) > 0},
+            # ... and what can actually be added after re-arranging
+            # multi-position starters (counts overlap: see can_fit)
+            "can_fit": {k: v for k, v in can_fit(tonight, slots).items() if v},
             "benched": [ctx.lines[p].name for p in playing if p not in assign]})
     return {"players": rows, "nights": night_rows,
             "replacement": ctx.scorer.replacement}

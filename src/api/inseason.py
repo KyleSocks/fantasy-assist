@@ -73,16 +73,48 @@ def get_streams(date: str | None = None, league: str | None = None,
                 all: bool = False) -> dict:
     ctx = _ctx(league)
     d = date or _today()
+    rows = streams(ctx, d, top, group, likely_available=not all,
+                   taken=None if all else _league_taken(ctx),
+                   unavailable=frozenset() if all else _unavailable_on(ctx, d))
+    _add_lineup_fit(ctx, rows, d)
     return {"league": ctx.league.name, "date": d, "as_of": ctx.as_of,
             "nhl_games": ctx.games_on(d),
             "unit": "fpts" if ctx.scorer.points else "z",
-            "players": streams(ctx, d, top, group, likely_available=not all,
-                               taken=None if all else _league_taken(ctx),
-                               unavailable=frozenset() if all
-                               else _unavailable_on(ctx, d)),
+            "players": rows,
             "availability": ("all players" if all else
                              "not rostered in your league" if (DATA_DIR / LEAGUE_FILE).exists()
                              else "outside the rosterable pool (estimate)")}
+
+
+def _add_lineup_fit(ctx, rows: list[dict], date: str) -> None:
+    """``adds``: what each stream adds to YOUR lineup on ``date`` -- the
+    best lineup with him minus without, re-arranging multi-position
+    starters, so a C/LW counts when a LW/RW can slide over to the open RW.
+    None when there's no roster file."""
+    from src.inseason.lineup import best_lineup
+    from src.inseason.plan import nhl_eligibility
+    from src.inseason.roster import active_slots, game_values
+    try:
+        roster, fas, _ = _lists(ctx, set())
+    except Exception:
+        roster = {}
+    if not roster:
+        for r in rows:
+            r["adds"] = None
+        return
+    slots = active_slots(ctx)
+    base = []
+    for p, e in roster.items():
+        v = game_values(ctx, p, [date]).get(date, 0.0)
+        if v > 0:
+            base.append((p, e, v))
+    total, _ = best_lineup(base, slots)
+    for r in rows:
+        pid = r["player_id"]
+        elig = fas.get(pid) or nhl_eligibility(ctx.lines[pid].position)
+        r["elig"] = sorted(elig)
+        with_him, _ = best_lineup(base + [(pid, elig, r["value"])], slots)
+        r["adds"] = max(with_him - total, 0.0)
 
 
 @router.get("/player/{player_id}")

@@ -54,6 +54,34 @@ def best_lineup(players: list[tuple[int, set[str], float]],
     return sum(p[2] for p in chosen), assign
 
 
+def can_fit(players: list[tuple[int, set[str], float]],
+            slots: dict[str, int],
+            positions: tuple[str, ...] = ("C", "LW", "RW", "D", "G"),
+            ) -> dict[str, int]:
+    """How many MORE players eligible only at each position could start
+    tonight, after re-arranging the starters (a LW/RW in a LW seat can slide
+    to RW to free LW). Also "F": extra forwards eligible at C/LW/RW.
+    Counts per position overlap: {"LW": 1, "RW": 1, "F": 1} means one more
+    winger, at either wing -- not one of each."""
+    _, assign = best_lineup(players, slots)
+    starters = [(p, e, 1.0) for p, e, _ in players if p in assign]
+    seats = sum(slots.values())
+
+    def capacity(elig: set[str]) -> int:
+        n = 0
+        while len(starters) + n < seats:
+            dummies = [(-1 - k, elig, 0.5) for k in range(n + 1)]
+            _, a = best_lineup(starters + dummies, slots)
+            if len(a) < len(starters) + n + 1:
+                break
+            n += 1
+        return n
+
+    out = {pos: capacity({pos}) for pos in positions}
+    out["F"] = capacity({"C", "LW", "RW"})
+    return out
+
+
 def marginal_values(
     roster: dict[int, set[str]],
     candidates: dict[int, set[str]],

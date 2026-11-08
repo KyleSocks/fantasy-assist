@@ -71,6 +71,20 @@
   const flags = (r) => (r.flags || []).filter((f) => !/^(hold|borderline|drop)/.test(f))
     .map((f) => `<span class="flag ${/^(small|injured)/.test(f) ? "ok" : ""}">${esc(f)}</span>`).join("");
 
+  // "Can add tonight": forwards as one count with the positions that work
+  // (a LW/RW starter can slide to free the other wing), then D and G.
+  function fitText(n) {
+    const f = n.can_fit || {};
+    const parts = [];
+    if (f.F) {
+      const at = ["C", "LW", "RW"].filter((p) => f[p]);
+      parts.push(`${f.F} F (${at.map((p) => (f[p] < f.F ? `${p} ${f[p]}` : p)).join(" / ")})`);
+    }
+    if (f.D) parts.push(`${f.D} D`);
+    if (f.G) parts.push(`${f.G} G`);
+    return parts.length ? parts.join(", ") : '<span class="neg">full</span>';
+  }
+
   // Pos header: group C, LW, RW, D, G (by first eligible position), best
   // blended value first inside each group.
   const POS_ORDER = ["C", "LW", "RW", "D", "G"];
@@ -131,9 +145,9 @@
         { key: "date", label: "Night", left: true, fmt: (n) => `${dow(n.date)} ${md(n.date)}` },
         { key: "playing", label: "Playing" },
         { key: "lineup", label: "Lineup value", fmt: (n) => num(n.lineup, 1) },
-        { key: "open", label: "Open slots", left: true, sort: (n) => Object.values(n.open).reduce((a, b) => a + b, 0),
-          fmt: (n) => Object.keys(n.open).length ? Object.entries(n.open).map(([s, k]) => `${k} ${s}`).join(", ")
-            : '<span class="neg">full</span>' },
+        { key: "open", label: "Can add tonight", left: true,
+          title: "players you could still start after re-arranging multi-position starters",
+          sort: (n) => Object.values(n.open).reduce((a, b) => a + b, 0), fmt: fitText },
         { key: "benched", label: "Benched", left: true, fmt: (n) => esc(n.benched.join(", ")) },
       ], a.nights);
       fillHold();
@@ -235,11 +249,13 @@
     const [sk, gl] = await Promise.all([q("S"), q("G")]);
     const cols = (goalie) => [
       { key: "name", label: "Player", left: true },
-      { key: "pos", label: "Pos", left: true },
+      { key: "pos", label: "Pos", left: true, fmt: (r) => esc((r.elig || [r.pos]).join(",")) },
       { key: "team", label: "Tm", left: true },
       { key: "opp", label: "Opp", left: true },
       { key: "value", label: "Tonight", title: goalie ? "opponent-adjusted, if he starts" : "opponent-adjusted",
         fmt: (r) => `<b>${num(r.value)}</b>` },
+      { key: "adds", label: "Adds to you", title: "what he adds to YOUR lineup tonight, after re-arranging multi-position starters (0 = no slot for him)",
+        fmt: (r) => (r.adds == null ? "–" : r.adds > 0 ? `<b class="pos">+${num(r.adds)}</b>` : '<span class="muted">no slot</span>') },
       { key: "per_game", label: goalie ? "Per start" : "Neutral", fmt: (r) => num(r.per_game) },
       { key: "replacement", label: "Repl", fmt: (r) => num(r.replacement) },
       goalie
