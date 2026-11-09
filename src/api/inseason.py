@@ -24,6 +24,7 @@ import threading
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from src.cache import config_stamp, db_stamp
@@ -352,7 +353,8 @@ _REFRESH_LOCK = threading.Lock()
 
 
 @router.post("/refresh")
-def refresh(league: LeagueName = None, force: bool = False) -> dict:
+def refresh(league: LeagueName = None, force: bool = False,
+            strict: bool = False):
     """Re-ingest season-to-date stats (+ rosters, schedule), then rewrite
     data/my_roster.txt, data/fa.txt and data/league_rosters.json from the
     public Yahoo league pages.
@@ -361,16 +363,24 @@ def refresh(league: LeagueName = None, force: bool = False) -> dict:
     files are replaced together. A Yahoo failure -- including a free-agent
     list that shrank below FA_SHRINK_FLOOR of the previous one (``force``
     overrides) -- keeps the old lists and is reported, not raised.
-    A refresh already running answers 409."""
+    A refresh already running answers 409.
+
+    ``strict`` (the systemd timer): a Yahoo failure answers 502 with the
+    same JSON body, so `curl --fail-with-body` fails the unit while still
+    logging what happened. The page's button leaves it off and shows the
+    error inline."""
     # one refresh at a time: the timer and a button press must not run two
     # NHL ingests into the same DB (or interleave the Yahoo file writes)
     if not _REFRESH_LOCK.acquire(blocking=False):
         raise HTTPException(409, "a refresh is already running; try again "
                                  "in a minute")
     try:
-        return _refresh(league, force)
+        out = _refresh(league, force)
     finally:
         _REFRESH_LOCK.release()
+    if strict and out.get("yahoo_error"):
+        return JSONResponse(out, status_code=502)
+    return out
 
 
 def _refresh(league: str | None, force: bool) -> dict:

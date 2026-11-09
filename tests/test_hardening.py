@@ -248,3 +248,19 @@ def test_schedule_index_matches_a_full_scan():
     assert ctx.season_end() == "2026-11-04"
     ctx.games = games[:2]                    # reassigning rebuilds the index
     assert ctx.season_end() == "2026-11-01"
+
+
+def test_strict_refresh_fails_only_on_yahoo_error(db, tmp_path,  # noqa: F811
+                                                  monkeypatch):
+    """The timer calls ?strict=1: a Yahoo failure must be a non-2xx (so
+    curl --fail-with-body fails the unit) with the JSON still in the body;
+    the page's button (no strict) keeps getting 200."""
+    c = _client(db, tmp_path, monkeypatch)
+    ok = {"ingest": {}, "yahoo": {"roster": 19}, "yahoo_error": None}
+    bad = {"ingest": {}, "yahoo": None, "yahoo_error": "Yahoo lists not updated"}
+    monkeypatch.setattr(api, "_refresh", lambda league, force: dict(ok))
+    assert c.post("/api/inseason/refresh?strict=1").status_code == 200
+    monkeypatch.setattr(api, "_refresh", lambda league, force: dict(bad))
+    r = c.post("/api/inseason/refresh?strict=1")
+    assert r.status_code == 502 and r.json() == bad
+    assert c.post("/api/inseason/refresh").status_code == 200

@@ -8,8 +8,11 @@ Type=oneshot
 # Same as the page's "Refresh data" button. A full free-agent pull takes a
 # couple of minutes, hence the long timeout.
 #
-# The endpoint answers 200 even when the Yahoo half fails (it keeps the old
-# lists and reports "yahoo_error"), so the response is checked: anything but
-# "yahoo_error":null marks the run failed in `systemctl status` / journalctl.
-# A 409 (a refresh already running) fails too; the next run catches up.
-ExecStart=/bin/sh -c 'out=$$(/usr/bin/curl -fsS -X POST --max-time 900 http://127.0.0.1:8420/api/inseason/refresh) || exit 1; echo "$$out"; case "$$out" in *\"yahoo_error\":null*) exit 0 ;; *) exit 1 ;; esac'
+# strict=1: if the Yahoo half fails (the app keeps the old lists), the
+# endpoint answers 502 instead of 200, and --fail-with-body makes curl exit
+# non-zero while still printing the JSON -- so the run shows as failed in
+# `systemctl status` and the reason is in journalctl. A 409 (a refresh
+# already running) fails too; the next run catches up.
+# No shell on purpose: quoting through systemd + sh is how the previous
+# version's check broke.
+ExecStart=/usr/bin/curl -sS --fail-with-body -X POST --max-time 900 http://127.0.0.1:8420/api/inseason/refresh?strict=1
