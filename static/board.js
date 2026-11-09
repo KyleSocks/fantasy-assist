@@ -271,6 +271,28 @@ function renderTabCounts() {
     if (b.dataset.tab === "roster") b.textContent = `My Roster (${state.drafted_by_me.length}/${total})`;
     else if (b.dataset.tab === "drafted") b.textContent = `Drafted (${state.log.length})`;
   }
+  // phone view switcher: short labels
+  for (const b of document.querySelectorAll(".mtab")) {
+    if (b.dataset.view === "roster") b.textContent = `Roster ${state.drafted_by_me.length}/${total}`;
+    else if (b.dataset.view === "drafted") b.textContent = `Drafted ${state.log.length}`;
+  }
+}
+
+/* Phones show one view at a time (Board / Picks / Roster / Drafted);
+   CSS reads body[data-mview]. The sidebar views reuse showTab(). */
+function setMobileView(view) {
+  document.body.dataset.mview = view;
+  for (const b of document.querySelectorAll(".mtab")) b.classList.toggle("active", b.dataset.view === view);
+  if (view !== "board") showTab(view);
+}
+
+/* The drill-down panel sits just under the header, whose height changes
+   when the controls wrap. */
+function trackHeaderHeight() {
+  const bar = document.querySelector(".bar");
+  const set = () => document.documentElement.style.setProperty("--bar-h", bar.offsetHeight + "px");
+  set();
+  if (window.ResizeObserver) new ResizeObserver(set).observe(bar);
 }
 
 function showTab(name) {
@@ -476,6 +498,9 @@ function wireEvents() {
   paster.addEventListener("keydown", (e) => { if (e.key !== "Enter") return; const q = paster.value.trim(); if (!q) return; const best = bestMatch(q); if (best) commitDraft(best.id); else $("paster-status").textContent = "No match found"; });
   paster.addEventListener("paste", () => { setTimeout(() => { const q = paster.value.trim(); if (!q) return; const best = bestMatch(q, 0.8); if (best) commitDraft(best.id); }, 0); });
   $("paster-list").addEventListener("click", (e) => { const item = e.target.closest(".paster-item"); if (!item) return; commitDraft(Number(item.dataset.id)); });
+
+  for (const b of document.querySelectorAll(".mtab")) b.addEventListener("click", () => setMobileView(b.dataset.view));
+  trackHeaderHeight();
 
   /* Ctrl+Z undoes the most recent draft action. */
   document.addEventListener("keydown", (e) => {

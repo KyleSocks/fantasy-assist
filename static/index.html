@@ -7,17 +7,24 @@
   <link rel="stylesheet" href="/static/vendor/uPlot.min.css">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body class="board-page" data-mview="board">
   <header class="bar">
     <h1>NHL Draft Board</h1>
+    <a href="/inseason" class="navlink">Mid-season</a>
     <div class="controls">
       <select id="league" aria-label="League"></select>
       <input id="search" type="search" placeholder="Search players" aria-label="Search players">
       <div id="chips" class="chips" aria-label="Position filter"></div>
       <button id="reset" type="button">Reset</button>
-      <a href="/inseason" class="navlink" style="color:var(--accent);text-decoration:none">Mid-season</a>
     </div>
   </header>
+
+  <nav class="mview" aria-label="View">
+    <button type="button" class="mtab active" data-view="board">Board</button>
+    <button type="button" class="mtab" data-view="recs">Picks</button>
+    <button type="button" class="mtab" data-view="roster">Roster</button>
+    <button type="button" class="mtab" data-view="drafted">Drafted</button>
+  </nav>
 
   <main class="layout">
     <aside class="side" aria-label="Draft sidebar">
