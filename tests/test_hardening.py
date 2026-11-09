@@ -264,3 +264,59 @@ def test_strict_refresh_fails_only_on_yahoo_error(db, tmp_path,  # noqa: F811
     r = c.post("/api/inseason/refresh?strict=1")
     assert r.status_code == 502 and r.json() == bad
     assert c.post("/api/inseason/refresh").status_code == 200
+
+
+# ── host allowlist (DNS rebinding) + compression + draft-route bounds ──
+
+from src.api.security import host_allowed  # noqa: E402
+
+NAMES = ("localhost", "marshall-home", "marshall-home.*.ts.net")
+
+
+@pytest.mark.parametrize("host", [
+    "localhost:8420", "127.0.0.1:8420", "192.168.10.69:8420", "100.101.2.3",
+    "[::1]:8420", "marshall-home:8420", "MARSHALL-HOME", "marshall-home.",
+    "marshall-home.tail1a2b.ts.net",
+])
+def test_host_allowed(host):
+    assert host_allowed(host, NAMES)
+
+
+@pytest.mark.parametrize("host", [
+    "", "evil.example:8420", "marshall-home.evil.example",
+    "x.marshall-home.tail1a2b.ts.net", "evil.ts.net", "localhost.evil.example",
+])
+def test_host_rejected(host):
+    assert not host_allowed(host, NAMES)
+
+
+def test_rebound_hostname_gets_400_even_same_origin(db, tmp_path,  # noqa: F811
+                                                    monkeypatch):
+    c = _client(db, tmp_path, monkeypatch)
+    h = {"host": "evil.example:8420", "origin": "http://evil.example:8420"}
+    r = c.get("/api/inseason/lists", headers=h)
+    assert r.status_code == 400
+    assert r.headers["x-frame-options"] == "DENY"
+    assert c.put("/api/inseason/lists?league=t", headers=h,
+                 json={"roster": "x", "free_agents": ""}).status_code == 400
+    assert not (tmp_path / "my_roster.txt").exists()
+    assert c.get("/api/inseason/leagues",
+                 headers={"host": "127.0.0.1:8420"}).status_code == 200
+
+
+def test_large_responses_are_gzipped(db, tmp_path, monkeypatch):  # noqa: F811
+    c = _client(db, tmp_path, monkeypatch)
+    (tmp_path / "fa.txt").write_text("x\n" * 2000)
+    r = c.get("/api/inseason/lists", headers={"accept-encoding": "gzip"})
+    assert r.status_code == 200
+    assert r.headers.get("content-encoding") == "gzip"
+    assert r.json()["free_agents"].count("x") == 2000
+
+
+@pytest.mark.parametrize("query", [
+    "/api/recommend?round=0", "/api/recommend?round=101",
+    "/api/board?league=../etc", "/api/export?league=a%20b",
+    "/api/player/1?league=" + "a" * 65,
+])
+def test_draft_routes_bound_inputs(query):
+    assert TestClient(app).get(query).status_code == 422

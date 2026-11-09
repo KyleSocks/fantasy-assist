@@ -14,8 +14,9 @@ import csv
 import datetime
 import sqlite3
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -67,6 +68,9 @@ DB_NOT_READY_DETAIL = (
 )
 
 
+_DB_READY: dict = {}
+
+
 def _require_db() -> None:
     """Raise a clear 500 when the DB is missing or has no skater data.
 
@@ -77,15 +81,22 @@ def _require_db() -> None:
     """
     if not DB_PATH.exists():
         raise HTTPException(status_code=500, detail=DB_NOT_READY_DETAIL)
+    # answer from memory until the DB changes: every board/recommend/player
+    # request calls this, and the count only moves on an ingest
+    key = (str(DB_PATH), db_stamp(DB_PATH))
+    if _DB_READY.get("key") == key:
+        return
     conn = sqlite3.connect(DB_PATH)
     try:
-        n = conn.execute("SELECT COUNT(*) FROM skater_seasons").fetchone()[0]
+        n = conn.execute("SELECT 1 FROM skater_seasons LIMIT 1").fetchone()
+        n = 1 if n else 0
     except sqlite3.OperationalError:
         raise HTTPException(status_code=500, detail=DB_NOT_READY_DETAIL)
     finally:
         conn.close()
     if n == 0:
         raise HTTPException(status_code=500, detail=DB_NOT_READY_DETAIL)
+    _DB_READY["key"] = key
 
 
 def data_freshness(now: datetime.datetime | None = None) -> dict:
@@ -456,6 +467,11 @@ def build_player_detail(player_id: int, league: str) -> dict:
 
 app = FastAPI(title="NHL Draft Board")
 
+# Same bounds as the in-season router (src/api/inseason.py): no login, so
+# every query value is limited.
+LeagueName = Annotated[str | None, Query(pattern=r"^[A-Za-z0-9_-]{0,64}$")]
+IdList = Annotated[str, Query(max_length=MAX_IDS * 9)]
+
 
 def _league_or_default(league: str | None) -> str:
     """The requested league name, or the default league's YAML stem."""
@@ -463,17 +479,17 @@ def _league_or_default(league: str | None) -> str:
 
 
 @app.get("/api/board")
-def get_board(league: str | None = None) -> dict:
+def get_board(league: LeagueName = None) -> dict:
     """Full ranked board for one league (client handles everything else)."""
     return build_board(_league_or_default(league))
 
 
 @app.get("/api/recommend")
 def get_recommend(
-    league: str | None = None,
-    round: int = 1,
-    drafted_by_me: str = "",
-    drafted_all: str = "",
+    league: LeagueName = None,
+    round: Annotated[int, Query(ge=1, le=100)] = 1,
+    drafted_by_me: IdList = "",
+    drafted_all: IdList = "",
 ) -> dict:
     """Marginal-value re-rank of the available pool for the live draft.
 
@@ -489,7 +505,7 @@ def get_recommend(
 
 @app.get("/api/export")
 def export_board(
-    league: str | None = None,
+    league: LeagueName = None,
     format: str = "csv",
 ) -> Response:
     """Export the board as CSV (default) or JSON.
@@ -511,7 +527,7 @@ def export_board(
 
 
 @app.get("/api/player/{player_id}")
-def get_player(player_id: int, league: str | None = None) -> dict:
+def get_player(player_id: int, league: LeagueName = None) -> dict:
     """Right-side drill-down payload for one player id.
 
     ?league=roto_14 ; returns {} when the player has no projection data.

@@ -70,30 +70,28 @@ first, so a failed unit means a real outage or a changed Yahoo page.
 
 ## 3. Updating to a new version
 
-The server's checkout must be on `main` (`git -C ~/fantasy-assist branch
---show-current`), since `update.sh` pulls whatever branch is checked out.
-
 ```bash
-cd ~/fantasy-assist
-docker compose stop                                   # quiet DB for the copy
-cp data/hockey.db "data/hockey.db.bak-$(date +%F)"    # cheap insurance
-./deploy/update.sh                                    # git pull + rebuild + restart
-docker compose ps                                     # "healthy" within a minute
+cd ~/fantasy-assist && ./deploy/update.sh
 ```
 
-If the update touched `deploy/fantasy-refresh.service` or `.timer`
-(`git diff --stat HEAD@{1} -- deploy/` shows it), re-install them, because
-systemd runs its own copy in /etc/systemd/system:
+That one command:
 
-```bash
-sudo cp deploy/fantasy-refresh.service deploy/fantasy-refresh.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl start fantasy-refresh.service && systemctl status fantasy-refresh.service
-```
+1. refuses to run unless the checkout is on `main` with no local edits outside `config/`
+   (your own settings tweaks there are fine);
+2. backs up the database while the app keeps running (SQLite's online
+   backup) to `data/backups/hockey-<date>-<commit>.db`, keeping the last 5;
+3. pulls, rebuilds (with a fresh base image, for security patches) and
+   restarts;
+4. waits for the container to report **healthy** -- if it doesn't within
+   two minutes, it prints the logs and puts the previous image back, so the
+   app keeps working while you look into it;
+5. tells you if the refresh timer/service changed, with the two commands
+   to re-install them (systemd runs its own copy in /etc/systemd/system).
 
-**Rolling back:** `git log --oneline -5`, then `git checkout <previous commit>`
-and `docker compose up -d --build` (copy the `.bak` database back if the new
-version changed it). `git switch main` returns to normal updates.
+**Rolling back by hand:** `git log --oneline -5`, `git checkout <commit>`,
+then `./deploy/update.sh --no-pull`. If the newer version changed the
+database, stop the app and copy a file from `data/backups/` over
+`data/hockey.db` first. `git switch main` returns to normal updates.
 
 ## 4. Nice-to-haves with what you already run
 
@@ -102,11 +100,17 @@ version changed it). `git switch main` returns to normal updates.
   container's health check uses).
 - **Homepage dashboard:** add a service tile pointing to
   `http://marshall-home:8420/inseason`.
-- **Restic / B2:** include `~/fantasy-assist/data` (the database and your
-  lists) and `~/fantasy-assist/config` in the backup set.
+- **Restic / B2:** include `~/fantasy-assist/data` (the database, your
+  lists and `data/backups/`) and `~/fantasy-assist/config` in the backup set.
 
 ## Notes
 
+- Hostnames: the app only answers to IP addresses, `localhost` and the
+  names in `FA_ALLOWED_HOSTS` in `docker-compose.yml` (`marshall-home`, its
+  Tailscale MagicDNS name, and the container name for other containers).
+  That blocks DNS-rebinding pages, which could otherwise read and change your
+  lists from any site open in your browser. If you open it by some other name
+  and get "Invalid host header", add that name there and `docker compose up -d`.
 - Port: the container listens on 8000; compose maps it to **8420** on the
   host. Change the left side of `"8420:8000"` in `docker-compose.yml` if
   that port is taken.
