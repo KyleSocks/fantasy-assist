@@ -6,7 +6,7 @@ NHL fantasy hockey draft assistant. Local-first, single-user.
 
 - **Python 3.11** with `uv` for dependency management
 - **SQLite** via `sqlite3` stdlib (no ORM)
-- **pandas + numpy** for numerical computation
+- **numpy** for numerical computation
 - **FastAPI + uvicorn** for the API
 - **pytest** for tests
 - **Frontend:** plain HTML/CSS/JS served by FastAPI from `static/` (`board.js`, `detail.js`), with uPlot (vendored in `static/vendor/`) for the trend charts. `web/` is reserved for a future Vite app and is currently empty.
