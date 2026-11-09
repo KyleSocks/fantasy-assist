@@ -23,13 +23,14 @@ HEADERS = {"User-Agent": (
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")}
 PAGE_SIZE = 25
 # Yahoo abbreviations that differ from the NHL's.
-YAHOO_TO_NHL = {"TB": "TBL", "SJ": "SJS", "LA": "LAK", "NJ": "NJD"}
+YAHOO_TO_NHL = {"TB": "TBL", "SJ": "SJS", "LA": "LAK", "NJ": "NJD",
+                "UTAH": "UTA"}
 # Lineup slots that aren't part of the active roster.
 INACTIVE_SLOTS = {"IR", "IR+", "NA"}
 
 _ROW = re.compile(r"<tr\b.*?</tr>", re.S)
 _NAME = re.compile(r'<a class="Nowrap name F-link[^"]*"[^>]*>([^<]+)</a>')
-_TEAM_POS = re.compile(r'<span class="Fz-xxs">([A-Za-z]{2,3}) - ([A-Za-z,+]+)</span>')
+_TEAM_POS = re.compile(r'<span class="Fz-xxs">([A-Za-z]{2,4}) - ([A-Za-z,+]+)</span>')
 _SLOT = re.compile(r'data-pos="([^"]+)"')
 # injury tag next to the name, e.g. <span ... F-injury ...><span ...>IR-LT</span>
 _INJURY = re.compile(r'F-injury[^"]*"[^>]*>\s*<span[^>]*>([^<]+)</span>')
@@ -83,6 +84,21 @@ class YPlayer:
         if self.injury and not self.inactive:
             base += f"  # {self.injury}"
         return base
+
+
+def count_player_rows(page: str) -> int:
+    """Player rows on a page whether or not parse_rows can read them -- used
+    to page through lists (a row we can't parse mustn't end pagination)."""
+    return sum(1 for row in _ROW.findall(page) if _NAME.search(row))
+
+
+class YahooPageError(RuntimeError):
+    """Yahoo served something other than the page we asked for (login or
+    consent wall, error page, redesign). Never treated as "no players"."""
+
+
+# hosts Yahoo redirects to instead of serving a public league page
+_WALL_HOSTS = ("login.yahoo.", "consent.yahoo.", "guce.yahoo.", "guce.oath.")
 
 
 def parse_rows(page: str, today: datetime.date | None = None) -> list[YPlayer]:
@@ -160,6 +176,10 @@ def fetch_league(league_id: int, client: httpx.Client | None = None,
 def _get(client: httpx.Client, url: str) -> str:
     r = client.get(url)
     r.raise_for_status()
+    host = r.url.host or ""
+    if any(w in host for w in _WALL_HOSTS):
+        raise YahooPageError(f"Yahoo redirected to {host} (login/consent wall) "
+                             f"instead of {url}; is the league still public?")
     return r.text
 
 
@@ -168,14 +188,21 @@ MAX_PAGES = 60   # safety stop for "all" (60 x 25 = 1500 players)
 
 def fetch_lists(league_id: int, team_id: int, fa_pages: int = 0,
                 client: httpx.Client | None = None,
+                stats: dict | None = None,
                 ) -> tuple[list[YPlayer], list[YPlayer]]:
-    """(your roster skaters, available skaters).
+    """(your roster, available players) -- skaters AND goalies.
 
     Available = free agents AND waiver players (status=A), injured ones
-    included. ``fa_pages`` <= 0 (default) reads EVERY page of the list.
+    included; skaters (pos=P) and goalies (pos=G) are separate Yahoo lists,
+    each paged the same way. ``fa_pages`` <= 0 (default) reads EVERY page of the list.
     A positive ``fa_pages`` reads that many pages by current-season rank
     (AR) plus that many by preseason rank (OR) -- current rank alone buries
     slow starters (Mike Matheson was 234th) the blended model may like.
+
+    Pagination goes by RAW player rows, so a row the parser can't read
+    doesn't end the list early; those are counted in ``stats["unparsed"]``.
+    A first page with no player rows at all raises YahooPageError (a wall
+    or a redesign) instead of returning an empty list.
     """
     own = client is None
     client = client or httpx.Client(headers=HEADERS, timeout=30,
@@ -183,21 +210,33 @@ def fetch_lists(league_id: int, team_id: int, fa_pages: int = 0,
     try:
         # IR players are kept (marked "| IR") so they're protected, not lost
         roster = parse_roster(_get(client, f"{BASE}/{league_id}/{team_id}"),
-                              include_inactive=True)
+                              include_goalies=True, include_inactive=True)
         fas: list[YPlayer] = []
         seen: set[str] = set()
         plan = ([("AR", MAX_PAGES)] if fa_pages <= 0
                 else [("AR", fa_pages), ("OR", fa_pages)])
-        for sort, pages in plan:
+        unparsed = 0
+        for pos, (sort, pages) in [(g, sp) for g in ("P", "G") for sp in plan]:
             for page in range(pages):
-                rows = parse_rows(_get(client, (
-                    f"{BASE}/{league_id}/players?status=A&pos=P&sort={sort}"
-                    f"&sdir=1&count={page * PAGE_SIZE}")))
+                html_page = _get(client, (
+                    f"{BASE}/{league_id}/players?status=A&pos={pos}&sort={sort}"
+                    f"&sdir=1&count={page * PAGE_SIZE}"))
+                raw = count_player_rows(html_page)
+                # a league always has free-agent skaters; zero rows on the
+                # first skater page is a wall or a redesign, not "nobody"
+                if pos == "P" and page == 0 and raw == 0:
+                    raise YahooPageError(
+                        f"the available-players page ({sort}) has no player "
+                        "rows: login/consent wall or a page redesign")
+                rows = parse_rows(html_page)
+                unparsed += raw - len(rows)
                 new = [p for p in rows if (p.name, p.team) not in seen]
                 seen.update((p.name, p.team) for p in new)
                 fas += new
-                if len(rows) < PAGE_SIZE:
+                if raw < PAGE_SIZE:
                     break
+        if stats is not None:
+            stats["unparsed"] = unparsed
     finally:
         if own:
             client.close()
@@ -211,3 +250,83 @@ def render(players: list[YPlayer], title: str) -> str:
     return (f"# {title}, from Yahoo {stamp} (Name | TEAM | Yahoo positions"
             f" | IR / OUT / W <clears>)\n"
             + "".join(p.line() + "\n" for p in players))
+
+
+# ── market data: how Yahoo managers value players ──────────────────────
+# Player-list rows carry, after the GP cell: Fan Pts (season to date, in
+# the league's scoring), Pre-Season rank, Current rank and % Ros (share of
+# all Yahoo leagues rostering him). The Roster Status cell links the
+# owning team in this league.
+
+_TD = re.compile(r"<td\b([^>]*)>(.*?)</td>", re.S)
+_TAG = re.compile(r"<[^>]+>")
+_OWNER = re.compile(r'href="(?:https://hockey\.fantasysports\.yahoo\.com)?/hockey/\d+/(\d+)"')
+
+
+def _num(text: str) -> float | None:
+    t = text.replace(",", "").replace("%", "").strip()
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def parse_market_rows(page: str) -> list[dict]:
+    """{name, team, positions, owner, gp, fpts, pre_rank, cur_rank,
+    pct_ros} for every player row whose stat cells can be read. Cells are
+    located from the Fan Pts cell (class "pts"), not by absolute position."""
+    out = []
+    for row in _ROW.findall(page):
+        name, tp = _NAME.search(row), _TEAM_POS.search(row)
+        if not name or not tp:
+            continue
+        cells = _TD.findall(row)
+        texts = [html.unescape(_TAG.sub("", c)).strip() for _, c in cells]
+        i = next((k for k, (attrs, _) in enumerate(cells)
+                  if re.search(r'class="[^"]*\bpts\b', attrs)), None)
+        if i is None or i + 3 >= len(cells) or not texts[i + 3].endswith("%"):
+            continue
+        owner = None
+        for attrs, body in cells[:i]:
+            m = _OWNER.search(body)
+            if m and "playernote" not in body:
+                owner = int(m.group(1))
+        team = tp.group(1).upper()
+        out.append({
+            "name": html.unescape(name.group(1)).strip(),
+            "team": YAHOO_TO_NHL.get(team, team),
+            "positions": [p for p in tp.group(2).split(",") if p],
+            "owner": owner,
+            "gp": _num(texts[i - 1]) if i else None,
+            "fpts": _num(texts[i]),
+            "pre_rank": _num(texts[i + 1]),
+            "cur_rank": _num(texts[i + 2]),
+            "pct_ros": _num(texts[i + 3]),
+        })
+    return out
+
+
+def fetch_market(league_id: int, client: httpx.Client | None = None) -> list[dict]:
+    """Market data (parse_market_rows) for every player ROSTERED in the
+    league (status=T), skaters and goalies -- the trade market."""
+    own = client is None
+    client = client or httpx.Client(headers=HEADERS, timeout=30,
+                                    follow_redirects=True)
+    out: list[dict] = []
+    try:
+        for pos in ("P", "G"):
+            for page in range(MAX_PAGES):
+                html_page = _get(client, (
+                    f"{BASE}/{league_id}/players?status=T&pos={pos}&sort=AR"
+                    f"&sdir=1&count={page * PAGE_SIZE}"))
+                raw = count_player_rows(html_page)
+                if pos == "P" and page == 0 and raw == 0:
+                    raise YahooPageError("the rostered-players page has no "
+                                         "player rows: wall or redesign")
+                out += parse_market_rows(html_page)
+                if raw < PAGE_SIZE:
+                    break
+    finally:
+        if own:
+            client.close()
+    return out

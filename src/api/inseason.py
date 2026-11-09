@@ -73,16 +73,48 @@ def get_streams(date: str | None = None, league: str | None = None,
                 all: bool = False) -> dict:
     ctx = _ctx(league)
     d = date or _today()
+    rows = streams(ctx, d, top, group, likely_available=not all,
+                   taken=None if all else _league_taken(ctx),
+                   unavailable=frozenset() if all else _unavailable_on(ctx, d))
+    _add_lineup_fit(ctx, rows, d)
     return {"league": ctx.league.name, "date": d, "as_of": ctx.as_of,
             "nhl_games": ctx.games_on(d),
             "unit": "fpts" if ctx.scorer.points else "z",
-            "players": streams(ctx, d, top, group, likely_available=not all,
-                               taken=None if all else _league_taken(ctx),
-                               unavailable=frozenset() if all
-                               else _unavailable_on(ctx, d)),
+            "players": rows,
             "availability": ("all players" if all else
                              "not rostered in your league" if (DATA_DIR / LEAGUE_FILE).exists()
                              else "outside the rosterable pool (estimate)")}
+
+
+def _add_lineup_fit(ctx, rows: list[dict], date: str) -> None:
+    """``adds``: what each stream adds to YOUR lineup on ``date`` -- the
+    best lineup with him minus without, re-arranging multi-position
+    starters, so a C/LW counts when a LW/RW can slide over to the open RW.
+    None when there's no roster file."""
+    from src.inseason.lineup import best_lineup
+    from src.inseason.plan import nhl_eligibility
+    from src.inseason.roster import active_slots, game_values
+    try:
+        roster, fas, _ = _lists(ctx, set())
+    except Exception:
+        roster = {}
+    if not roster:
+        for r in rows:
+            r["adds"] = None
+        return
+    slots = active_slots(ctx)
+    base = []
+    for p, e in roster.items():
+        v = game_values(ctx, p, [date]).get(date, 0.0)
+        if v > 0:
+            base.append((p, e, v))
+    total, _ = best_lineup(base, slots)
+    for r in rows:
+        pid = r["player_id"]
+        elig = fas.get(pid) or nhl_eligibility(ctx.lines[pid].position)
+        r["elig"] = sorted(elig)
+        with_him, _ = best_lineup(base + [(pid, elig, r["value"])], slots)
+        r["adds"] = max(with_him - total, 0.0)
 
 
 @router.get("/player/{player_id}")
@@ -114,6 +146,7 @@ def get_schedule(start: str | None = None, days: int = 10,
 ROSTER_FILE = "my_roster.txt"
 FA_FILE = "fa.txt"
 LEAGUE_FILE = "league_rosters.json"
+MARKET_FILE = "market.json"
 
 
 def _read(name: str) -> str:
@@ -215,7 +248,8 @@ def get_free_agents(start: str | None = None, days: int = 9,
 
 @router.get("/plan")
 def get_plan(hold: int, adds: str = "1,4", start: str | None = None,
-             days: int = 9, locked: str = "", league: str | None = None) -> dict:
+             days: int = 9, locked: str = "", league: str | None = None,
+             force: bool = False) -> dict:
     ctx = _ctx(league)
     avail: dict[int, str] = {}
     roster, fas, _ = _lists(ctx, available_from=avail)
@@ -227,7 +261,7 @@ def get_plan(hold: int, adds: str = "1,4", start: str | None = None,
         raise HTTPException(422, f"adds must look like 1,4 (got '{adds}')")
     lock = {t.strip() for t in locked.split(",") if t.strip()}
     return roster_plan(ctx, roster, fas, hold, start or _today(), days,
-                       budget or [0], lock, avail)
+                       budget or [0], lock, avail, force=force)
 
 
 @router.get("/leagues")
@@ -236,16 +270,56 @@ def get_leagues() -> dict:
             "default": DEFAULT_LEAGUE_PATH.stem}
 
 
+# Refuse a Yahoo refresh whose free-agent list shrank below this share of the
+# previous one (a partial page, a wall mid-pagination): keep the old lists.
+FA_SHRINK_FLOOR = 0.5
+FA_SHRINK_MIN_OLD = 40     # only compare against a list at least this long
+
+
+def _list_count(path) -> int:
+    try:
+        return sum(1 for ln in path.read_text("utf-8").splitlines()
+                   if ln.strip() and not ln.lstrip().startswith("#"))
+    except OSError:
+        return 0
+
+
+def _write_atomic(files: dict) -> None:
+    """Write every {path: text} or none: temp files first, then rename."""
+    tmps = []
+    try:
+        for path, text in files.items():
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(text, encoding="utf-8")
+            tmps.append((tmp, path))
+    except Exception:
+        for tmp, _ in tmps:
+            tmp.unlink(missing_ok=True)
+        raise
+    for tmp, path in tmps:
+        os.replace(tmp, path)
+
+
 @router.post("/refresh")
-def refresh(league: str | None = None) -> dict:
+def refresh(league: str | None = None, force: bool = False) -> dict:
     """Re-ingest season-to-date stats (+ rosters, schedule), then rewrite
-    data/my_roster.txt and data/fa.txt from the public Yahoo league pages.
-    A Yahoo failure keeps the old lists and is reported, not raised."""
+    data/my_roster.txt, data/fa.txt and data/league_rosters.json from the
+    public Yahoo league pages.
+
+    Every Yahoo page is fetched before anything is written, and the three
+    files are replaced together. A Yahoo failure -- including a free-agent
+    list that shrank below FA_SHRINK_FLOOR of the previous one (``force``
+    overrides) -- keeps the old lists and is reported, not raised."""
     import time
 
     from src.inseason.ingest import ingest_current
     from src.inseason.model import load_inseason_config
-    from src.inseason.yahoo_public import fetch_league, fetch_lists, render
+    from src.inseason.yahoo_public import (
+        fetch_league,
+        fetch_lists,
+        fetch_market,
+        render,
+    )
 
     t0 = time.monotonic()
     try:
@@ -259,29 +333,50 @@ def refresh(league: str | None = None) -> dict:
         out["yahoo_error"] = "set yahoo.league_id / team_id in config/inseason.yaml"
     else:
         try:
+            stats: dict = {}
             roster, fas = fetch_lists(int(y["league_id"]), int(y["team_id"]),
-                                      int(y.get("free_agent_pages", 0)))
-            DATA_DIR.mkdir(parents=True, exist_ok=True)
-            (DATA_DIR / ROSTER_FILE).write_text(
-                render(roster, "My roster"), encoding="utf-8")
-            (DATA_DIR / FA_FILE).write_text(
-                render(fas, "Free agents"), encoding="utf-8")
-            ctx = _ctx(league)
-            _, miss_r = parse_players(ctx, (DATA_DIR / ROSTER_FILE).read_text("utf-8"))
-            _, miss_f = parse_players(ctx, (DATA_DIR / FA_FILE).read_text("utf-8"))
-            league = fetch_league(int(y["league_id"]))
-            (DATA_DIR / LEAGUE_FILE).write_text(json.dumps({
+                                      int(y.get("free_agent_pages", 0)),
+                                      stats=stats)
+            teams = fetch_league(int(y["league_id"]))
+            old = _list_count(DATA_DIR / FA_FILE)
+            if (not force and old >= FA_SHRINK_MIN_OLD
+                    and len(fas) < FA_SHRINK_FLOOR * old):
+                raise ValueError(
+                    f"free-agent list shrank from {old} to {len(fas)} players"
+                    " -- likely a partial Yahoo page; kept the old lists "
+                    "(refresh with force=true to accept it)")
+            roster_text = render(roster, "My roster")
+            fa_text = render(fas, "Free agents")
+            league_text = json.dumps({
                 "league_id": int(y["league_id"]), "my_team_id": int(y["team_id"]),
                 "fetched": datetime.datetime.now().isoformat(timespec="minutes"),
                 "teams": {str(tid): {"name": t["name"], "players": [
                     {"name": p.name, "team": p.team, "positions": list(p.positions),
                      "inactive": p.inactive}
-                    for p in t["players"]]} for tid, t in league.items()},
-            }, ensure_ascii=False, indent=1), encoding="utf-8")
+                    for p in t["players"]]} for tid, t in teams.items()},
+            }, ensure_ascii=False, indent=1)
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            _write_atomic({DATA_DIR / ROSTER_FILE: roster_text,
+                           DATA_DIR / FA_FILE: fa_text,
+                           DATA_DIR / LEAGUE_FILE: league_text})
+            ctx = _ctx(league)
+            _, miss_r = parse_players(ctx, roster_text)
+            _, miss_f = parse_players(ctx, fa_text)
             out["yahoo"] = {"roster": len(roster), "free_agents": len(fas),
-                            "teams": len(league), "unmatched": miss_r + miss_f}
+                            "teams": len(teams), "unmatched": miss_r + miss_f,
+                            "unparsed_rows": stats.get("unparsed", 0)}
         except Exception as e:
             out["yahoo_error"] = f"Yahoo lists not updated: {e}"
+        # trade-market data (% rostered, Fan Pts, ranks): optional extra
+        try:
+            rows = fetch_market(int(y["league_id"]))
+            if rows:
+                _write_atomic({DATA_DIR / MARKET_FILE: json.dumps({
+                    "fetched": datetime.datetime.now().isoformat(timespec="minutes"),
+                    "players": rows}, ensure_ascii=False)})
+            out["market"] = len(rows)
+        except Exception as e:
+            out["market_error"] = f"market data not updated: {e}"
     out["seconds"] = round(time.monotonic() - t0, 1)
     return out
 
@@ -310,3 +405,30 @@ def get_league(start: str | None = None, days: int = 21,
                    unit="fpts" if ctx.scorer.points else "z")
         _LEAGUE_CACHE[key] = out
     return _LEAGUE_CACHE[key]
+
+
+@router.get("/trade-options")
+def get_trade_options(give: int, start: str | None = None, days: int = 21,
+                      league: str | None = None) -> dict:
+    """1-for-1 deals for one of your players, from ones the market sees as
+    favouring you to ones favouring the other side (teams.trade_options)."""
+    from src.inseason.teams import Market, trade_options
+
+    path = DATA_DIR / LEAGUE_FILE
+    if not path.exists():
+        raise HTTPException(400, "no league rosters yet: press Refresh data")
+    ctx = _ctx(league)
+    if give not in ctx.lines:
+        raise HTTPException(404, f"Unknown player id {give}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    mpath = DATA_DIR / MARKET_FILE
+    mdata = json.loads(mpath.read_text(encoding="utf-8")) if mpath.exists() else None
+    market = Market(ctx, mdata["players"]) if mdata else None
+    try:
+        out = trade_options(ctx, data, int(data["my_team_id"]), give,
+                            start or _today(), days, market=market)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    out.update(as_of=ctx.as_of, unit="fpts" if ctx.scorer.points else "z",
+               market_fetched=mdata.get("fetched") if mdata else None)
+    return out

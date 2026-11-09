@@ -55,3 +55,94 @@ def test_team_links_and_goalies():
     with_g = parse_roster(TEAM_PAGE, include_goalies=True)
     assert with_g[-1].name == "Jake Oettinger" and with_g[-1].positions == ("G",)
     assert "Jake Oettinger" not in [p.name for p in parse_roster(TEAM_PAGE)]
+
+
+# ── trade explorer ─────────────────────────────────────────────────────
+
+def _trade_ctx(db):  # noqa: F811
+    return build_context(db, POINTS, priors=PRIORS, icfg=dict(ICFG))
+
+
+def test_market_per_game_leans_on_this_season(db):  # noqa: F811
+    from src.inseason.teams import market_per_game
+    ctx = _trade_ctx(db)
+    # Ovi: prior 3.75/gm, 1.9/gm over 10 GP, market k = 5 (default)
+    assert market_per_game(ctx, 1) == pytest.approx((1.9 * 10 + 3.75 * 5) / 15, abs=1e-6)
+    # the market reacts to a cold start much more than the model does
+    assert market_per_game(ctx, 1) < ctx.scorer.per_game[1]
+    ctx.icfg["market_k_games"] = 1e9            # all prior
+    assert market_per_game(ctx, 1) == pytest.approx(3.75, abs=1e-6)
+
+
+def test_trade_options_range_and_labels(db):  # noqa: F811
+    """Ordered from 'looks like you win' to 'looks like they win', with
+    your model's gain, labels and the sweet-spot flag consistent."""
+    from src.inseason.evaluate import player_window
+    from src.inseason.teams import trade_options
+    from src.valuation.valuation import value_group
+    ctx = _trade_ctx(db)
+    r = trade_options(ctx, LEAGUE, 1, 1, "2026-11-01", 4, max_tilt=99)
+    opts = r["options"]
+    assert {o["get"]["name"] for o in opts} == {"Strong Center", "Goalie B"}
+    assert [o["market_edge"] for o in opts] == sorted(
+        (o["market_edge"] for o in opts), reverse=True)
+    avg = ctx.avg_team_games("2026-11-01", ctx.season_end())
+    for o in opts:
+        pid = o["get"]["id"]
+        repl = ctx.scorer.replacement[value_group(ctx.lines[pid].position)]
+        ros = player_window(ctx, pid, "2026-11-01", ctx.season_end())["value"] - repl * avg
+        assert o["my_gain"] == pytest.approx(ros - r["give"]["ros_value"])
+        assert o["lean"] == ("favors you" if o["tilt"] > .15 else
+                             "favors them" if o["tilt"] < -.15 else "even")
+        assert o["sweet_spot"] == (o["my_gain"] > 0 and o["tilt"] <= .15)
+    # Ovi is cold (market below model), Strong Center hot (market above
+    # model): the market thinks I'm winning that swap
+    sc = next(o for o in opts if o["get"]["name"] == "Strong Center")
+    assert sc["market_edge"] > 0
+    # a tight tilt cap drops lopsided deals
+    tight = trade_options(ctx, LEAGUE, 1, 1, "2026-11-01", 4, max_tilt=1e-6)
+    assert all(abs(o["tilt"]) <= 1e-6 for o in tight["options"])
+
+
+def test_trade_options_requires_my_player(db):  # noqa: F811
+    from src.inseason.teams import trade_options
+    with pytest.raises(ValueError):
+        trade_options(_trade_ctx(db), LEAGUE, 1, 2, "2026-11-01", 4)   # theirs
+
+
+def test_market_ranks_by_yahoo_signals_and_maps_to_model_values(db):  # noqa: F811
+    """The crowd loves Strong Center (100% rostered, hot Fan Pts) and has
+    soured on Ovi (20%): Strong Center gets the best forward model value,
+    Ovi the next -- the market's rank, priced in model points."""
+    from src.inseason.teams import Market
+    ctx = _trade_ctx(db)
+    rows = [
+        {"name": "Strong Center", "team": "BBB", "positions": ["C"], "gp": 10,
+         "fpts": 40.0, "pre_rank": 150, "pct_ros": 100.0},
+        {"name": "Alex Ovechkin", "team": "AAA", "positions": ["LW"], "gp": 10,
+         "fpts": 19.0, "pre_rank": 20, "pct_ros": 20.0},
+        {"name": "Depth Wing", "team": "CCC", "positions": ["RW"], "gp": 10,
+         "fpts": 8.0, "pre_rank": 400, "pct_ros": 5.0},
+    ]
+    m = Market(ctx, rows)
+    model_f = sorted((ctx.scorer.per_game[p] for p in (1, 2, 3)), reverse=True)
+    assert m.per_game(2) == pytest.approx(model_f[0])     # Strong Center
+    assert m.per_game(1) == pytest.approx(model_f[1])     # Ovi
+    assert m.per_game(3) == pytest.approx(model_f[2])
+    assert m.card(2)["pct_ros"] == 100.0 and m.card(2)["market_source"] == "yahoo"
+    # name recognition only: Ovi's pre-season rank wins
+    m2 = Market(ctx, rows, {"rostered": 0, "points": 0, "name": 1})
+    assert m2.per_game(1) == pytest.approx(model_f[0])
+    # no Yahoo row -> season-to-date fallback
+    from src.inseason.teams import market_per_game
+    assert m.per_game(4) == pytest.approx(market_per_game(ctx, 4))
+    assert m.card(4)["market_source"] == "season-to-date"
+    # in trade_options: Ovi for the crowd's favourite looks like I'm winning
+    r = trade_options_with(ctx, m)
+    sc = next(o for o in r["options"] if o["get"]["name"] == "Strong Center")
+    assert sc["market_edge"] > 0 and sc["get"]["pct_ros"] == 100.0
+
+
+def trade_options_with(ctx, market):
+    from src.inseason.teams import trade_options
+    return trade_options(ctx, LEAGUE, 1, 1, "2026-11-01", 4, max_tilt=99, market=market)

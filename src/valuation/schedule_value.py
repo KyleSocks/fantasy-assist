@@ -185,6 +185,7 @@ def windowed_projection(p: Projection, window_games_count: int) -> Projection:
         blocks=p.blocks * scale,
         hits=p.hits * scale,
         pp_points=p.pp_points * scale,
+        sh_points=p.sh_points * scale,
         wins=(p.wins * scale) if p.wins is not None else None,
         save_pct=p.save_pct,
         shutouts=p.shutouts * scale,

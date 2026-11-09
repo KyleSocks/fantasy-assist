@@ -137,6 +137,9 @@ def _client(pages):
         if "/players" not in req.url.path:
             return httpx.Response(200, text=TEAM_PAGE)
         assert req.url.params["status"] == "A"
+        if req.url.params["pos"] == "G":           # 3 free-agent goalies
+            return httpx.Response(200, text="".join(
+                _row(f"Goalie {k}", "BOS - G") for k in range(3)))
         i = int(req.url.params["count"]) // 25
         n = pages[i] if i < len(pages) else 0
         return httpx.Response(200, text="".join(
@@ -147,8 +150,10 @@ def _client(pages):
 def test_fetch_lists_all_pages_until_short_page():
     client, calls = _client([25, 25, 7])
     _, fas = fetch_lists(19725, 5, fa_pages=0, client=client)
-    assert len(fas) == 57
-    assert [c.params["sort"] for c in calls[1:]] == ["AR", "AR", "AR"]
+    assert len(fas) == 57 + 3                        # skaters + goalies
+    assert [(c.params["pos"], c.params["sort"]) for c in calls[1:]] == [
+        ("P", "AR"), ("P", "AR"), ("P", "AR"), ("G", "AR")]
+    assert [p.positions for p in fas[-3:]] == [("G",)] * 3
 
 
 def test_fetch_lists_all_pages_safety_stop(monkeypatch):
@@ -156,19 +161,22 @@ def test_fetch_lists_all_pages_safety_stop(monkeypatch):
     monkeypatch.setattr(yp, "MAX_PAGES", 3)
     client, calls = _client([25] * 10)
     _, fas = fetch_lists(19725, 5, fa_pages=0, client=client)
-    assert len(fas) == 75 and len(calls) == 4         # team page + 3
+    # team page + 3 skater pages (stopped) + 1 goalie page
+    assert len(fas) == 75 + 3 and len(calls) == 5
 
 
 # ── planner respects waiver dates ─────────────────────────────────────
 
 def test_roster_plan_waits_for_waiver_clear(ctx):  # noqa: F811
     roster, cands = {}, {2: {"C"}}
-    free = roster_plan(ctx, {1: {"C"}, **roster}, cands, 1, "2026-11-01", 4, [2])
+    # force: Ovi is a protected hold; this test is about waiver timing
+    free = roster_plan(ctx, {1: {"C"}, **roster}, cands, 1, "2026-11-01", 4, [2],
+                       force=True)
     # Ovi 11-01, Strong Center from 11-02: 1.525 + 1.3275 + 2.833317 + 1.3275
     assert free["plan_value"] == pytest.approx(7.013317, abs=1e-4)
     assert [s["date"] for s in free["steps"]] == ["2026-11-02"]
     waits = roster_plan(ctx, {1: {"C"}}, cands, 1, "2026-11-01", 4, [2],
-                        available_from={2: "2026-11-04"})
+                        available_from={2: "2026-11-04"}, force=True)
     # can't add him before 11-04: Ovi 11-01 + 11-03, then him 11-04
     assert waits["plan_value"] == pytest.approx(1.525 + 3.694512 + 1.3275, abs=1e-4)
     assert [s["date"] for s in waits["steps"]] == ["2026-11-04"]
@@ -268,6 +276,19 @@ def test_screen_candidates_keeps_window_and_nightly_best():
     games[99] = {}
     cands = {**{i: {"C"} for i in range(5)}, 50: {"D"}, 51: {"LW"}, 99: {"LW"}}
     kept = screen_candidates(cands, games, dates, hold=99, max_candidates=2, per_night=1)
-    # top-2 by total (0, 1) + best F each night (0) + best D on d2 (50) + hold
-    assert set(kept) == {0, 1, 50, 99}
+    # top-2 by total (0, 1) + best C each night (0) + best D on d2 (50)
+    # + best LW on d1 (51, the only LW playing) + hold
+    assert set(kept) == {0, 1, 50, 51, 99}
     assert screen_candidates(cands, games, dates, 99, max_candidates=0) == cands
+
+
+def test_screen_keeps_rw_for_rw_only_open_nights():
+    """60 C/LW outscore one RW, but he's the only RW playing: he survives."""
+    from src.inseason.roster import screen_candidates
+    dates = ["d1", "d2"]
+    games = {i: {"d1": 5.0, "d2": 5.0} for i in range(70)}
+    games[500] = {"d2": 1.0}
+    games[99] = {}
+    cands = {**{i: {"C", "LW"} for i in range(70)}, 500: {"RW"}, 99: {"C"}}
+    kept = screen_candidates(cands, games, dates, hold=99, max_candidates=60)
+    assert 500 in kept

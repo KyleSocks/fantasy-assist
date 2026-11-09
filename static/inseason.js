@@ -71,12 +71,34 @@
   const flags = (r) => (r.flags || []).filter((f) => !/^(hold|borderline|drop)/.test(f))
     .map((f) => `<span class="flag ${/^(small|injured)/.test(f) ? "ok" : ""}">${esc(f)}</span>`).join("");
 
+  // "Can add tonight": forwards as one count with the positions that work
+  // (a LW/RW starter can slide to free the other wing), then D and G.
+  function fitText(n) {
+    const f = n.can_fit || {};
+    const parts = [];
+    if (f.F) {
+      const at = ["C", "LW", "RW"].filter((p) => f[p]);
+      parts.push(`${f.F} F (${at.map((p) => (f[p] < f.F ? `${p} ${f[p]}` : p)).join(" / ")})`);
+    }
+    if (f.D) parts.push(`${f.D} D`);
+    if (f.G) parts.push(`${f.G} G`);
+    return parts.length ? parts.join(", ") : '<span class="neg">full</span>';
+  }
+
+  // Pos header: group C, LW, RW, D, G (by first eligible position), best
+  // blended value first inside each group.
+  const POS_ORDER = ["C", "LW", "RW", "D", "G"];
+  const posSort = (r) => {
+    const i = POS_ORDER.indexOf((r.elig || [])[0]);
+    return -((i < 0 ? POS_ORDER.length : i) * 1e6 - (r.blended || 0));
+  };
+
   // Columns shared by the roster and free-agent tables.
   function playerCols(extra = []) {
     return [
       { key: "name", label: "Player", left: true, fmt: (r) => `${esc(r.name)}${flags(r)}` },
       { key: "team", label: "Tm", left: true },
-      { key: "elig", label: "Pos", left: true, fmt: (r) => esc(r.elig.join(",")), sort: (r) => r.elig.join(",") },
+      { key: "elig", label: "Pos", left: true, fmt: (r) => esc(r.elig.join(",")), sort: posSort },
       { key: "gp", label: "GP" },
       { key: "prior", label: "Pre", title: `preseason ${unit}/game`, fmt: (r) => num(r.prior) },
       { key: "now", label: "Now", title: `this season ${unit}/game`, fmt: (r) => num(r.now) },
@@ -123,9 +145,9 @@
         { key: "date", label: "Night", left: true, fmt: (n) => `${dow(n.date)} ${md(n.date)}` },
         { key: "playing", label: "Playing" },
         { key: "lineup", label: "Lineup value", fmt: (n) => num(n.lineup, 1) },
-        { key: "open", label: "Open slots", left: true, sort: (n) => Object.values(n.open).reduce((a, b) => a + b, 0),
-          fmt: (n) => Object.keys(n.open).length ? Object.entries(n.open).map(([s, k]) => `${k} ${s}`).join(", ")
-            : '<span class="neg">full</span>' },
+        { key: "open", label: "Can add tonight", left: true,
+          title: "players you could still start after re-arranging multi-position starters",
+          sort: (n) => Object.values(n.open).reduce((a, b) => a + b, 0), fmt: fitText },
         { key: "benched", label: "Benched", left: true, fmt: (n) => esc(n.benched.join(", ")) },
       ], a.nights);
       fillHold();
@@ -143,11 +165,12 @@
 
   // ── plan ─────────────────────────────────────────────────────────────
   loaders.plan = async () => { if (!rosterPlayers.length) await loaders.roster(); };
-  $("run-plan").addEventListener("click", async () => {
+  async function runPlan(force) {
     status("Planning… (simulating every candidate in your nightly lineup)");
     try {
       const r = await api(`/api/inseason/plan?${params({
-        hold: $("hold").value, adds: $("adds").value, locked: $("locked").value })}`);
+        hold: $("hold").value, adds: $("adds").value, locked: $("locked").value,
+        force: force ? "true" : "false" })}`);
       const max = Math.max(1e-9, ...r.nightly.map((n) => n.value));
       $("plan-out").innerHTML = `
         <div class="summary">
@@ -160,6 +183,8 @@
         <ul class="steps">${r.steps.length ? r.steps.map((s) =>
           `<li><b>${dow(s.date)} ${md(s.date)}</b>: drop ${esc(s.drop.name)} → add <b>${esc(s.add.name)}</b>
              <span class="muted">(${esc(s.add.team)}, ${esc(s.add.elig.join(","))})</span></li>`).join("")
+          : r.protected ? `<li>Keep ${esc(r.hold.name)}: ${esc(r.protected)}.
+              <a href="#" id="plan-force">Plan anyway</a></li>`
           : `<li>Keep ${esc(r.hold.name)}: no add beats him with these adds.</li>`}</ul>
         <h3>Who holds the spot each night</h3>
         <div class="strip">${r.nightly.map((n) => `
@@ -178,9 +203,12 @@
         { key: "nights", label: "Nights that count", left: true, sort: (c) => c.nights.length,
           fmt: (c) => c.nights.map((d) => `${dow(d)} ${md(d)}`).join(", ") },
       ], r.singles);
+      const f = $("plan-force");
+      if (f) f.addEventListener("click", (e) => { e.preventDefault(); runPlan(true); });
       status("");
     } catch (e) { status(e.message, true); }
-  });
+  }
+  $("run-plan").addEventListener("click", () => runPlan(false));
 
   // ── free agents + streams ────────────────────────────────────────────
   loaders.fa = async () => {
@@ -221,11 +249,13 @@
     const [sk, gl] = await Promise.all([q("S"), q("G")]);
     const cols = (goalie) => [
       { key: "name", label: "Player", left: true },
-      { key: "pos", label: "Pos", left: true },
+      { key: "pos", label: "Pos", left: true, fmt: (r) => esc((r.elig || [r.pos]).join(",")) },
       { key: "team", label: "Tm", left: true },
       { key: "opp", label: "Opp", left: true },
       { key: "value", label: "Tonight", title: goalie ? "opponent-adjusted, if he starts" : "opponent-adjusted",
         fmt: (r) => `<b>${num(r.value)}</b>` },
+      { key: "adds", label: "Adds to you", title: "what he adds to YOUR lineup tonight, after re-arranging multi-position starters (0 = no slot for him)",
+        fmt: (r) => (r.adds == null ? "–" : r.adds > 0 ? `<b class="pos">+${num(r.adds)}</b>` : '<span class="muted">no slot</span>') },
       { key: "per_game", label: goalie ? "Per start" : "Neutral", fmt: (r) => num(r.per_game) },
       { key: "replacement", label: "Repl", fmt: (r) => num(r.replacement) },
       goalie
@@ -269,6 +299,7 @@
       decorateLeague(el, L);
       showTeam(L.teams.find((t) => t.mine));
       drawTrades(names);
+      fillShop(L);
       status(L.unmatched.length ? `Unmatched rostered names: ${L.unmatched.join(", ")}` : "");
     } catch (e) { status(e.message, true); }
   };
@@ -310,6 +341,70 @@
     ], rows);
     if (!rows.length) $("trades-table").innerHTML += '<tbody><tr><td class="l" colspan="6">No trades pass these filters.</td></tr></tbody>';
   }
+  // ── shop a player: deals from "looks like I win" to "looks like they win"
+  let shopData = null;
+  function fillShop(L) {
+    const me = L.teams.find((t) => t.mine);
+    const sel = $("shop-give"), prev = sel.value;
+    sel.innerHTML = (me ? me.players : []).map((p) =>
+      `<option value="${p.id}">${esc(p.name)} (${esc(p.elig.join(","))}, ${num(p.per_game)})</option>`).join("");
+    if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  }
+  const leanCell = (x) => {
+    const k = x.lean === "favors you" ? "p1" : x.lean === "favors them" ? "n1" : "";
+    return `<span class="heat ${k}" title="market edge ${signed(x.market_edge, 0)}">${esc(x.lean)}
+      ${signed(100 * x.tilt, 0)}%</span>`;
+  };
+  function drawShop() {
+    if (!shopData) return;
+    const pos = $("shop-pos").value, gain = $("shop-gain").checked;
+    const rows = shopData.options.filter((x) =>
+      (!pos || x.get.elig.includes(pos)) && (!gain || x.my_gain > 0));
+    const g = shopData.give;
+    const src = g.market_source === "yahoo"
+      ? `${num(g.pct_ros, 0)}% rostered, Yahoo pre-season #${g.pre_rank ?? "–"}, ${num(g.fpts, 1)} Fan Pts`
+        + ` in ${g.yahoo_gp ?? "?"} GP (Yahoo data ${esc(shopData.market_fetched || "?")})`
+      : `no Yahoo data yet (press Refresh data): season-to-date with ${num(shopData.market_k_games, 0)} games of prior`;
+    $("shop-meta").innerHTML = `Trading <b>${esc(g.name)}</b>: your model ${num(g.per_game)}/gm,
+      market ~${num(g.market_pg)}/gm &mdash; ${src}.
+      ${g.per_game > g.market_pg + 0.1 ? "You value him more than the market: hard to get full value."
+        : g.market_pg > g.per_game + 0.1 ? "The market values him more than you do: good time to sell." : ""}
+      ${rows.length} deals shown.`;
+    const el = $("shop-table");
+    el._sort = {};   // default: market order, favours-you first
+    table(el, [
+      { key: "star", label: "★", sort: (x) => (x.sweet_spot ? 1 : 0), fmt: (x) => (x.sweet_spot ? "★" : "") },
+      { key: "partner", label: "With", left: true },
+      { key: "get", label: "You get", left: true, sort: (x) => x.get.name,
+        fmt: (x) => `${esc(x.get.name)} <span class="muted">${esc(x.get.team)} ${esc(x.get.elig.join(","))}</span>` },
+      { key: "pg", label: "Model / mkt", title: "per game: your model vs the market's view",
+        sort: (x) => x.get.per_game, fmt: (x) => `${num(x.get.per_game)} / ${num(x.get.market_pg)}` },
+      { key: "pct_ros", label: "% Ros", title: "% of Yahoo leagues rostering him",
+        sort: (x) => x.get.pct_ros, fmt: (x) => (x.get.pct_ros == null ? "–" : `${num(x.get.pct_ros, 0)}%`) },
+      { key: "pre_rank", label: "Pre", title: "Yahoo pre-season rank (name value)",
+        sort: (x) => (x.get.pre_rank == null ? null : -x.get.pre_rank),
+        fmt: (x) => (x.get.pre_rank == null ? "–" : `#${num(x.get.pre_rank, 0)}`) },
+      { key: "market_edge", label: "Looks to them", title: "how a typical manager sees it (tilt vs the value of your player)",
+        fmt: leanCell },
+      { key: "my_gain", label: "My gain", title: `rest of season, ${unit} above replacement, your model`,
+        fmt: (x) => `<b class="${cls(x.my_gain)}">${signed(x.my_gain, 0)}</b>` },
+      { key: "my_fit", label: "Fit me", fmt: (x) => `<span class="${cls(x.my_fit)}">${signed(x.my_fit)}</span>` },
+      { key: "their_fit", label: "Fit them", fmt: (x) => `<span class="${cls(x.their_fit)}">${signed(x.their_fit)}</span>` },
+    ], rows);
+    if (!rows.length) el.innerHTML += '<tbody><tr><td class="l" colspan="10">No deals pass these filters.</td></tr></tbody>';
+  }
+  $("shop-run").addEventListener("click", async () => {
+    status("Valuing every player in the league for this trade…");
+    try {
+      shopData = await api(`/api/inseason/trade-options?${new URLSearchParams({
+        league: $("league").value, start: $("start").value, days: $("league-days").value,
+        give: $("shop-give").value })}`);
+      drawShop();
+      status("");
+    } catch (e) { status(e.message, true); }
+  });
+  ["shop-pos", "shop-gain"].forEach((id) => $(id).addEventListener("change", drawShop));
+
   ["tr-mutual", "tr-pg", "tr-fair"].forEach((id) => $(id).addEventListener("change", () =>
     drawTrades(Object.fromEntries((leagueData?.teams || []).map((t) => [t.id, t.name])))));
   $("league-days").addEventListener("change", () => loaders.league());
@@ -366,9 +461,11 @@
       const msg = `Updated in ${r.seconds}s: ${r.ingest.skater_current} skaters, ` +
         `${r.ingest.goalie_current} goalies` +
         (y ? `; Yahoo roster ${y.roster}, free agents ${y.free_agents}, ${y.teams} team rosters` +
-          (y.unmatched.length ? ` (no match: ${y.unmatched.join(", ")})` : "") : "");
+          (y.unmatched.length ? ` (no match: ${y.unmatched.join(", ")})` : "") : "") +
+        (r.market != null ? `; market data for ${r.market} rostered players` : "");
       await load();
-      status(r.yahoo_error ? `${msg}. ${r.yahoo_error}` : msg, !!r.yahoo_error);
+      const err = [r.yahoo_error, r.market_error].filter(Boolean).join(". ");
+      status(err ? `${msg}. ${err}` : msg, !!err);
     } catch (e) { status(`Refresh failed: ${e.message}`, true); }
     btn.disabled = false;
     btn.textContent = "Refresh data";

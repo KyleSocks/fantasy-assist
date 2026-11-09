@@ -25,6 +25,8 @@ sh_points: 600
 # Starts regress toward 0 (no floor); save_pct toward the pool mean.
 goalie_save_pct_k: 1000
 goalie_starts_k: 25
+# Wins per start regress toward .500 with this many starts of weight.
+goalie_win_rate_k: 40
 # Goalies projected below this many starts are excluded from the
 # draftable pool and ranked below every startable goalie.
 min_startable_starts: 15

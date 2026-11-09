@@ -15,9 +15,11 @@ Rules modelled:
   {"LW"}) intersected with each player's ``eligibility`` (Yahoo positions,
   e.g. {"C", "LW"}). Players missing from ``eligibility`` fall back to their
   NHL primary position via nhl_eligibility().
-- The slot's player is assumed to START whenever his team plays. That holds
-  when the slot is a streaming spot you keep open; it overstates value on
-  nights your other starters already fill every eligible slot.
+- ``values`` are whatever the caller passes. Called directly, a player is
+  worth his whole game whenever his team plays; roster.roster_plan passes
+  marginal lineup values instead (0 on nights he'd sit on your bench).
+- Drops are free (only adds are limited); roster_plan protects good holds
+  from being dropped for a light schedule (roster.drop_protection).
 
 Beam search over (current holder, adds used per week, players used): exact
 for small pools, and the beam keeps it fast for ~50 candidates x 14 days.

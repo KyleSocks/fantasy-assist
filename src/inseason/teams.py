@@ -15,9 +15,11 @@ pg_delta is a schedule play that costs you later in the season.
 """
 from __future__ import annotations
 
-from .evaluate import Context
+from src.valuation.valuation import value_group
+
+from .evaluate import Context, form, player_window
 from .lineup import best_lineup
-from .roster import dates_from, game_values, parse_players
+from .roster import _match, dates_from, game_values, parse_players
 
 SLOT_ORDER = ("C", "LW", "RW", "D", "Util", "G")
 
@@ -148,3 +150,183 @@ def find_trades(sim: _Sim, rosters: dict[int, dict[int, set[str]]],
                             -(min(t["my_gain"], t["their_gain"]) if t["mutual"]
                               else t["my_gain"])))
     return out[:limit]
+
+
+# ── trade explorer: shop one of your players ─────────────────────────────
+
+DEFAULT_MARKET_WEIGHTS = {"rostered": 0.5, "points": 0.3, "name": 0.2}
+
+
+class Market:
+    """How Yahoo managers value players, from data/market.json (Refresh).
+
+    Three signals, each turned into a percentile within F / D / G:
+      rostered -- % of all Yahoo leagues rostering him (the crowd's verdict)
+      points   -- Yahoo Fan Pts per game this season (what casual managers
+                  look at; no projection, no regression)
+      name     -- Yahoo pre-season rank (reputation / draft position)
+    The weighted mean (``market_weights`` in inseason.yaml; missing signals
+    are skipped) ranks players; a player's market value per game is the
+    MODEL's value of the player at that rank in his group -- so it stays in
+    fantasy points and differences mean "how far apart we and the crowd
+    rank him". Players without Yahoo data fall back to market_per_game's
+    season-to-date formula.
+    """
+
+    def __init__(self, ctx: Context, rows: list[dict],
+                 weights: dict[str, float] | None = None):
+        self.ctx = ctx
+        w = weights or ctx.icfg.get("market_weights") or DEFAULT_MARKET_WEIGHTS
+        self.weights = {k: float(w.get(k, 0)) for k in DEFAULT_MARKET_WEIGHTS}
+        self.info: dict[int, dict] = {}
+        for r in rows:
+            ln = _match(ctx, [r["name"], r.get("team") or "",
+                              ",".join(r.get("positions") or [])])
+            if ln is not None and ln.player_id not in self.info:
+                self.info[ln.player_id] = r
+        self.value: dict[int, float] = {}
+        self.score: dict[int, float] = {}
+        groups: dict[str, list[int]] = {}
+        for pid in self.info:
+            groups.setdefault(value_group(ctx.lines[pid].position), []).append(pid)
+        for pids in groups.values():
+            self._rank_group(pids)
+
+    def _signals(self, pid: int) -> dict[str, float | None]:
+        r = self.info[pid]
+        gp, fpts = r.get("gp"), r.get("fpts")
+        pre = r.get("pre_rank")
+        return {"rostered": r.get("pct_ros"),
+                "points": (fpts / gp) if gp and fpts is not None else None,
+                # lower rank = better: negate so higher is better everywhere
+                "name": -pre if pre else None}
+
+    def _rank_group(self, pids: list[int]) -> None:
+        sig = {p: self._signals(p) for p in pids}
+        pct: dict[str, dict[int, float]] = {}
+        for k in DEFAULT_MARKET_WEIGHTS:
+            have = sorted((p for p in pids if sig[p][k] is not None),
+                          key=lambda p: sig[p][k])
+            n = len(have)
+            pct[k] = {p: (i / (n - 1) if n > 1 else 0.5) for i, p in enumerate(have)}
+        for p in pids:
+            parts = [(self.weights[k], pct[k][p]) for k in pct
+                     if p in pct[k] and self.weights[k] > 0]
+            tot = sum(w for w, _ in parts)
+            self.score[p] = sum(w * v for w, v in parts) / tot if tot else 0.0
+        by_score = sorted(pids, key=lambda p: -self.score[p])
+        model = sorted((self.ctx.scorer.per_game[p] for p in pids), reverse=True)
+        for p, v in zip(by_score, model):
+            self.value[p] = v
+
+    def per_game(self, pid: int) -> float:
+        return self.value[pid] if pid in self.value else market_per_game(self.ctx, pid)
+
+    def card(self, pid: int) -> dict:
+        """Yahoo numbers to show next to a player."""
+        r = self.info.get(pid) or {}
+        return {"pct_ros": r.get("pct_ros"), "pre_rank": r.get("pre_rank"),
+                "cur_rank": r.get("cur_rank"), "fpts": r.get("fpts"),
+                "yahoo_gp": r.get("gp"), "market_source":
+                    "yahoo" if pid in self.value else "season-to-date"}
+
+
+def market_per_game(ctx: Context, pid: int) -> float:
+    """Fallback market view when there's no Yahoo data: mostly what he's
+    done THIS season, with only ``market_k_games`` games of preseason prior
+    -- versus the model's 10-60 games per stat."""
+    f = form(ctx, ctx.lines[pid])
+    obs, prior, gp = f["observed"], f["prior"], ctx.lines[pid].gp
+    if obs is None or not gp:
+        return prior
+    k = float(ctx.icfg.get("market_k_games", 5))
+    return (obs * gp + prior * k) / (gp + k)
+
+
+def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
+                  start: str, days: int = 21, max_tilt: float = 0.6,
+                  market: Market | None = None) -> dict:
+    """Every 1-for-1 deal for ``give`` (one of your players), from deals the
+    market would see as favouring you to ones that favour the other side.
+
+    Two lenses, rest of season, per game above replacement x games:
+    - ``my_gain`` -- YOUR model: blended value and each player's actual
+      remaining schedule (what the trade is really worth to you);
+    - ``market_edge`` -- the MARKET view (``market``: Yahoo % rostered,
+      Fan Pts per game and pre-season rank -- see Market; without it the
+      season-to-date fallback), league-average schedule, from your side:
+      > 0 = the other manager sees you winning.
+    ``tilt`` = market_edge / ``give``'s whole rest-of-season output as the
+    market sees it (market per game x games) -- the gap as a share of what
+    he's worth; deals with |tilt| > ``max_tilt`` are dropped (no one accepts
+    those, or it's a gift).
+    ``sweet_spot``: you gain by your model while the market sees it as even
+    or in their favour -- the deals worth proposing. ``my_fit`` /
+    ``their_fit``: change in each lineup's total over the next ``days`` --
+    positional need, which also makes a deal easier to sell.
+    Ordered by market_edge, favours-you first.
+    """
+    dates = dates_from(start, days)
+    sim = _Sim(ctx, dates, league_slots(ctx))
+    rosters = {int(t): team_players(ctx, v["players"])[0]
+               for t, v in league["teams"].items()}
+    names = {int(k): v["name"] for k, v in league["teams"].items()}
+    mine = rosters[my_team_id]
+    if give not in mine:
+        raise ValueError(f"{ctx.lines[give].name} isn't on your active roster")
+    mkt_pg = market.per_game if market else (lambda p: market_per_game(ctx, p))
+    card = market.card if market else (lambda p: {"market_source": "season-to-date"})
+    end = ctx.season_end()
+    avg_ros = ctx.avg_team_games(start, end)
+    repl = ctx.scorer.replacement
+    cache: dict[int, tuple[float, float]] = {}
+
+    def values(pid: int) -> tuple[float, float]:
+        """(model ROS value over replacement, market ROS value over repl)."""
+        if pid not in cache:
+            r = repl[value_group(ctx.lines[pid].position)]
+            ours = player_window(ctx, pid, start, end)["value"] - r * avg_ros
+            cache[pid] = (ours, (mkt_pg(pid) - r) * avg_ros)
+        return cache[pid]
+
+    g_ours, g_mkt = values(give)
+    scale = max(abs(mkt_pg(give)) * avg_ros, 1e-9)
+    ge = mine[give]
+    rows = []
+    for tid, theirs in rosters.items():
+        if tid == my_team_id:
+            continue
+        for get, te in theirs.items():
+            ours, mkt = values(get)
+            edge = mkt - g_mkt
+            tilt = edge / scale
+            if abs(tilt) > max_tilt:
+                continue
+            nights = set(sim.games(give)) | set(sim.games(get))
+            m_after = {**{p: e for p, e in mine.items() if p != give}, get: te}
+            t_after = {**{p: e for p, e in theirs.items() if p != get}, give: ge}
+            my_gain = ours - g_ours
+            rows.append({
+                "partner_id": tid, "partner": names[tid],
+                "get": {"id": get, "name": ctx.lines[get].name,
+                        "team": ctx.lines[get].team, "elig": sorted(te),
+                        "per_game": ctx.scorer.per_game[get],
+                        "market_pg": mkt_pg(get), **card(get)},
+                "my_gain": my_gain, "market_edge": edge, "tilt": tilt,
+                "lean": ("favors you" if tilt > 0.15 else
+                         "favors them" if tilt < -0.15 else "even"),
+                "sweet_spot": my_gain > 0 and tilt <= 0.15,
+                "my_fit": sim.total(m_after, nights) - sim.total(mine, nights),
+                "their_fit": sim.total(t_after, nights) - sim.total(theirs, nights),
+            })
+    rows.sort(key=lambda r: -r["market_edge"])
+    gl = ctx.lines[give]
+    return {
+        "give": {"id": give, "name": gl.name, "team": gl.team,
+                 "elig": sorted(ge), "per_game": ctx.scorer.per_game[give],
+                 "market_pg": mkt_pg(give), **card(give),
+                 "ros_value": g_ours, "market_value": g_mkt},
+        "dates": dates, "ros_games": avg_ros, "options": rows,
+        "market_k_games": float(ctx.icfg.get("market_k_games", 5)),
+        "market_weights": market.weights if market else None,
+    }

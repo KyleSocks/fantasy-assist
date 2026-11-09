@@ -8,7 +8,6 @@ from .common import Projection, _season_weights
 from .goalie_allocation import (
     _allocate_goalie_starts,
     _rostered_goalies,
-    _team_games_for,
 )
 
 
@@ -44,13 +43,15 @@ def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
     raw_starts = (w_starts * n_starts / (n_starts + k_starts)
                   if n_starts > 0 else 0.0)
 
-    # Win rate from the most recent observed season's team record.
-    prior = seasons[0]
-    wins_pct = 0.50
-    team = prior[9]
-    team_games = _team_games_for(prior[0], conn).get(team, 0) if team else 0
-    if team_games > 0:
-        wins_pct = (prior[3] or 0) / team_games
+    # Wins PER START (recency-weighted), regressed toward .500 with
+    # k = goalie_win_rate_k starts. _apply_goalie_starts multiplies by the
+    # allocated starts, so this must be a per-start rate: wins / TEAM games
+    # (the old formula) counted the start share twice -- a 60-start, 33-win
+    # goalie projected at 62 starts came out at 25 W instead of ~34.
+    w_wins = sum(weights[i] * (s[3] or 0) for i, s in enumerate(seasons))
+    k_win = float(cfg.get("goalie_win_rate_k", 40))
+    raw_win = min(w_wins / w_starts, 1.0) if w_starts > 0 else 0.50
+    wins_pct = (raw_win * n_starts + 0.50 * k_win) / (n_starts + k_win)
 
     # Save pct: weighted + regressed toward the pool mean with
     # k = goalie_save_pct_k, n = total shots against.

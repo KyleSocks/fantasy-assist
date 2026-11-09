@@ -1,5 +1,7 @@
 """Yahoo public-page parser, on row HTML captured from the real league pages
 (10/31/2026; images and long attributes trimmed), plus the refresh endpoint."""
+import json
+
 import httpx
 
 from src.inseason.yahoo_public import YPlayer, fetch_lists, parse_roster, parse_rows, render
@@ -59,6 +61,8 @@ def test_fetch_lists_pages_until_short_page():
         if req.url.path.endswith("/19725/5"):
             return httpx.Response(200, text=TEAM_PAGE)
         assert req.url.params["status"] == "A"           # free agents + waivers
+        if req.url.params["pos"] == "G":
+            return httpx.Response(200, text=_row("Free Goalie", "SEA - G"))
         start = int(req.url.params["count"])
         n = 25 if start == 0 else 3
         # the preseason-rank sort (OR) finds 2 extra players beyond the AR list
@@ -69,12 +73,15 @@ def test_fetch_lists_pages_until_short_page():
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     roster, fas = fetch_lists(19725, 5, fa_pages=4, client=client)
-    assert len(roster) == 5                           # IR player kept (marked)
+    assert len(roster) == 6                    # IR player kept, goalie included
     assert [p.name for p in roster if p.inactive] == ["Aleksander Barkov"]
-    # 28 by current rank + 2 only found by preseason rank, no duplicates
-    assert len(fas) == 30 and fas[0].team == "TBL"
-    assert {p.name for p in fas[-2:]} == {"Slow Starter 0", "Slow Starter 1"}
-    assert len(calls) == 5                            # team + 2 pages x 2 sorts
+    assert [p.name for p in roster if p.positions == ("G",)] == ["Jake Oettinger"]
+    # 28 by current rank + 2 only found by preseason rank, no duplicates,
+    # then the goalie list (one short page per sort)
+    assert len(fas) == 31 and fas[0].team == "TBL"
+    assert {p.name for p in fas[28:30]} == {"Slow Starter 0", "Slow Starter 1"}
+    assert fas[-1].name == "Free Goalie" and fas[-1].positions == ("G",)
+    assert len(calls) == 7       # team + skaters 2 pages x 2 sorts + goalies x 2
 
 
 def test_refresh_endpoint(monkeypatch, tmp_path):
@@ -96,16 +103,23 @@ def test_refresh_endpoint(monkeypatch, tmp_path):
         [YPlayer("Viktor Arvidsson", "DET", ("LW", "RW"))]))
     monkeypatch.setattr(yp, "fetch_league", lambda league_id: {
         5: {"name": "Mine", "players": [YPlayer("Sam Bennett", "FLA", ("C",), "C")]}})
+    monkeypatch.setattr(yp, "fetch_market", lambda league_id: [
+        {"name": "Sam Bennett", "team": "FLA", "positions": ["C"], "owner": 5,
+         "gp": 15, "fpts": 60.0, "pre_rank": 80, "cur_rank": 120, "pct_ros": 71.0}])
     monkeypatch.setattr(api, "_ctx", lambda league: type("C", (), {"lines": {}})())
     monkeypatch.setattr(api, "parse_players", lambda ctx, text: ({}, []))
     r = TestClient(app).post("/api/inseason/refresh").json()
     assert r["ingest"]["skater_current"] == 5 and r["yahoo_error"] is None
-    assert r["yahoo"] == {"roster": 1, "free_agents": 1, "teams": 1, "unmatched": []}
+    assert r["yahoo"] == {"roster": 1, "free_agents": 1, "teams": 1, "unmatched": [],
+                          "unparsed_rows": 0}
     import json
     stored = json.loads((tmp_path / "league_rosters.json").read_text(encoding="utf-8"))
     assert stored["teams"]["5"]["players"][0]["name"] == "Sam Bennett"
     assert (tmp_path / "my_roster.txt").read_text().endswith("Sam Bennett | FLA | C\n")
     assert Path(tmp_path / "fa.txt").read_text().endswith("Viktor Arvidsson | DET | LW,RW\n")
+    assert r["market"] == 1
+    market = json.loads((tmp_path / "market.json").read_text(encoding="utf-8"))
+    assert market["players"][0]["pct_ros"] == 71.0
 
 
 def test_ir_players_kept_and_marked():
@@ -135,3 +149,136 @@ def test_waiver_and_injury_tags():
     # read in January for "Jan 3" is next calendar year
     from src.inseason.yahoo_public import _waiver_date
     assert _waiver_date("Jan", "3", datetime.date(2026, 12, 30)) == "2027-01-03"
+
+
+# ── review fixes: walls, unparseable rows, shrink guard, atomic writes ──
+
+import pytest  # noqa: E402
+
+from src.inseason.yahoo_public import YahooPageError  # noqa: E402
+
+
+def _fa_client(pages, bad_row_on=None, wall_on=None):
+    """pages[i] = player rows on page i. bad_row_on: page whose first row
+    has a team/pos cell we can't parse. wall_on: page served as a consent
+    redirect."""
+    def handler(req):
+        if req.url.host.startswith("consent."):
+            return httpx.Response(200, text="<html>consent</html>")
+        if "/players" not in req.url.path:
+            return httpx.Response(200, text=TEAM_PAGE)
+        if req.url.params["pos"] == "G":
+            return httpx.Response(200, text="")       # no free-agent goalies
+        i = int(req.url.params["count"]) // 25
+        if i == wall_on:
+            return httpx.Response(302, headers={
+                "location": "https://consent.yahoo.com/v2/collectConsent"})
+        n = pages[i] if i < len(pages) else 0
+        rows = [_row(f"FA {i}-{j}", "TB - C") for j in range(n)]
+        if i == bad_row_on and rows:
+            rows[0] = _row("Odd Row", "??? ")
+        return httpx.Response(200, text="".join(rows))
+    return httpx.Client(transport=httpx.MockTransport(handler),
+                        follow_redirects=True)
+
+
+def test_unparseable_row_does_not_end_pagination():
+    stats = {}
+    _, fas = fetch_lists(19725, 5, client=_fa_client([25, 25, 25, 10], bad_row_on=1),
+                         stats=stats)
+    assert len(fas) == 84 and stats["unparsed"] == 1
+
+
+def test_empty_first_page_raises_instead_of_empty_list():
+    with pytest.raises(YahooPageError):
+        fetch_lists(19725, 5, client=_fa_client([0]))
+
+
+def test_consent_wall_mid_pagination_raises():
+    with pytest.raises(YahooPageError, match="consent"):
+        fetch_lists(19725, 5, client=_fa_client([25, 25, 25], wall_on=2))
+
+
+def _refresh_env(monkeypatch, tmp_path, fas, league_fails=False):
+    import src.api.inseason as api
+    import src.inseason.ingest as ing
+    import src.inseason.yahoo_public as yp
+    monkeypatch.setattr(api, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(ing, "ingest_current", lambda db: {})
+    monkeypatch.setattr(yp, "fetch_lists", lambda *a, **k: (
+        [YPlayer("Sam Bennett", "FLA", ("C",), "C")], fas))
+
+    def league(league_id):
+        if league_fails:
+            raise RuntimeError("league page 503")
+        return {5: {"name": "Mine", "players": []}}
+    monkeypatch.setattr(yp, "fetch_league", league)
+    monkeypatch.setattr(yp, "fetch_market", lambda league_id: [])
+    monkeypatch.setattr(api, "_ctx", lambda league: object())
+    monkeypatch.setattr(api, "parse_players", lambda ctx, text: ({}, []))
+    from fastapi.testclient import TestClient
+
+    from src.api.main import app
+    return TestClient(app)
+
+
+def test_refresh_refuses_shrunken_free_agent_list(monkeypatch, tmp_path):
+    old = render([YPlayer(f"Old {i}", "BOS", ("C",)) for i in range(200)], "Free agents")
+    (tmp_path / "fa.txt").write_text(old, encoding="utf-8")
+    client = _refresh_env(monkeypatch, tmp_path,
+                          [YPlayer(f"New {i}", "BOS", ("C",)) for i in range(49)])
+    r = client.post("/api/inseason/refresh").json()
+    assert "shrank from 200 to 49" in r["yahoo_error"]
+    assert (tmp_path / "fa.txt").read_text(encoding="utf-8") == old
+    assert not (tmp_path / "my_roster.txt").exists()
+    r = client.post("/api/inseason/refresh?force=true").json()
+    assert r["yahoo_error"] is None and r["yahoo"]["free_agents"] == 49
+
+
+def test_refresh_writes_nothing_if_league_fetch_fails(monkeypatch, tmp_path):
+    (tmp_path / "fa.txt").write_text("old fa\n", encoding="utf-8")
+    (tmp_path / "my_roster.txt").write_text("old roster\n", encoding="utf-8")
+    client = _refresh_env(monkeypatch, tmp_path,
+                          [YPlayer("New", "BOS", ("C",))], league_fails=True)
+    r = client.post("/api/inseason/refresh").json()
+    assert "league page 503" in r["yahoo_error"]
+    assert (tmp_path / "fa.txt").read_text(encoding="utf-8") == "old fa\n"
+    assert (tmp_path / "my_roster.txt").read_text(encoding="utf-8") == "old roster\n"
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_utah_four_letter_team_code_parses():
+    (p,) = parse_rows(_row("Clayton Keller", "UTAH - C,RW"))
+    assert p.team == "UTA" and p.positions == ("C", "RW")
+
+
+
+def test_parse_market_row_from_real_taken_page():
+    """Row captured from the league's rostered-players page (11/2/2026)."""
+    from pathlib import Path
+
+    from src.inseason.yahoo_public import parse_market_rows
+    row = (Path(__file__).parent / "fixtures" / "yahoo_taken_row.html").read_text()
+    (m,) = parse_market_rows(row)
+    assert m == {"name": "Connor McDavid", "team": "EDM", "positions": ["C"],
+                 "owner": 3, "gp": 15.0, "fpts": 175.5, "pre_rank": 1.0,
+                 "cur_rank": 1.0, "pct_ros": 100.0}
+    # rows without the stat cells (roster / free-agent captures) are skipped
+    assert parse_market_rows(_row("Plain Player", "BOS - C")) == []
+
+
+def test_fetch_market_pages_taken_skaters_and_goalies():
+    from pathlib import Path
+
+    from src.inseason.yahoo_public import fetch_market
+    row = (Path(__file__).parent / "fixtures" / "yahoo_taken_row.html").read_text()
+    seen = []
+
+    def handler(req):
+        seen.append((req.url.params["status"], req.url.params["pos"],
+                     req.url.params["count"]))
+        n = 25 if (req.url.params["pos"], req.url.params["count"]) == ("P", "0") else 2
+        return httpx.Response(200, text=row * n)
+    rows = fetch_market(19725, httpx.Client(transport=httpx.MockTransport(handler)))
+    assert len(rows) == 25 + 2 + 2
+    assert seen == [("T", "P", "0"), ("T", "P", "25"), ("T", "G", "0")]

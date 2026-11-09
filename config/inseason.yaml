@@ -37,6 +37,23 @@ stream_goalie_min_start_share: 0.15
 # hold check: ROS per-game value at least this fraction above replacement
 # is a HOLD regardless of the short window.
 hold_margin: 0.15
+# Streaming plan: a HOLD is never dropped for streamers (drops are free but
+# final). The exception is severe underperformance: at least this many games
+# played AND season-to-date per-game value below replacement.
+protect_min_gp: 15
+# Trade explorer: how the "market" (a typical manager) values a player.
+# From Yahoo (pulled by Refresh into data/market.json), each a percentile
+# within F / D / G, weighted:
+#   rostered: % of all Yahoo leagues rostering him
+#   points:   Yahoo Fan Pts per game this season
+#   name:     Yahoo pre-season rank (reputation)
+market_weights:
+  rostered: 0.5
+  points: 0.3
+  name: 0.2
+# Fallback for players with no Yahoo data: season-to-date production with
+# only this many games of preseason prior (the model above uses 10-60).
+market_k_games: 5
 # Refresh button / src.inseason.yahoo_public: your public Yahoo league.
 # league_id and team_id are in the team page URL:
 #   hockey.fantasysports.yahoo.com/hockey/<league_id>/<team_id>
