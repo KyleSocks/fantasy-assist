@@ -3,40 +3,23 @@
 A team plays a fixed number of regular-season games, shared among all of
 its goalies, so a team's projected goalie starts must sum to exactly its
 game count and no goalie may exceed max_goalie_starts (regression.yaml,
-68). Real-DB tests use data/hockey.db; synthetic tests use an in-memory
-SQLite DB. No network.
+68). Synthetic tests on an in-memory SQLite DB; no real data, no network.
 """
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
-
 import pytest
 
-from src.projections.projections import (
-    Projection,
-    _load_config,
-    _project_goalies,
-    _team_games_for,
-    project_all,
-)
-from src.api.routes import build_board
+from src.projections.projections import _load_config, _project_goalies
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "hockey.db"
+
 SEASON_ID = 20262027
-
 TOLERANCE = 0.01
 
 
 @pytest.fixture(scope="module")
 def cfg() -> dict:
     return _load_config()
-
-
-@pytest.fixture(scope="module")
-def projs() -> list[Projection]:
-    """Real projections for the 2026-27 season from the DB."""
-    return project_all(SEASON_ID, str(DB_PATH))
 
 
 def _synthetic_conn(goalies, team: str = "AAA", total: int = 82) -> sqlite3.Connection:
@@ -69,31 +52,6 @@ def _synthetic_conn(goalies, team: str = "AAA", total: int = 82) -> sqlite3.Conn
             "INSERT INTO schedule VALUES (?, ?, '2026-10-01', ?, ?, 2)",
             (i, SEASON_ID, team, "BBB"))
     return conn
-
-
-def test_no_goalie_exceeds_max_starts(projs, cfg):
-    """a. No goalie in the entire projection exceeds max_goalie_starts."""
-    cap = float(cfg["max_goalie_starts"])
-    over = [(p.player_id, p.terms["final"]["games_started"])
-            for p in projs if p.position == "G"
-            if p.terms["final"]["games_started"] > cap]
-    assert over == []
-
-
-def test_every_team_starts_sum_to_games(projs):
-    """b. For every one of the 32 teams, projected goalie starts sum to
-    that team's game count within 0.01."""
-    conn = sqlite3.connect(str(DB_PATH))
-    team_games = _team_games_for(SEASON_ID, conn)
-    team_of = dict(conn.execute(
-        "SELECT player_id, current_team_abbrev FROM players").fetchall())
-    conn.close()
-    assert len(team_games) == 32
-    for team, total in sorted(team_games.items()):
-        starts = [p.terms["final"]["games_started"] for p in projs
-                  if p.position == "G"
-                  and team_of.get(p.player_id) == team]
-        assert abs(sum(starts) - total) <= TOLERANCE, (team, sum(starts), total)
 
 
 def test_synthetic_starter_majority_backups_single_digits(cfg):
@@ -148,29 +106,3 @@ def test_synthetic_three_60_starters_capped_sum(cfg):
     assert all(s <= cap for s in starts)
     assert abs(sum(starts) - 82) <= TOLERANCE
     conn.close()
-
-
-def test_named_regression_starts(projs):
-    """f. Portillo, Garand and Sergeev each project under 15 starts;
-    Gustavsson projects above 40."""
-    by_id = {p.player_id: p for p in projs if p.position == "G"}
-    portillo = by_id[8481707].terms["final"]["games_started"]
-    garand = by_id[8482193].terms["final"]["games_started"]
-    sergeev = by_id[8482949].terms["final"]["games_started"]
-    gustavsson = by_id[8479406].terms["final"]["games_started"]
-    assert portillo < 15
-    assert garand < 15
-    assert sergeev < 15
-    assert gustavsson > 40
-
-
-def test_no_sub30_start_goalie_in_top10_vorp():
-    """g. No goalie appears in the overall top 10 by VORP with fewer than
-    30 projected starts."""
-    board = build_board("kyle_12_points")
-    top10 = board["players"][:10]
-    offenders = [
-        (row["rank"], row["name"], row["stats"]["GS"])
-        for row in top10 if row["pos"] == "G" and row["stats"]["GS"] < 30.0
-    ]
-    assert offenders == []

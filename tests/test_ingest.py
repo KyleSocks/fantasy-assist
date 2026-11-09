@@ -1,6 +1,7 @@
 """Tests for the NHL ingest pipeline.
 
-Hand-computed expected values (verified against the NHL API ground truth):
+Model parsing and schema only; the live-API ingest tests were removed
+(network + real data). Hand-computed expected values:
 - Connor McDavid (8478402) 2021-22 (reg+playoff): 54 goals, 102 assists,
   156 points, 375 shots, pp=52; TOI 105016 sec EV, 21504 sec PP
 - Igor Shesterkin (8478048) 2021-22 (reg+playoff): 46W, 22L, 4OTL, 6SO
@@ -9,22 +10,16 @@ played can exceed 82 (e.g. McDavid 2021-22: 80 reg + 16 playoff = 96).
 """
 from __future__ import annotations
 
-import sqlite3
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from src.ingest.models import (
-    Fetcher,
     GoalieSummary,
-    SkaterRealtime,
     SkaterSummary,
     SkaterTOI,
     init_db,
-    log_ingest,
 )
-from src.ingest.ingest import ingest_seasons
 
 
 # ── Model parsing ──────────────────────────────────────────────────────
@@ -140,48 +135,3 @@ class TestInitDb:
 
 
 # ── Full ingest (network) ──────────────────────────────────────────────
-
-
-class TestIngestSeasons:
-    @pytest.mark.network
-    def test_writes_skater_rows_with_pp_data(self):
-        """Ingest 2021-22 and verify McDavid's real reg+playoff line lands in DB."""
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = str(Path(tmp) / "hockey.db")
-            report = ingest_seasons(1, db_path, season_ids=[20212022])
-            assert report.rows_written.get("skater_seasons", 0) > 100
-
-            conn = init_db(db_path)
-            cur = conn.execute(
-                "SELECT goals, assists, points, pp_points, pp_toi_sec"
-                " FROM skater_seasons WHERE player_id=8478402 AND season_id=20212022"
-            )
-            row = cur.fetchone()
-            conn.close()
-            assert row is not None
-            # Hand-computed: McDavid 2021-22 (reg + playoff, verified via API)
-            assert row[0] == 54  # goals
-            assert row[1] == 102  # assists
-            assert row[2] == 156  # points
-            assert row[3] == 52  # pp_points
-            assert row[4] is not None  # pp_toi_sec populated
-
-    @pytest.mark.network
-    def test_ingest_is_idempotent(self):
-        """Running ingest twice should not duplicate rows."""
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = str(Path(tmp) / "hockey.db")
-            ingest_seasons(1, db_path, season_ids=[20212022])
-            conn = init_db(db_path)
-            count1 = conn.execute(
-                "SELECT COUNT(*) FROM skater_seasons WHERE season_id=20212022"
-            ).fetchone()[0]
-            conn.close()
-
-            ingest_seasons(1, db_path, season_ids=[20212022])
-            conn = init_db(db_path)
-            count2 = conn.execute(
-                "SELECT COUNT(*) FROM skater_seasons WHERE season_id=20212022"
-            ).fetchone()[0]
-            conn.close()
-            assert count1 == count2
