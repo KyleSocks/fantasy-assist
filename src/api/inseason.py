@@ -16,6 +16,7 @@ rebuilt when data/hockey.db changes on disk.
 from __future__ import annotations
 
 import datetime
+import itertools
 import json
 import os
 
@@ -41,6 +42,14 @@ from src.valuation.league import load_league
 
 router = APIRouter(prefix="/api/inseason")
 _CACHE: dict[str, tuple[float, Context]] = {}
+# Every Context built gets the next number. Response caches key on it, not
+# on id(ctx): CPython reuses a freed object's id, so a rebuilt context
+# could otherwise hit a cache entry computed from the old data.
+_GEN = itertools.count(1)
+
+
+def _gen(ctx: Context) -> int:
+    return ctx.__dict__.setdefault("_cache_gen", next(_GEN))
 
 
 def _ctx(league: str | None) -> Context:
@@ -59,6 +68,7 @@ def _ctx(league: str | None) -> Context:
         ctx = build_context(str(DB_PATH), load_league(str(path)))
     except ValueError as e:
         raise HTTPException(500, str(e))
+    _gen(ctx)
     _CACHE[name] = (mtime, ctx)
     return ctx
 
@@ -90,7 +100,9 @@ def _add_lineup_fit(ctx, rows: list[dict], date: str) -> None:
     """``adds``: what each stream adds to YOUR lineup on ``date`` -- the
     best lineup with him minus without, re-arranging multi-position
     starters, so a C/LW counts when a LW/RW can slide over to the open RW.
-    None when there's no roster file."""
+    None when there's no roster file; 0 for players already on it (only
+    possible with all=true) -- they're in the base lineup, so re-adding them
+    would count the same player twice."""
     from src.inseason.lineup import best_lineup
     from src.inseason.plan import nhl_eligibility
     from src.inseason.roster import active_slots, game_values
@@ -113,6 +125,10 @@ def _add_lineup_fit(ctx, rows: list[dict], date: str) -> None:
         pid = r["player_id"]
         elig = fas.get(pid) or nhl_eligibility(ctx.lines[pid].position)
         r["elig"] = sorted(elig)
+        if pid in roster:
+            r["elig"] = sorted(roster[pid])
+            r["adds"] = 0.0
+            continue
         with_him, _ = best_lineup(base + [(pid, elig, r["value"])], slots)
         r["adds"] = max(with_him - total, 0.0)
 
@@ -225,7 +241,7 @@ def get_free_agents(start: str | None = None, days: int = 9,
                     league: str | None = None) -> dict:
     ctx = _ctx(league)
     fa_path = DATA_DIR / FA_FILE
-    key = (id(ctx), start or _today(), days,
+    key = (_gen(ctx), start or _today(), days,
            os.path.getmtime(fa_path) if fa_path.exists() else 0)
     if _FA_CACHE.get("key") == key:
         return _FA_CACHE["value"]
@@ -397,7 +413,7 @@ def get_league(start: str | None = None, days: int = 21,
     ctx = _ctx(league)
     data = json.loads(path.read_text(encoding="utf-8"))
     s = start or _today()
-    key = (ctx.league.name, s, days, os.path.getmtime(path), id(ctx))
+    key = (ctx.league.name, s, days, os.path.getmtime(path), _gen(ctx))
     if key not in _LEAGUE_CACHE:
         _LEAGUE_CACHE.clear()
         out = analyze(ctx, data, int(data["my_team_id"]), s, days)
