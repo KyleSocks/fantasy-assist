@@ -108,7 +108,28 @@ function draft(id, dest) {
   saveState();
   render();
   refetchRecs();
+  if (dest === "me") goalLight(p.name);
   return true;
+}
+
+/* Goal light: the header flashes red and a banner welcomes the pick.
+   The banner is a live region, so screen readers announce it too. */
+let goalTimer = null;
+function goalLight(name) {
+  const bar = document.querySelector(".bar");
+  let toast = $("goal-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "goal-toast";
+    toast.className = "goal-toast";
+    toast.setAttribute("role", "status");
+    document.body.appendChild(toast);
+  }
+  toast.textContent = `Welcome to Marshall & Co., ${name}`;
+  toast.hidden = false;
+  bar.classList.add("goal");
+  clearTimeout(goalTimer);
+  goalTimer = setTimeout(() => { bar.classList.remove("goal"); toast.hidden = true; }, 1800);
 }
 
 /* Undo one logged action: return the player to the board (ranks are
@@ -261,7 +282,7 @@ function renderDrafted() {
     const label = entry.dest === "me" ? "Me" : "Taken";
     items.push(`<li class="draft-entry"><span class="draft-idx">${i + 1}</span><span class="draft-name">${esc(name)}</span><span class="draft-tag ${entry.dest === "me" ? "tag-me" : "tag-taken"}">${label}</span><button type="button" class="undo-btn" data-idx="${i}">Undo</button></li>`);
   }
-  $("draft-log").innerHTML = items.length ? items.join("") : `<li class="draft-empty">No picks yet.</li>`;
+  $("draft-log").innerHTML = items.length ? items.join("") : `<li class="draft-empty">No picks yet. Tap Me or Taken on any player to log one.</li>`;
 }
 
 function renderTabCounts() {
