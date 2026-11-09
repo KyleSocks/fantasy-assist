@@ -63,14 +63,37 @@ journalctl -u fantasy-refresh.service -n 20
 
 The refresh is the same as the page's button: this season's stats, rosters,
 the schedule, your roster, every available player and all 12 league rosters
-from Yahoo. A failure (NHL or Yahoo down) shows up as a failed unit in the
-journal; the app keeps serving the previous data.
+from Yahoo. A failure (NHL or Yahoo down, or the Yahoo half skipped -- the response
+then carries a `yahoo_error`) shows up as a failed unit in the journal;
+the app keeps serving the previous data. Transient errors are retried
+first, so a failed unit means a real outage or a changed Yahoo page.
 
 ## 3. Updating to a new version
 
+The server's checkout must be on `main` (`git -C ~/fantasy-assist branch
+--show-current`), since `update.sh` pulls whatever branch is checked out.
+
 ```bash
-~/fantasy-assist/deploy/update.sh      # git pull + rebuild + restart
+cd ~/fantasy-assist
+docker compose stop                                   # quiet DB for the copy
+cp data/hockey.db "data/hockey.db.bak-$(date +%F)"    # cheap insurance
+./deploy/update.sh                                    # git pull + rebuild + restart
+docker compose ps                                     # "healthy" within a minute
 ```
+
+If the update touched `deploy/fantasy-refresh.service` or `.timer`
+(`git diff --stat HEAD@{1} -- deploy/` shows it), re-install them, because
+systemd runs its own copy in /etc/systemd/system:
+
+```bash
+sudo cp deploy/fantasy-refresh.service deploy/fantasy-refresh.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl start fantasy-refresh.service && systemctl status fantasy-refresh.service
+```
+
+**Rolling back:** `git log --oneline -5`, then `git checkout <previous commit>`
+and `docker compose up -d --build` (copy the `.bak` database back if the new
+version changed it). `git switch main` returns to normal updates.
 
 ## 4. Nice-to-haves with what you already run
 
@@ -88,8 +111,13 @@ journal; the app keeps serving the previous data.
   host. Change the left side of `"8420:8000"` in `docker-compose.yml` if
   that port is taken.
 - Settings: edit `config/inseason.yaml` (Yahoo league/team id, model knobs)
-  or a league YAML on the server, then `docker compose restart`.
-- The container runs as uid 1000, so files it writes in `data/` belong to
-  your user.
+  or a league YAML on the server. The app notices the change on the next
+  request; no restart needed. (The container sees `config/` read-only, so
+  edit it on the host, not inside the container.)
+- The container runs as uid 1000 with a read-only filesystem: `data/` is
+  the only place it can write, so it must belong to uid 1000
+  (`ls -ln data`; fix with `sudo chown -R 1000:1000 data`).
+- A refresh while another is running answers "a refresh is already
+  running" instead of starting a second one.
 - Time zone is America/New_York (container `TZ`), so "today" and the
   schedule windows line up with NHL dates.

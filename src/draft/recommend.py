@@ -32,6 +32,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from src.cache import db_stamp
 from src.db import player_names
 from src.paths import DB_PATH, ROOT  # noqa: F401  (ROOT kept for importers)
 from src.valuation.league import LeagueConfig
@@ -44,7 +45,7 @@ STARTER_SLOTS = ("C", "LW", "RW", "D", "G")
 POS_TO_SLOT = {"C": "C", "L": "LW", "R": "RW", "D": "D", "G": "G"}
 SLOT_TO_GROUP = {"C": "F", "LW": "F", "RW": "F", "D": "D", "G": "G"}
 
-_NAME_CACHE: dict[int, str] | None = None
+_NAME_CACHE: tuple[tuple, dict[int, str]] | None = None
 
 
 @dataclass
@@ -58,10 +59,13 @@ class Recommendation:
 
 
 def _load_names() -> dict[int, str]:
+    """player_id -> name, reloaded when the DB changes (a new ingest can
+    add players; the old process-lifetime cache showed them as "Player N")."""
     global _NAME_CACHE
-    if _NAME_CACHE is None:
-        _NAME_CACHE = player_names(DB_PATH)
-    return _NAME_CACHE
+    stamp = (str(DB_PATH), db_stamp(DB_PATH))
+    if _NAME_CACHE is None or _NAME_CACHE[0] != stamp:
+        _NAME_CACHE = (stamp, player_names(DB_PATH))
+    return _NAME_CACHE[1]
 
 
 def _eligible_slots(position: str) -> list[str]:

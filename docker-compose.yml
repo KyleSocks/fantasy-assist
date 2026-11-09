@@ -12,5 +12,21 @@ services:
     environment:
       - TZ=America/New_York
     volumes:
-      - ./data:/app/data        # hockey.db, roster / free-agent / league files
-      - ./config:/app/config    # league + model settings, editable without rebuild
+      - ./data:/app/data          # hockey.db, roster / free-agent / league files
+      - ./config:/app/config:ro   # league + model settings: edit on the host, no rebuild
+    # Hardening: nothing in the container needs to write outside ./data,
+    # gain privileges, or use Linux capabilities.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g
+    # keep docker's logs from slowly filling the ZimaBoard's eMMC
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

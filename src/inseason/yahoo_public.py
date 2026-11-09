@@ -17,6 +17,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from src import net
+
 BASE = "https://hockey.fantasysports.yahoo.com/hockey"
 HEADERS = {"User-Agent": (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -174,14 +176,17 @@ def fetch_league(league_id: int, client: httpx.Client | None = None,
 
 
 def _get(client: httpx.Client, url: str) -> str:
-    r = client.get(url)
-    r.raise_for_status()
+    r = net.get(client, url, attempts=YAHOO_ATTEMPTS)
     host = r.url.host or ""
     if any(w in host for w in _WALL_HOSTS):
         raise YahooPageError(f"Yahoo redirected to {host} (login/consent wall) "
                              f"instead of {url}; is the league still public?")
     return r.text
 
+
+# Yahoo is a public web page, not an API: retry transient errors, but
+# fewer times than the NHL API so a struggling site isn't hammered.
+YAHOO_ATTEMPTS = 3
 
 MAX_PAGES = 60   # safety stop for "all" (60 x 25 = 1500 players)
 

@@ -109,18 +109,18 @@ def _cap_team_to_three(team: str, members: list[Projection],
     dropped = scored[3:]
     kept_names = ", ".join(name_of.get(p.player_id, str(p.player_id))
                            for p in kept)
-    print("[cap>3] %s: keeping %s, dropping %d rostered goalie(s)" % (
+    log.debug("[cap>3] %s: keeping %s, dropping %d rostered goalie(s)" % (
         team, kept_names, len(dropped)))
     for recent, pid, p in dropped:
         pname = name_of.get(pid, str(pid))
-        print("  DROPPED: %s | team=%s | recent_starts=%d"
+        log.debug("  DROPPED: %s | team=%s | recent_starts=%d"
               % (pname, team, recent))
         history = _goalie_season_history(conn, pid)
         if history:
             for row in history:
-                print("    %d %s starts=%s" % (row[0], row[1], row[2]))
+                log.debug("    %d %s starts=%s" % (row[0], row[1], row[2]))
         else:
-            print("    (no goalie_seasons history)")
+            log.debug("    (no goalie_seasons history)")
         _apply_goalie_starts(p, 0.0)
     return kept
 
@@ -163,7 +163,7 @@ def _allocate_goalie_starts(projs: list[Projection],
     unassigned_ids = {p.player_id for p in unassigned}
     for p in unassigned:
         pname = name_of.get(p.player_id, str(p.player_id))
-        print("[unassigned] %s | team=NONE | starts=0.00" % pname)
+        log.debug("[unassigned] %s | team=NONE | starts=0.00" % pname)
         _apply_goalie_starts(p, 0.0)
     by_team: dict[str, list[Projection]] = {}
     for p in goalies:
@@ -172,25 +172,25 @@ def _allocate_goalie_starts(projs: list[Projection],
         team = team_of.get(p.player_id)
         if team is None:
             pname = name_of.get(p.player_id, str(p.player_id))
-            print("[unassigned] %s | team=NONE | starts=0.00" % pname)
+            log.debug("[unassigned] %s | team=NONE | starts=0.00" % pname)
             _apply_goalie_starts(p, 0.0)
             continue
         by_team.setdefault(team, []).append(p)
-    print("[per-team goalie count from players, pre-cap]:")
+    log.debug("[per-team goalie count from players, pre-cap]:")
     for team in sorted(by_team):
         count = len(by_team[team])
         flag = "  <== FLAG >3" if count > 3 else ""
-        print("  %s %d%s" % (team, count, flag))
+        log.debug("  %s %d%s" % (team, count, flag))
     for team in list(by_team.keys()):
         by_team[team] = _cap_team_to_three(team, by_team[team], name_of, conn)
-    print("[per-team goalie allocation, post-cap]:")
+    log.debug("[per-team goalie allocation, post-cap]:")
     for team in sorted(by_team):
         members = by_team[team]
         total = team_games.get(team, 0)
         if total <= 0:
             for p in members:
                 _apply_goalie_starts(p, 0.0)
-            print("  %s games=%d: %s" % (
+            log.debug("  %s games=%d: %s" % (
                 team, total,
                 "; ".join("%s=%.2f" % (name_of.get(p.player_id, str(p.player_id)),
                                         0.0) for p in members)))
@@ -241,4 +241,4 @@ def _allocate_goalie_starts(projs: list[Projection],
         detail = "; ".join("%s=%.2f"
                            % (name_of.get(p.player_id, str(p.player_id)), s)
                            for p, s in zip(members, starts))
-        print("  %s games=%d sum=%.2f: %s" % (team, total, starts_sum, detail))
+        log.debug("  %s games=%d sum=%.2f: %s" % (team, total, starts_sum, detail))

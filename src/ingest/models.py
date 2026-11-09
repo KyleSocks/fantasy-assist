@@ -10,6 +10,7 @@ from typing import Any, Optional
 import httpx
 from pydantic import BaseModel, ConfigDict
 
+from src import net
 from src.paths import SCHEMA_PATH
 
 PAGE_LIMIT = 100
@@ -102,8 +103,7 @@ class Fetcher:
         while True:
             url = (f"{base_url}{season}{sep}start={start}"
                    f"&limit={PAGE_LIMIT}&sort=playerId")
-            resp = self._client.get(url)
-            resp.raise_for_status()
+            resp = net.get(self._client, url)
             body = resp.json()
             page = body.get("data", []) if isinstance(body, dict) else body
             if not isinstance(page, list) or len(page) == 0:
@@ -117,9 +117,7 @@ class Fetcher:
         return rows
 
     def get_json(self, url: str) -> Any:
-        resp = self._client.get(url)
-        resp.raise_for_status()
-        return resp.json()
+        return net.get(self._client, url).json()
 
     def close(self) -> None:
         self._client.close()
@@ -177,12 +175,20 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             conn.execute(f"DROP TABLE {table}")
 
 
+def _utc_now_naive() -> str:
+    """UTC now as a naive ISO string -- the format ingest_log.run_at has
+    always used (MAX(run_at) sorts it as text; routes.data_freshness reads
+    it as naive UTC). Replaces the deprecated datetime.utcnow()."""
+    return (datetime.datetime.now(datetime.timezone.utc)
+            .replace(tzinfo=None).isoformat())
+
+
 def log_ingest(conn: sqlite3.Connection, source: str, season_id: int | None,
                rows: int, notes: list[str] | None = None,
                status: str = "OK") -> None:
     conn.execute(
         "INSERT INTO ingest_log (source, season_id, rows_written, run_at, status, notes)"
         " VALUES (?, ?, ?, ?, ?, ?)",
-        (source, season_id, rows, datetime.datetime.utcnow().isoformat(), status,
+        (source, season_id, rows, _utc_now_naive(), status,
          "; ".join(notes) if notes else None),
     )
