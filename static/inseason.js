@@ -151,8 +151,7 @@
         { key: "benched", label: "Benched", left: true, fmt: (n) => esc(n.benched.join(", ")) },
       ], a.nights);
       fillHold();
-      if (a.warning) status(a.warning, true);
-      else status(a.unmatched.length ? `Unmatched names in your lists: ${a.unmatched.join(", ")}` : "");
+      status(a.warning || "", !!a.warning);
     } catch (e) { status(e.message, true); }
   };
 
@@ -216,8 +215,7 @@
     try {
       faData = await api(`/api/inseason/free-agents?${params()}`);
       drawFreeAgents();
-      status(faData.unmatched_count ? `${faData.unmatched_count} Yahoo names have no NHL stats `
-        + "yet (mostly minor-leaguers) and aren't shown" : "");
+      status("");
       await loadStreams();
     } catch (e) { status(e.message, true); }
   };
@@ -300,7 +298,7 @@
       showTeam(L.teams.find((t) => t.mine));
       drawTrades(names);
       fillShop(L);
-      status(L.unmatched.length ? `Unmatched rostered names: ${L.unmatched.join(", ")}` : "");
+      status("");
     } catch (e) { status(e.message, true); }
   };
   function decorateLeague(el, L) {
@@ -460,8 +458,7 @@
       const y = r.yahoo;
       const msg = `Updated in ${r.seconds}s: ${r.ingest.skater_current} skaters, ` +
         `${r.ingest.goalie_current} goalies` +
-        (y ? `; Yahoo roster ${y.roster}, free agents ${y.free_agents}, ${y.teams} team rosters` +
-          (y.unmatched.length ? ` (no match: ${y.unmatched.join(", ")})` : "") : "") +
+        (y ? `; Yahoo roster ${y.roster}, free agents ${y.free_agents}, ${y.teams} team rosters` : "") +
         (r.market != null ? `; market data for ${r.market} rostered players` : "");
       await load();
       const err = [r.yahoo_error, r.market_error].filter(Boolean).join(". ");

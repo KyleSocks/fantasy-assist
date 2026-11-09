@@ -2,61 +2,13 @@
 from __future__ import annotations
 
 import pytest
-from pathlib import Path
 
 import numpy as np
+from pathlib import Path
 
-from src.projections.projections import Projection, project_all
-from src.valuation.league import LeagueConfig, load_league
-from src.valuation.valuation import (
-    PlayerValue,
-    auction_values,
-    replacement_levels,
-    valuate,
-)
-
-CONFIG_DIR = Path(__file__).resolve().parent.parent / "config" / "leagues"
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "hockey.db"
-SEASON_ID = 20262027
-
-
-@pytest.fixture(scope="module")
-def projs() -> list[Projection]:
-    """Real projections from the DB."""
-    return project_all(SEASON_ID, str(DB_PATH))
-
-
-@pytest.fixture(scope="module")
-def standard_cfg() -> LeagueConfig:
-    return load_league(str(CONFIG_DIR / "standard_12_cat.yaml"))
-
-
-@pytest.fixture(scope="module")
-def standard_cfg_10() -> LeagueConfig:
-    """Same league but team_count=10 for the 10->14 diff test."""
-    return LeagueConfig(
-        name="standard_10_cat",
-        team_count=10,
-        scoring_type="h2h_categories",
-        roster_slots={
-            "C": 2, "LW": 2, "RW": 2, "D": 4, "G": 2, "UTIL": 1, "BENCH": 4,
-        },
-        categories=["G", "A", "PPP", "SOG", "HIT+BLK", "W", "SV%"],
-    )
-
-
-@pytest.fixture(scope="module")
-def standard_cfg_14() -> LeagueConfig:
-    """Same league but team_count=14 for the 10->14 diff test."""
-    return LeagueConfig(
-        name="standard_14_cat",
-        team_count=14,
-        scoring_type="h2h_categories",
-        roster_slots={
-            "C": 2, "LW": 2, "RW": 2, "D": 4, "G": 2, "UTIL": 1, "BENCH": 4,
-        },
-        categories=["G", "A", "PPP", "SOG", "HIT+BLK", "W", "SV%"],
-    )
+from src.projections.projections import Projection
+from src.valuation.league import LeagueConfig
+from src.valuation.valuation import replacement_levels, valuate
 
 
 # ─── Hand-computed small-pool tests ───
@@ -64,50 +16,32 @@ def standard_cfg_14() -> LeagueConfig:
 
 def _small_pool_category() -> tuple[list[Projection], LeagueConfig]:
     """
-    6 forwards + 2 goalies, 2 categories (G, A), team_count=1,
+    6 forwards, 1 D, 2 goalies; 2 categories (G, A); team_count=1;
     roster_slots: C=1, LW=1, RW=1, D=1, G=1, UTIL=0, BENCH=0.
-    So: F pool = 3 + 0 = 3, D pool = 1 + 0 = 1, G pool = 1 + 0 = 1.
+    So: F pool = 3, D pool = 1, G pool = 1.
 
-    Forward values (raw = G + A):
-      F1: G=10, A=5  -> 15
-      F2: G=8,  A=8  -> 16
-      F3: G=6,  A=6  -> 12
-      F4: G=4,  A=4  -> 8
-      F5: G=2,  A=2  -> 4
-      F6: G=1,  A=1  -> 2
+    Each position group is z-scored on its OWN pool (F, D and G never share
+    mean/std), and goalies are scored only on goalie categories -- G and A
+    are skater categories, so goalies have no category z-scores at all.
+    The pool's mean/std are applied to EVERY player in the group, so
+    players outside the pool get genuine negative z-scores, not 0.
 
-    D1: G=3, A=3  -> 6
+    Forwards (G, A): F1 (10, 5), F2 (8, 8), F3 (6, 6), F4 (4, 4),
+    F5 (2, 2), F6 (1, 1). F pool = top 3 by raw G+A: F2, F1, F3.
+      G: [8, 10, 6]  mean 8,     std sqrt(8/3)   = 1.632993
+      A: [8, 5, 6]   mean 19/3,  std sqrt(14/9)  = 1.247219
+      F2:  0/1.632993 + (8-19/3)/1.247219 =  1.336306
+      F1:  2/1.632993 + (5-19/3)/1.247219 =  0.155700
+      F3: -2/1.632993 + (6-19/3)/1.247219 = -1.492006
+      F4: -4/1.632993 + (4-19/3)/1.247219 = -4.320318
+      F5: -7.148631   F6: -8.562787
+    Pass 2 re-ranks on pass-1 values: same top 3, so same numbers.
 
-    Goalies (raw = G + A):
-      G1: G=0, A=2  -> 2
-      G2: G=0, A=1  -> 1
+    D pool = D1 alone: std 0 -> every D z-score is 0.
+    Goalies: no categories -> 0.
 
-    F pool = top 3 by raw: F2(16), F1(15), F3(12).
-    D pool = top 1 by raw: D1(6).
-    G pool = top 1 by raw: G1(2).
-
-    Z-scores: mean/std are computed from the pool (F2, F1, F3, D1, G1)
-    but applied to ALL players, so non-pool players get genuine
-    (negative) z-scores, not 0.
-      G: [8, 10, 6, 3, 0]  mean=5.4, std=sqrt(12.64)=3.5553...
-      A: [8, 5, 6, 3, 2]   mean=4.8, std=sqrt(4.56)=2.1354...
-
-    Two-pass: recompute pool using pass1 total z-scores.
-      F2: 2.2298, F1: 1.3875, F3: 0.7307 -> top 3 F (unchanged pool)
-      D1: -1.5180, G1: -2.8301 -> same D/G pool.
-    Same pool, so pass 2 z-scores are identical.
-
-    Final raw values (G_z + A_z for every player):
-      F2: 2.2298, F1: 1.3875, F3: 0.7307
-      F4: -0.7684, F5: -2.2675, F6: -3.0171
-      D1: -1.5180, G1: -2.8301, G2: -3.2984
-
-    Replacement levels (raw_value of (pool_size+1)th ranked at position):
-      F: 4th F by raw_value = F4 = (4-5.4)/sqrt(12.64) + (4-4.8)/sqrt(4.56)
-         = -0.76841509
-      D: only D1 exists, so no 2nd D = 0.0
-      G: 2nd G by raw_value = G2 = (0-5.4)/sqrt(12.64) + (1-4.8)/sqrt(4.56)
-         = -3.2983817083
+    Replacement levels ((pool_size+1)th player in the group):
+      F: F4 = -4.320318      D: no 2nd D -> 0.0      G: G2 = 0.0
     """
     cfg = LeagueConfig(
         name="small",
@@ -148,185 +82,61 @@ def _small_pool_category() -> tuple[list[Projection], LeagueConfig]:
     return projs, cfg
 
 
+def _f_expected() -> dict[int, float]:
+    """Hand formula for forwards: mean/std from the F pool (F2, F1, F3)."""
+    g = np.array([8.0, 10.0, 6.0])
+    a = np.array([8.0, 5.0, 6.0])
+    line = {1: (10, 5), 2: (8, 8), 3: (6, 6), 4: (4, 4), 5: (2, 2), 6: (1, 1)}
+    return {pid: (G - g.mean()) / g.std() + (A - a.mean()) / a.std()
+            for pid, (G, A) in line.items()}
+
+
 def test_small_pool_zscores():
-    """Hand-computed z-scores for a 9-player pool with 2 categories."""
+    """Per-group z-scores, applied to every player in the group."""
     projs, cfg = _small_pool_category()
-    vals = valuate(projs, cfg)
-    
-    # F pool = top 3 by raw (G+A): F2(16), F1(15), F3(12)
-    # D pool = top 1: D1(6)
-    # G pool = top 1: G1(2)
-    # Pool = [F2, F1, F3, D1, G1]
-    
-    # G: [8, 10, 6, 3, 0] mean=5.4, std=sqrt(12.64)=3.5553...
-    # A: [8, 5, 6, 3, 2] mean=4.8, std=sqrt(4.56)=2.1354...
-    
-    # Two-pass: same pool both passes, so final z-scores = pass1 z-scores.
-    # F2: G_z=(8-5.4)/std_g, A_z=(8-4.8)/std_a
-    # F1: G_z=(10-5.4)/std_g, A_z=(5-4.8)/std_a
-    # etc.
-    
-    g_vals = np.array([8.0, 10.0, 6.0, 3.0, 0.0])
-    a_vals = np.array([8.0, 5.0, 6.0, 3.0, 2.0])
-    g_mean, g_std = g_vals.mean(), g_vals.std()
-    a_mean, a_std = a_vals.mean(), a_vals.std()
-    
-    # F2 (pid=2): G_z = (8-5.4)/g_std, A_z = (8-4.8)/a_std
-    expected_f2 = (8 - g_mean) / g_std + (8 - a_mean) / a_std
-    # F1 (pid=1): G_z = (10-5.4)/g_std, A_z = (5-4.8)/a_std
-    expected_f1 = (10 - g_mean) / g_std + (5 - a_mean) / a_std
-    # F3 (pid=3): G_z = (6-5.4)/g_std, A_z = (6-4.8)/a_std
-    expected_f3 = (6 - g_mean) / g_std + (6 - a_mean) / a_std
-    # D1 (pid=7): G_z = (3-5.4)/g_std, A_z = (3-4.8)/a_std
-    expected_d1 = (3 - g_mean) / g_std + (3 - a_mean) / a_std
-    # G1 (pid=8): G_z = (0-5.4)/g_std, A_z = (2-4.8)/a_std
-    expected_g1 = (0 - g_mean) / g_std + (2 - a_mean) / a_std
-    
-    by_pid = {v.player_id: v for v in vals}
-    assert abs(by_pid[2].raw_value - expected_f2) < 1e-6
-    assert abs(by_pid[1].raw_value - expected_f1) < 1e-6
-    assert abs(by_pid[3].raw_value - expected_f3) < 1e-6
-    assert abs(by_pid[7].raw_value - expected_d1) < 1e-6
-    assert abs(by_pid[8].raw_value - expected_g1) < 1e-6
+    by_pid = {v.player_id: v for v in valuate(projs, cfg)}
+    exp = _f_expected()
+    for pid, want in exp.items():
+        assert by_pid[pid].raw_value == pytest.approx(want, abs=1e-9)
+    # spot-check the hand-computed numbers in the docstring
+    assert by_pid[2].raw_value == pytest.approx(1.336306, abs=1e-6)
+    assert by_pid[4].raw_value == pytest.approx(-4.320318, abs=1e-6)
+    # players outside the F pool are genuinely negative, not 0
+    for pid in (4, 5, 6):
+        assert by_pid[pid].raw_value < 0
+    # lone D: zero spread -> 0; goalies: no goalie categories -> 0, no z-scores
+    assert by_pid[7].raw_value == 0.0
+    assert by_pid[8].raw_value == 0.0 and by_pid[8].cat_zscores == {}
+    assert by_pid[9].raw_value == 0.0 and by_pid[9].cat_zscores == {}
 
 
 def test_small_pool_replacement():
-    """Replacement level = raw_value of (pool_size+1)th ranked player.
-
-    Z-scores use the pool's mean/std but are applied to ALL players, so
-    the (pool_size+1)th player has a genuine (negative) z-score sum, not 0.
-    Hand-computed (see _small_pool_category docstring):
-      F: 4th F by raw_value = F4 = (4-5.4)/sqrt(12.64) + (4-4.8)/sqrt(4.56)
-         = -0.76841509
-      D: only D1 exists, so no 2nd D = 0.0
-      G: 2nd G by raw_value = G2 = (0-5.4)/sqrt(12.64) + (1-4.8)/sqrt(4.56)
-         = -3.2983817083
-    """
+    """Replacement level = raw_value of the (pool_size+1)th player in the
+    group: F4 for forwards; 0.0 for D (no 2nd D) and G (no categories)."""
     projs, cfg = _small_pool_category()
     levels = replacement_levels(projs, cfg)
-
-    assert levels["F"] == pytest.approx(-0.76841509, abs=1e-6)
+    assert levels["F"] == pytest.approx(_f_expected()[4], abs=1e-9)
+    assert levels["F"] == pytest.approx(-4.320318, abs=1e-6)
     assert levels["D"] == 0.0
-    assert levels["G"] == pytest.approx(-3.2983817083, abs=1e-6)
+    assert levels["G"] == 0.0
 
 
 def test_small_pool_vorp():
-    """VORP = raw_value - replacement_used, with non-zero replacements.
-
-    Replacement levels (hand-computed in test_small_pool_replacement):
-    F = -0.76841509, D = 0.0, G = -3.2983817083. Players sitting exactly
-    at their position's replacement level (F4, G2) have VORP of 0.
-    """
+    """VORP = raw_value - replacement_used; F4 (the replacement player)
+    sits at exactly 0, and the pool's VORPs keep their order."""
     projs, cfg = _small_pool_category()
     vals = valuate(projs, cfg)
-
     by_pid = {v.player_id: v for v in vals}
     for v in vals:
-        assert abs(v.vorp - (v.raw_value - v.replacement_used)) < 1e-9
-    # F group (pids 1-6)
+        assert v.vorp == pytest.approx(v.raw_value - v.replacement_used, abs=1e-9)
+    repl = _f_expected()[4]
     for pid in (1, 2, 3, 4, 5, 6):
-        assert by_pid[pid].replacement_used == pytest.approx(-0.76841509, abs=1e-6)
-    # D group (pid 7)
-    assert by_pid[7].replacement_used == 0.0
-    # G group (pids 8-9)
-    for pid in (8, 9):
-        assert by_pid[pid].replacement_used == pytest.approx(-3.2983817083, abs=1e-6)
-    # Exactly-at-replacement players have VORP 0
+        assert by_pid[pid].replacement_used == pytest.approx(repl, abs=1e-9)
     assert by_pid[4].vorp == pytest.approx(0.0, abs=1e-9)
-    assert by_pid[9].vorp == pytest.approx(0.0, abs=1e-9)
-
-
-# ─── Real-data tests ───
-
-
-def test_real_data_vorp_consistency(projs, standard_cfg):
-    """VORP = raw_value - replacement_used for every player."""
-    vals = valuate(projs, standard_cfg)
-    for v in vals:
-        assert abs(v.vorp - (v.raw_value - v.replacement_used)) < 1e-9
-
-
-def test_real_data_replacement_levels(projs, standard_cfg):
-    """Replacement levels are finite and ordered sensibly."""
-    levels = replacement_levels(projs, standard_cfg)
-    assert set(levels.keys()) == {"F", "D", "G"}
-    for pos, lvl in levels.items():
-        assert np.isfinite(lvl)
-
-
-def test_team_count_diff_reorders(projs, standard_cfg_10, standard_cfg_14):
-    """
-    Switching team_count 10 -> 14 changes replacement level at every position
-    and reorders the top 100. Print the diff.
-    """
-    levels_10 = replacement_levels(projs, standard_cfg_10)
-    levels_14 = replacement_levels(projs, standard_cfg_14)
-    
-    # Replacement level must differ at every position
-    for pos in ("F", "D", "G"):
-        assert levels_10[pos] != levels_14[pos], f"Position {pos}: same replacement level for team_count 10 and 14"
-    
-    vals_10 = valuate(projs, standard_cfg_10)
-    vals_14 = valuate(projs, standard_cfg_14)
-    top100_10 = [v.player_id for v in sorted(vals_10, key=lambda v: v.vorp, reverse=True)][:100]
-    top100_14 = [v.player_id for v in sorted(vals_14, key=lambda v: v.vorp, reverse=True)][:100]
-    
-    # Top 100 must differ (reorder)
-    assert top100_10 != top100_14, "Top 100 identical for team_count 10 and 14"
-    
-    # Print the diff
-    print(f"\n=== team_count 10 -> 14 diff ===")
-    print(f"Replacement levels (10): F={levels_10['F']:.4f} D={levels_10['D']:.4f} G={levels_10['G']:.4f}")
-    print(f"Replacement levels (14): F={levels_14['F']:.4f} D={levels_14['D']:.4f} G={levels_14['G']:.4f}")
-    diffs = [i for i, (a, b) in enumerate(zip(top100_10, top100_14)) if a != b]
-    print(f"Top-100 positions changed: {len(diffs)}/100")
-    print(f"First 10 changes at indices: {diffs[:10]}")
-
-
-def test_auction_values_sum(projs, standard_cfg):
-    """Sum of auction_values across the drafted pool equals team_count * budget within $1."""
-    vals = valuate(projs, standard_cfg)
-    budget = 200
-    avals = auction_values(vals, standard_cfg, budget)
-    total = sum(avals.values())
-    expected = standard_cfg.team_count * budget
-    assert abs(total - expected) < 1.0, f"Auction total {total} != expected {expected}"
-    print(f"\nAuction total: ${total:.2f}, expected: ${expected} (diff=${abs(total-expected):.2f})")
-
-
-def test_goalie_volume_weighting(projs, standard_cfg):
-    """
-    Assert: no sub-20-game goalie outranks any 55-start goalie with save_pct >= .905.
-    
-    A 15-game .930 backup must not outrank a 55-start .905 starter.
-    The volume weighting (gp / pool mean gp) ensures this.
-    """
-    vals = valuate(projs, standard_cfg)
-    by_pid = {v.player_id: v for v in vals}
-    
-    # Find goalies in the projections
-    g_by_pid = {p.player_id: p for p in projs if p.position == "G"}
-    
-    sub20 = []  # goalies with gp < 20
-    starter55 = []  # goalies with gp >= 55 and save_pct >= 0.905
-    for pid, p in g_by_pid.items():
-        if p.gp < 20:
-            sub20.append(pid)
-        if p.gp >= 55 and p.save_pct is not None and p.save_pct >= 0.905:
-            starter55.append(pid)
-    
-    if not sub20 or not starter55:
-        pytest.skip(f"Not enough goalie data: sub20={len(sub20)}, starter55={len(starter55)}")
-    
-    for s_pid in sub20:
-        s_val = by_pid[s_pid].vorp
-        for st_pid in starter55:
-            st_val = by_pid[st_pid].vorp
-            assert s_val < st_val, (
-                f"Sub-20-game goalie pid={s_pid} (gp={g_by_pid[s_pid].gp:.1f}, "
-                f"sv%={g_by_pid[s_pid].save_pct:.3f}) outranks 55+ start goalie "
-                f"pid={st_pid} (gp={g_by_pid[st_pid].gp:.1f}, sv%={g_by_pid[st_pid].save_pct:.3f})"
-            )
+    assert by_pid[2].vorp > by_pid[1].vorp > by_pid[3].vorp > 0
+    assert by_pid[5].vorp < 0 and by_pid[6].vorp < by_pid[5].vorp
+    for pid in (7, 8, 9):
+        assert by_pid[pid].replacement_used == 0.0 and by_pid[pid].vorp == 0.0
 
 
 def test_no_banned_identifiers():

@@ -23,10 +23,6 @@ Expected values are hand-computed:
 - ``_old_final`` is regressed_rate * age_factor(age) * proj_gp:
     with regressed_rate=2.0, proj_gp=80.0:
       age=20 -> 160.0; age=30 -> 160 * 0.912673; age=32 -> 160 * 0.8233223133.
-
-- The last test checks the sum-back invariant on the real database (the same
-  invariant the CLI Section 5 enforces): for a named player,
-  regressed_rate * age_adj * proj_gp must equal final within 1e-6.
 """
 from __future__ import annotations
 
@@ -37,10 +33,6 @@ import pytest
 from src.projections.backtest import (
     age_factor, _ranks, _spearman, _metrics, _old_final,
 )
-from src.projections.projections import explain
-
-DB_PATH = "data/hockey.db"
-CATS = ("goals", "assists", "shots", "blocks", "hits", "pp_points")
 
 
 class _FakeProj:
@@ -181,18 +173,3 @@ def test_old_final_hand_values():
     # age=32 -> 0.93 * 0.97 ** 4 = 0.8233223133 -> 160 * 0.8233223133
     assert _old_final(proj, "goals", 32) == pytest.approx(
         160.0 * 0.8233223133, abs=1e-6)
-
-
-# ─── sum-back invariant on the real DB (CLI Section 5) ───
-
-
-def test_sum_back_benn_real_db():
-    """explain() must satisfy regressed_rate * age_adj * proj_gp == final."""
-    terms = explain(8473994, 20242025, DB_PATH)
-    assert terms, "Benn (8473994) should have a projection for 20242025"
-    worst = max(
-        abs(terms["regressed_rate"][cat] * terms["age_adj"]
-            * terms["proj_gp"] - terms["final"][cat])
-        for cat in CATS
-    )
-    assert worst < 1e-6

@@ -101,17 +101,33 @@ def load_players(conn) -> dict[int, tuple[str, str, str | None]]:
 
 
 def team_games_played(skaters: dict[int, dict]) -> dict[str, int]:
-    """Games each team has played = max gp among its skaters.
+    """Games each team has played = the highest gp at least two of its
+    skaters share (every regular who hasn't missed a game has it).
 
     Derived from the same stats snapshot rather than the schedule, so it is
     consistent with the totals even if the ingest ran mid-slate.
+
+    Why not simply the max: the stats API gives a traded player ONE row
+    with his combined gp, filed under his new team, which can exceed the
+    games that team has played. That value is his alone, so requiring two
+    skaters skips it. A team with no shared value falls back to the max.
     """
-    out: dict[str, int] = {}
+    by_team: dict[str, dict[int, int]] = {}
     for r in skaters.values():
         t, gp = r["team_abbrev"], r["gp"] or 0
-        if t and gp > out.get(t, 0):
-            out[t] = gp
-    return out
+        if t and gp > 0:
+            counts = by_team.setdefault(t, {})
+            counts[gp] = counts.get(gp, 0) + 1
+    return {t: max((g for g, n in c.items() if n >= 2), default=max(c))
+            for t, c in by_team.items()}
+
+
+def team_share(row_gp: int | None, team_gp: int) -> float:
+    """Share of a stats row that belongs to its listed team: 1.0 normally,
+    team_gp / row_gp for a traded player whose combined row has more games
+    than his new team has played (the rest came with his old team)."""
+    gp = row_gp or 0
+    return min(1.0, team_gp / gp) if gp > team_gp > 0 else 1.0
 
 
 def season_team_games(conn, season_id: int) -> dict[str, int]:
@@ -136,19 +152,25 @@ def opponent_factors(skaters: dict[int, dict], goalies: dict[int, dict],
     gf/sf: goals / shots the team SCORES per game (from its skaters) --
     applied to an opposing goalie's goals-against and saves.
     factor = ((total + league_pg * k) / (gp + k)) / league_pg
+
+    A traded player's combined row is pro-rated to his new team
+    (team_share): the stats API has no per-team split, so his old team's
+    games are dropped rather than credited to the wrong team.
     """
     totals: dict[str, dict[str, float]] = {
         t: {"ga": 0.0, "sa": 0.0, "gf": 0.0, "sf": 0.0} for t in team_gp}
     for r in goalies.values():
         t = totals.get(r["team_abbrev"])
         if t is not None:
-            t["ga"] += r["goals_against"] or 0
-            t["sa"] += r["shots_against"] or 0
+            w = team_share(r.get("gp"), team_gp[r["team_abbrev"]])
+            t["ga"] += w * (r["goals_against"] or 0)
+            t["sa"] += w * (r["shots_against"] or 0)
     for r in skaters.values():
         t = totals.get(r["team_abbrev"])
         if t is not None:
-            t["gf"] += r["goals"] or 0
-            t["sf"] += r["shots"] or 0
+            w = team_share(r.get("gp"), team_gp[r["team_abbrev"]])
+            t["gf"] += w * (r["goals"] or 0)
+            t["sf"] += w * (r["shots"] or 0)
     games = sum(team_gp.values())
     out: dict[str, dict[str, float]] = {}
     if games <= 0:
@@ -244,8 +266,11 @@ def build_lines(conn, season_id: int, priors: dict[int, dict], cfg: dict,
             share_prior = ((pr or {}).get("starts", 0.0) / season_games
                            if season_games else 0.0)
             tgp = team_gp.get(team or "", 0)
-            share_obs = gs / tgp if tgp else 0.0
-            share = blend(share_prior, gs, tgp, cfg["start_share_k_games"])
+            # a traded goalie's starts include his old team's games
+            gs_here = (gs * team_share((cur_g or {}).get("gp"), tgp)
+                       if (cur_g or {}).get("team_abbrev") == team else gs)
+            share_obs = min(gs_here / tgp, 1.0) if tgp else 0.0
+            share = blend(share_prior, gs_here, tgp, cfg["start_share_k_games"])
             lines[pid] = Line(pid, name, pos, team, gs, prior, obs, bl,
                               start_share=min(share, 1.0),
                               start_share_prior=share_prior,
