@@ -1,5 +1,5 @@
 # Fantasy hockey assistant: draft board (/) + mid-season assistant (/inseason)
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 # tzdata so TZ=America/New_York gives the right "today" for schedule windows.
 # uv pinned so a rebuild resolves exactly what uv.lock says.

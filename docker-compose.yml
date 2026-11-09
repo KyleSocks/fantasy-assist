@@ -11,6 +11,9 @@ services:
       - "8420:8000"
     environment:
       - TZ=America/New_York
+      # Hostnames the app answers to (IP addresses and localhost always
+      # work). Blocks DNS-rebinding pages; add any other name you use.
+      - FA_ALLOWED_HOSTS=marshall-home,marshall-home.*.ts.net,fantasy-assist
     volumes:
       - ./data:/app/data          # hockey.db, roster / free-agent / league files
       - ./config:/app/config:ro   # league + model settings: edit on the host, no rebuild
