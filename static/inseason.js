@@ -40,8 +40,14 @@
     return body;
   }
 
-  // Sortable table: cols = [{key, label, fmt(row) -> html, sort(row) -> value, left}]
+  // Sortable table: cols = [{key, label, fmt(row) -> html, sort(row) -> value,
+  // left, minor, stick}]. The stick column (default: the first left-aligned
+  // one) stays put while the table scrolls sideways; minor columns hide on
+  // phones.
   function table(el, cols, rows, state = el._sort || {}) {
+    const stick = (cols.find((c) => c.stick) || cols.find((c) => c.left) || {}).key;
+    const cl = (c) => [c.left ? "l" : "", c.key === stick ? "stick" : "", c.minor ? "minor" : ""]
+      .filter(Boolean).join(" ");
     el._sort = state;
     const sorted = rows.slice();
     if (state.key) {
@@ -56,10 +62,10 @@
     }
     el.innerHTML =
       "<thead><tr>" + cols.map((c) =>
-        `<th class="${c.left ? "l" : ""}" data-key="${c.key}" title="${esc(c.title || "")}">${esc(c.label)}${
-          state.key === c.key ? (state.dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("") +
+        `<th class="${cl(c)}" data-key="${c.key}" title="${esc(c.title || "")}">${esc(c.label)}${
+          state.key === c.key ? `<span class="caret ${state.dir > 0 ? "up" : "down"}"></span>` : ""}</th>`).join("") +
       "</tr></thead><tbody>" + sorted.map((r) => "<tr>" + cols.map((c) =>
-        `<td class="${c.left ? "l" : ""}">${c.fmt ? c.fmt(r) : esc(r[c.key])}</td>`).join("") +
+        `<td class="${cl(c)}">${c.fmt ? c.fmt(r) : esc(r[c.key])}</td>`).join("") +
       "</tr>").join("") + "</tbody>";
     el.querySelectorAll("th").forEach((th) => th.addEventListener("click", () => {
       const k = th.dataset.key;
@@ -97,18 +103,18 @@
   function playerCols(extra = []) {
     return [
       { key: "name", label: "Player", left: true, fmt: (r) => `${esc(r.name)}${flags(r)}` },
-      { key: "team", label: "Tm", left: true },
+      { key: "team", label: "Tm", left: true, minor: true },
       { key: "elig", label: "Pos", left: true, fmt: (r) => esc(r.elig.join(",")), sort: posSort },
-      { key: "gp", label: "GP" },
-      { key: "prior", label: "Pre", title: `preseason ${unit}/game`, fmt: (r) => num(r.prior) },
+      { key: "gp", label: "GP", minor: true },
+      { key: "prior", label: "Pre", minor: true, title: `preseason ${unit}/game`, fmt: (r) => num(r.prior) },
       { key: "now", label: "Now", title: `this season ${unit}/game`, fmt: (r) => num(r.now) },
       { key: "vs_prior_pct", label: "vs pre", fmt: (r) => `<span class="${cls(r.vs_prior_pct)}">${pct(r.vs_prior_pct)}</span>` },
       { key: "blended", label: "Blend", title: "blended per-game value used by every decision", fmt: (r) => `<b>${num(r.blended)}</b>` },
-      { key: "toi_prior", label: "TOI pre", title: "EV TOI per game", fmt: (r) => mmss(r.toi_prior) },
-      { key: "toi_now", label: "TOI now", fmt: (r) => {
+      { key: "toi_prior", label: "TOI pre", minor: true, title: "EV TOI per game", fmt: (r) => mmss(r.toi_prior) },
+      { key: "toi_now", label: "TOI now", minor: true, fmt: (r) => {
           const d = r.toi_now != null && r.toi_prior != null ? r.toi_now - r.toi_prior : null;
           return `<span class="${d != null && d <= -90 ? "neg" : ""}">${mmss(r.toi_now)}</span>`; } },
-      { key: "rank", label: "Rank", title: "rank in F / D by blended value", fmt: (r) => `${r.rank}/${r.pool}` },
+      { key: "rank", label: "Rank", minor: true, title: "rank in F / D by blended value", fmt: (r) => `${r.rank}/${r.pool}` },
       { key: "ros_vs_repl", label: "ROS vs repl", title: "rest of season vs a replacement player on an average schedule",
         fmt: (r) => `<span class="${cls(r.ros_vs_repl)}">${signed(r.ros_vs_repl)}</span>` },
       ...extra,
@@ -122,6 +128,7 @@
   document.querySelectorAll(".ins-tabs .tab").forEach((b) => b.addEventListener("click", () => {
     document.querySelectorAll(".ins-tabs .tab").forEach((x) => x.classList.toggle("active", x === b));
     current = b.dataset.tab;
+    b.scrollIntoView({ block: "nearest", inline: "nearest" });   // phones: tab row scrolls
     document.querySelectorAll(".panel").forEach((p) => { p.hidden = p.id !== `tab-${current}`; });
     load();
   }));
@@ -144,7 +151,7 @@
       table($("nights-table"), [
         { key: "date", label: "Night", left: true, fmt: (n) => `${dow(n.date)} ${md(n.date)}` },
         { key: "playing", label: "Playing" },
-        { key: "lineup", label: "Lineup value", fmt: (n) => num(n.lineup, 1) },
+        { key: "lineup", label: "Lineup", fmt: (n) => num(n.lineup, 1) },
         { key: "open", label: "Can add tonight", left: true,
           title: "players you could still start after re-arranging multi-position starters",
           sort: (n) => Object.values(n.open).reduce((a, b) => a + b, 0), fmt: fitText },
@@ -254,8 +261,8 @@
         fmt: (r) => `<b>${num(r.value)}</b>` },
       { key: "adds", label: "Adds to you", title: "what he adds to YOUR lineup tonight, after re-arranging multi-position starters (0 = no slot for him)",
         fmt: (r) => (r.adds == null ? "–" : r.adds > 0 ? `<b class="pos">+${num(r.adds)}</b>` : '<span class="muted">no slot</span>') },
-      { key: "per_game", label: goalie ? "Per start" : "Neutral", fmt: (r) => num(r.per_game) },
-      { key: "replacement", label: "Repl", fmt: (r) => num(r.replacement) },
+      { key: "per_game", label: goalie ? "Per start" : "Neutral", minor: true, fmt: (r) => num(r.per_game) },
+      { key: "replacement", label: "Repl", minor: true, fmt: (r) => num(r.replacement) },
       goalie
         ? { key: "start_share", label: "Starts %", title: "share of team games he starts",
             fmt: (r) => Math.round(r.start_share * 100) + "%" }
@@ -373,13 +380,13 @@
     table(el, [
       { key: "star", label: "★", sort: (x) => (x.sweet_spot ? 1 : 0), fmt: (x) => (x.sweet_spot ? "★" : "") },
       { key: "partner", label: "With", left: true },
-      { key: "get", label: "You get", left: true, sort: (x) => x.get.name,
+      { key: "get", label: "You get", left: true, stick: true, sort: (x) => x.get.name,
         fmt: (x) => `${esc(x.get.name)} <span class="muted">${esc(x.get.team)} ${esc(x.get.elig.join(","))}</span>` },
       { key: "pg", label: "Model / mkt", title: "per game: your model vs the market's view",
         sort: (x) => x.get.per_game, fmt: (x) => `${num(x.get.per_game)} / ${num(x.get.market_pg)}` },
-      { key: "pct_ros", label: "% Ros", title: "% of Yahoo leagues rostering him",
+      { key: "pct_ros", label: "% Ros", minor: true, title: "% of Yahoo leagues rostering him",
         sort: (x) => x.get.pct_ros, fmt: (x) => (x.get.pct_ros == null ? "–" : `${num(x.get.pct_ros, 0)}%`) },
-      { key: "pre_rank", label: "Pre", title: "Yahoo pre-season rank (name value)",
+      { key: "pre_rank", label: "Pre", minor: true, title: "Yahoo pre-season rank (name value)",
         sort: (x) => (x.get.pre_rank == null ? null : -x.get.pre_rank),
         fmt: (x) => (x.get.pre_rank == null ? "–" : `#${num(x.get.pre_rank, 0)}`) },
       { key: "market_edge", label: "Looks to them", title: "how a typical manager sees it (tilt vs the value of your player)",
@@ -387,7 +394,7 @@
       { key: "my_gain", label: "My gain", title: `rest of season, ${unit} above replacement, your model`,
         fmt: (x) => `<b class="${cls(x.my_gain)}">${signed(x.my_gain, 0)}</b>` },
       { key: "my_fit", label: "Fit me", fmt: (x) => `<span class="${cls(x.my_fit)}">${signed(x.my_fit)}</span>` },
-      { key: "their_fit", label: "Fit them", fmt: (x) => `<span class="${cls(x.their_fit)}">${signed(x.their_fit)}</span>` },
+      { key: "their_fit", label: "Fit them", minor: true, fmt: (x) => `<span class="${cls(x.their_fit)}">${signed(x.their_fit)}</span>` },
     ], rows);
     if (!rows.length) el.innerHTML += '<tbody><tr><td class="l" colspan="10">No deals pass these filters.</td></tr></tbody>';
   }

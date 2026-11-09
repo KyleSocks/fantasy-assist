@@ -1,40 +1,81 @@
-/* NHL Draft Board — locked palette:
+/* NHL Draft Board + Mid-Season — locked palette:
    bg #0f1115 | panel #171a21 | text #e6e8eb | accent #4c8fd4 | muted #7a828c
-   Green/red appear ONLY in the +/- (ADP delta) column. No shadows, no
-   gradients, radius <= 4px, font sizes 12/14/18/24px only, no emoji
-   (the sort caret is a CSS triangle). */
+   Green/red only for +/- values and verdicts. No shadows, no gradients,
+   radius <= 4px, font sizes 12/14/18/24px only (one exception: form fields
+   are 16px on phones, or iOS zooms the page when you tap them). No emoji;
+   the sort caret is a CSS triangle. */
 
 :root {
   --bg: #0f1115;
   --panel: #171a21;
+  --raised: #1d212a;      /* hover / selected rows, chips */
+  --line: #262b34;        /* hairlines between rows and sections */
   --text: #e6e8eb;
   --accent: #4c8fd4;
   --muted: #7a828c;
   --pos: #3fb950;
   --neg: #f85149;
+  --bar-h: 56px;          /* header height; board.js keeps it exact */
 }
 
 * { box-sizing: border-box; box-shadow: none; }
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;
-  height: 100%;
   background: var(--bg);
   color: var(--text);
   font-family: system-ui, "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.4;
+  -webkit-text-size-adjust: 100%;
 }
 
-/* ── top bar ─────────────────────────────────────────────── */
+/* ── controls ─────────────────────────────────────────────── */
+
+select, input, button, textarea {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 5px 8px;
+}
+
+select, input[type="search"], input[type="text"], input[type="date"],
+input[type="number"], input:not([type]) { border-color: #353b46; }
+input[type="checkbox"] { padding: 0; accent-color: var(--accent); width: 16px; height: 16px; }
+input::placeholder { color: var(--muted); }
+button { cursor: pointer; }
+button:hover, select:hover { border-color: var(--accent); }
+button:disabled { opacity: .55; cursor: default; }
+
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  padding: 5px 14px;
+}
+button.primary:hover { filter: brightness(1.1); }
+
+a { color: var(--accent); }
+
+/* ── top bar (both pages) ─────────────────────────────────── */
 
 .bar {
   display: flex;
   align-items: center;
-  gap: 16px;
-  height: 56px;
-  padding: 0 16px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-height: 56px;
+  padding: 8px 16px;
   background: var(--panel);
+  border-bottom: 1px solid var(--line);
 }
 
 .bar h1 { margin: 0; font-size: 24px; font-weight: 600; white-space: nowrap; }
@@ -48,38 +89,69 @@ html, body {
   min-width: 0;
 }
 
-select, input, button {
-  font-family: inherit;
-  font-size: 14px;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--muted);
-  border-radius: 4px;
-  padding: 4px 8px;
+.navlink {
+  order: 9;                         /* always last in the bar */
+  margin-left: auto;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+  padding: 4px 0;
 }
+.navlink:hover { text-decoration: underline; }
 
 input[type="search"] { width: 200px; }
-input::placeholder { color: var(--muted); }
-button { cursor: pointer; }
-button:hover, select:hover { border-color: var(--accent); }
 
 /* position filter chips */
 .chips { display: flex; gap: 4px; }
 .chip {
   font-size: 12px;
-  padding: 2px 8px;
-  background: var(--panel);
+  padding: 3px 9px;
+  background: var(--raised);
+  border-color: var(--raised);
   color: var(--muted);
 }
-.chip.active { background: var(--accent); color: var(--bg); }
+.chip.active { background: var(--accent); border-color: var(--accent); color: var(--bg); }
 
-/* ── layout ───────────────────────────────────────────────── */
+/* tabs (sidebar on the board, section tabs mid-season) */
+.tabs { display: flex; gap: 4px; padding: 8px 8px 0 8px; }
+
+.tab {
+  flex: 1;
+  font-size: 12px;
+  padding: 5px 6px;
+  background: var(--raised);
+  border-color: var(--raised);
+  color: var(--muted);
+}
+.tab:hover { color: var(--text); }
+.tab.active { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+
+/* sort caret (CSS triangle) */
+.caret {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: 4px;
+  vertical-align: middle;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+}
+.caret.down { border-top: 4px solid var(--text); }
+.caret.up { border-bottom: 4px solid var(--text); }
+
+/* ── draft board page layout ──────────────────────────────── */
+
+body.board-page { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 
 .layout {
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
-  height: calc(100vh - 57px);
 }
+
+/* phone-only view switcher (Board / Picks / Roster / Drafted) */
+.mview { display: none; }
 
 /* ── left sidebar ─────────────────────────────────────────── */
 
@@ -87,32 +159,16 @@ button:hover, select:hover { border-color: var(--accent); }
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   background: var(--bg);
-  border-right: 1px solid var(--panel);
+  border-right: 1px solid var(--line);
 }
-
-.tabs {
-  display: flex;
-  gap: 4px;
-  padding: 8px 8px 0 8px;
-}
-
-.tab {
-  flex: 1;
-  font-size: 12px;
-  padding: 4px 4px;
-  background: var(--panel);
-  color: var(--muted);
-  border-radius: 4px;
-}
-
-.tab.active { background: var(--accent); color: var(--bg); }
 
 .round {
   padding: 8px 12px;
   font-size: 12px;
   color: var(--muted);
-  border-bottom: 1px solid var(--panel);
+  border-bottom: 1px solid var(--line);
 }
 
 .tab-panel {
@@ -135,30 +191,33 @@ button:hover, select:hover { border-color: var(--accent); }
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 8px;
-  border: 1px solid var(--panel);
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
   font-size: 12px;
 }
 
-.rec-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
-.rec-pos { color: var(--muted); font-size: 12px; }
-.rec-value { color: var(--accent); }
+.rec-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; font-weight: 600; }
+.rec-pos { color: var(--muted); font-size: 12px; font-weight: 400; }
+.rec-value { color: var(--accent); font-size: 14px; font-variant-numeric: tabular-nums; }
 .rec-reason { color: var(--muted); }
-.rec-actions { display: flex; gap: 4px; }
+.rec-actions { display: flex; gap: 6px; margin-top: 2px; }
 
 /* draft buttons (board rows + recommendation cards) */
 .draft-btn {
   font-size: 12px;
-  padding: 1px 6px;
-  background: var(--panel);
+  padding: 2px 8px;
+  background: var(--raised);
+  border-color: #353b46;
   color: var(--text);
-  border-radius: 4px;
 }
+.draft-btn[data-dest="me"]:hover { background: var(--accent); border-color: var(--accent); color: var(--bg); }
 
 /* my roster tab */
 .roster { display: flex; flex-direction: column; gap: 8px; }
 
-.slot { padding: 6px 8px; border: 1px solid var(--muted); }
+.slot { padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
 
 .slot-head {
   display: flex;
@@ -172,115 +231,78 @@ button:hover, select:hover { border-color: var(--accent); }
 .slot-player.empty { color: var(--muted); }
 .slot-pos { color: var(--muted); }
 
-.paster { padding-top: 8px; border-top: 1px solid var(--muted); }
-
+.paster { padding-top: 8px; border-top: 1px solid var(--line); }
 .paster label { display: block; margin-bottom: 4px; font-size: 12px; color: var(--muted); }
-
 .paster input[type="text"] { width: 100%; }
 
 /* two-state destination toggle (default state: Taken) */
-.dest-toggle { display: flex; gap: 4px; margin-top: 4px; }
-
+.dest-toggle { display: flex; gap: 4px; margin-top: 6px; }
 .dest {
   font-size: 12px;
-  padding: 2px 8px;
-  background: var(--panel);
+  padding: 3px 10px;
+  background: var(--raised);
+  border-color: var(--raised);
   color: var(--muted);
 }
+.dest.active { background: var(--accent); border-color: var(--accent); color: var(--bg); }
 
-.dest.active { background: var(--accent); color: var(--bg); }
-
-.paster-list { display: flex; flex-direction: column; gap: 2px; }
-
+.paster-list { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
 .paster-item {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  padding: 2px 6px;
+  padding: 4px 6px;
   font-size: 12px;
   cursor: pointer;
   border: 1px solid transparent;
+  border-radius: 4px;
 }
-
 .paster-item:hover { border-color: var(--accent); }
 
-.paster-status {
-  min-height: 17px;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--muted);
-}
+.paster-status { min-height: 17px; margin-top: 4px; font-size: 12px; color: var(--muted); }
 
 /* drafted tab: reverse-chronological pick log */
-.draft-log {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
+.draft-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 
 .draft-entry {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 4px 6px;
-  border: 1px solid var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
   font-size: 12px;
 }
 
-.draft-idx {
-  color: var(--muted);
-  min-width: 20px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
+.draft-idx { color: var(--muted); min-width: 20px; text-align: right; font-variant-numeric: tabular-nums; }
 .draft-name { font-size: 12px; }
-
-.draft-tag {
-  font-size: 12px;
-  padding: 0 6px;
-  background: var(--panel);
-  color: var(--muted);
-  border-radius: 4px;
-}
-
+.draft-tag { font-size: 12px; padding: 0 6px; background: var(--raised); color: var(--muted); border-radius: 4px; }
 .tag-me { background: var(--accent); color: var(--bg); }
-
-.undo-btn {
-  margin-left: auto;
-  font-size: 12px;
-  padding: 1px 6px;
-  background: var(--panel);
-  color: var(--text);
-  border-radius: 4px;
-}
+.undo-btn { margin-left: auto; font-size: 12px; padding: 1px 8px; background: var(--raised); }
 
 .draft-empty { font-size: 12px; color: var(--muted); }
 .rec-empty { font-size: 12px; color: var(--muted); padding: 8px 0; }
 
 /* ── board table ──────────────────────────────────────────── */
 
-.board-wrap { min-width: 0; display: flex; flex-direction: column; }
+.board-wrap { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 
 .status {
   padding: 4px 16px;
   font-size: 12px;
   color: var(--muted);
-  border-bottom: 1px solid var(--panel);
+  border-bottom: 1px solid var(--line);
 }
 
-.board-scroll { flex: 1; overflow: auto; }
+.board-scroll { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
 
-.board { width: 100%; border-collapse: collapse; font-size: 12px; }
+.board { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
 
 .board thead th {
   position: sticky;
   top: 0;
-  z-index: 1;
-  padding: 6px 10px;
+  z-index: 2;
+  padding: 7px 10px;
   background: var(--panel);
   color: var(--muted);
   font-weight: 600;
@@ -288,67 +310,62 @@ button:hover, select:hover { border-color: var(--accent); }
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
-  border-bottom: 1px solid var(--muted);
+  border-bottom: 1px solid var(--line);
 }
-
+.board thead th:hover { color: var(--text); }
 .board thead th.name { text-align: left; }
 .board thead th.draft { cursor: default; }
 
-/* the single sort caret (CSS triangle) */
-.caret {
-  display: inline-block;
-  width: 0;
-  height: 0;
-  margin-left: 4px;
-  vertical-align: middle;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-}
-.caret.down { border-bottom: 4px solid var(--text); }
-.caret.up { border-top: 4px solid var(--text); }
-
 .board tbody td {
-  padding: 4px 10px;
+  padding: 5px 10px;
   background: var(--bg);
-  border-bottom: 1px solid var(--panel);
+  border-bottom: 1px solid var(--line);
   text-align: right;
   white-space: nowrap;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
 }
+.board tbody tr:hover td { background: var(--raised); }
+.board tbody td.name { text-align: left; font-weight: 600; }
 
-.board tbody td.name { text-align: left; }
+/* the player column stays put while the stats scroll sideways */
+.board th.name, .board td.name { position: sticky; left: 0; z-index: 1; }
+.board thead th.name { z-index: 3; }
+.board td.name { box-shadow: none; border-right: 1px solid var(--line); }
 
-/* green/red appear ONLY here (the +/- column) */
 td.pos { color: var(--pos); }
 td.neg { color: var(--neg); }
 
-/* ── uPlot (drill-down chart) ───────────────────────────────── */
+/* ── uPlot (drill-down chart) ─────────────────────────────── */
 
-/* loaded after vendor/uPlot.min.css so this wins */
 .uplot { font-family: system-ui; }
 
-/* ── player drill-down panel (right, non-modal) ──────────────── */
+/* ── player drill-down panel (right, non-modal) ───────────── */
 
 .player-panel {
   position: fixed;
-  top: 57px;
+  top: var(--bar-h);
   right: 0;
   bottom: 0;
   width: 380px;
   overflow-y: auto;
   background: var(--panel);
-  border-left: 1px solid var(--muted);
+  border-left: 1px solid var(--line);
   z-index: 10;
+  overscroll-behavior: contain;
 }
 
 .panel-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 8px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--muted);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
 }
 
 .panel-title { margin: 0; font-size: 18px; font-weight: 600; }
@@ -356,44 +373,32 @@ td.neg { color: var(--neg); }
 .panel-close {
   font-size: 18px;
   line-height: 1;
-  padding: 0 8px;
+  padding: 4px 10px;
   background: var(--bg);
   color: var(--muted);
 }
-.panel-close:hover { border-color: var(--accent); color: var(--text); }
+.panel-close:hover { color: var(--text); }
 
 .panel-meta { font-size: 12px; color: var(--muted); }
 
-.panel-body {
-  padding: 12px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+.panel-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
 
 .panel-loading { font-size: 12px; color: var(--muted); }
 .panel-empty { font-size: 12px; color: var(--muted); padding: 24px 0; }
 
 /* category tabs */
 .dtabs { display: flex; flex-wrap: wrap; gap: 4px; }
-
-.dtab {
-  font-size: 12px;
-  padding: 2px 8px;
-  background: var(--bg);
-  color: var(--muted);
-}
-.dtab.active { background: var(--accent); color: var(--bg); }
+.dtab { font-size: 12px; padding: 3px 9px; background: var(--raised); border-color: var(--raised); color: var(--muted); }
+.dtab.active { background: var(--accent); border-color: var(--accent); color: var(--bg); }
 
 .uplot-host { width: 100%; }
-
 .band-note { font-size: 12px; color: var(--muted); }
 
 /* projection breakdown table */
 .breakdown { width: 100%; border-collapse: collapse; font-size: 12px; }
 .breakdown td {
-  padding: 2px 0;
-  border-bottom: 1px solid var(--bg);
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -402,10 +407,82 @@ td.neg { color: var(--neg); }
 /* schedule strength */
 .sched { font-size: 12px; }
 .sched h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
-.sched-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 1px 0;
-  font-variant-numeric: tabular-nums;
-}
+.sched-row { display: flex; justify-content: space-between; padding: 1px 0; font-variant-numeric: tabular-nums; }
 .sched-note { margin-top: 4px; color: var(--muted); }
+
+/* ── touch screens: bigger targets ────────────────────────── */
+
+@media (pointer: coarse) {
+  button, select, input:not([type="checkbox"]) { min-height: 36px; }
+  .draft-btn { padding: 6px 12px; }
+  .chip { min-width: 36px; }
+  .board tbody td { padding-top: 8px; padding-bottom: 8px; }
+  .board tbody td.draft-cell { padding-top: 4px; padding-bottom: 4px; }
+}
+
+/* ── tablets: narrower sidebar ────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: 260px minmax(0, 1fr); }
+  input[type="search"] { width: 160px; }
+}
+
+/* ── phones ───────────────────────────────────────────────── */
+
+@media (max-width: 760px) {
+  select, input:not([type="checkbox"]), textarea { font-size: 16px; }
+
+  .bar { padding: 8px 12px; gap: 8px; }
+  .bar h1 { font-size: 18px; }
+  .navlink { order: 1; }                         /* top-right, next to the title */
+  .controls { order: 2; flex-basis: 100%; }
+
+  /* draft board header: league + search on one line, chips + reset below */
+  .board-page .controls #league { flex: 1 1 40%; min-width: 0; }
+  .board-page .controls #search { flex: 1 1 50%; width: auto; min-width: 0; }
+  .board-page .chips { flex: 1; }
+  .board-page .chip { flex: 1; }
+
+  .mview {
+    display: flex;
+    gap: 4px;
+    padding: 6px 8px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .mtab {
+    flex: 1;
+    font-size: 12px;
+    padding: 6px 2px;
+    background: var(--raised);
+    border-color: var(--raised);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .mtab.active { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+
+  /* one view at a time */
+  .layout { display: flex; flex-direction: column; }
+  .layout > * { flex: 1; min-height: 0; }
+  .side { border-right: 0; }
+  .side .tabs { display: none; }               /* the view switcher replaces them */
+  body[data-mview="board"] .side { display: none; }
+  body:not([data-mview="board"]) .board-wrap { display: none; }
+
+  .tab-panel { padding: 10px 12px 24px; }
+  .rec { padding: 12px; }
+  .rec-head { font-size: 18px; }
+  .rec-actions .draft-btn { flex: 1; font-size: 14px; }
+
+  .status { padding: 4px 12px; }
+  .board thead th, .board tbody td { padding-left: 6px; padding-right: 6px; }
+  /* Rank is the row order anyway; give its width to the stats */
+  .board thead th:first-child, .board tbody td:first-child { display: none; }
+  .board tbody td.draft-cell { padding-left: 8px; }
+  .board .draft-btn { padding: 6px 7px; }
+  .board td.name { max-width: 9.5rem; overflow: hidden; text-overflow: ellipsis; }
+
+  /* drill-down becomes a full-screen sheet */
+  .player-panel { top: 0; width: 100%; border-left: 0; z-index: 30; }
+  .panel-close { font-size: 24px; padding: 6px 14px; }
+}
