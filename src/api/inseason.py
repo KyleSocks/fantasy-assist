@@ -19,10 +19,14 @@ import datetime
 import itertools
 import json
 import os
+import threading
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from typing import Annotated, Literal
 
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from src.cache import config_stamp, db_stamp
 from src.inseason.evaluate import (
     Context,
     build_context,
@@ -41,7 +45,7 @@ from src.paths import DATA_DIR, DB_PATH, DEFAULT_LEAGUE_PATH, LEAGUE_DIR
 from src.valuation.league import load_league
 
 router = APIRouter(prefix="/api/inseason")
-_CACHE: dict[str, tuple[float, Context]] = {}
+_CACHE: dict[str, tuple[tuple, Context]] = {}
 # Every Context built gets the next number. Response caches key on it, not
 # on id(ctx): CPython reuses a freed object's id, so a rebuilt context
 # could otherwise hit a cache entry computed from the old data.
@@ -60,16 +64,18 @@ def _ctx(league: str | None) -> Context:
     if not DB_PATH.exists():
         raise HTTPException(500, "Database not ready: run "
                                  "uv run python -m src.inseason.ingest")
-    mtime = os.path.getmtime(DB_PATH)
+    # DB incl. its WAL (a commit may not touch hockey.db until checkpoint)
+    # + config/ (inseason.yaml, league files are editable live)
+    stamp = (str(DB_PATH), db_stamp(DB_PATH), config_stamp())
     hit = _CACHE.get(name)
-    if hit and hit[0] == mtime:
+    if hit and hit[0] == stamp:
         return hit[1]
     try:
         ctx = build_context(str(DB_PATH), load_league(str(path)))
     except ValueError as e:
         raise HTTPException(500, str(e))
     _gen(ctx)
-    _CACHE[name] = (mtime, ctx)
+    _CACHE[name] = (stamp, ctx)
     return ctx
 
 
@@ -77,12 +83,36 @@ def _today() -> str:
     return datetime.date.today().isoformat()
 
 
+# ── Input limits ─────────────────────────────────────────────────────────
+# The app has no login, so every query parameter is bounded: a typo'd or
+# hostile ?days=100000 would otherwise pin the CPU for minutes.
+MAX_DAYS = 60
+MAX_TOP = 200
+MAX_LIST_CHARS = 200_000         # ~4000 lines; Yahoo's whole player pool fits
+LEAGUE_NAME = r"^[A-Za-z0-9_-]{0,64}$"     # "" = default league
+
+Days = Annotated[int, Query(ge=1, le=MAX_DAYS)]
+LeagueName = Annotated[str | None, Query(pattern=LEAGUE_NAME)]
+DateStr = Annotated[str | None, Query(max_length=10)]
+
+
+def _day(value: str | None) -> str:
+    """A YYYY-MM-DD query value (default today), validated."""
+    if not value:                 # missing or "" (an empty date input)
+        return _today()
+    try:
+        return datetime.date.fromisoformat(value).isoformat()
+    except ValueError:
+        raise HTTPException(422, f"expected a date like 2026-11-09, got '{value}'")
+
+
 @router.get("/streams")
-def get_streams(date: str | None = None, league: str | None = None,
-                group: str | None = None, top: int = 25,
+def get_streams(date: DateStr = None, league: LeagueName = None,
+                group: Literal["F", "D", "G", "S"] | None = None,
+                top: Annotated[int, Query(ge=1, le=MAX_TOP)] = 25,
                 all: bool = False) -> dict:
     ctx = _ctx(league)
-    d = date or _today()
+    d = _day(date)
     rows = streams(ctx, d, top, group, likely_available=not all,
                    taken=None if all else _league_taken(ctx),
                    unavailable=frozenset() if all else _unavailable_on(ctx, d))
@@ -134,12 +164,12 @@ def _add_lineup_fit(ctx, rows: list[dict], date: str) -> None:
 
 
 @router.get("/player/{player_id}")
-def get_player(player_id: int, league: str | None = None,
-               start: str | None = None, days: int = 10) -> dict:
+def get_player(player_id: int, league: LeagueName = None,
+               start: DateStr = None, days: Days = 10) -> dict:
     ctx = _ctx(league)
     if player_id not in ctx.lines:
         raise HTTPException(404, f"Unknown player id {player_id}")
-    h = hold_check(ctx, player_id, start or _today(), days)
+    h = hold_check(ctx, player_id, _day(start), days)
     ln = h.pop("line")
     h.update(prior=ln.prior, observed=ln.observed, blended=ln.blended,
              start_share=ln.start_share if ln.is_goalie else None,
@@ -150,10 +180,10 @@ def get_player(player_id: int, league: str | None = None,
 
 
 @router.get("/schedule")
-def get_schedule(start: str | None = None, days: int = 10,
-                 league: str | None = None) -> dict:
+def get_schedule(start: DateStr = None, days: Days = 10,
+                 league: LeagueName = None) -> dict:
     ctx = _ctx(league)
-    s = start or _today()
+    s = _day(start)
     return {"start": s, "days": days, "teams": schedule_grid(ctx, s, days)}
 
 
@@ -171,8 +201,8 @@ def _read(name: str) -> str:
 
 
 class Lists(BaseModel):
-    roster: str
-    free_agents: str
+    roster: str = Field(max_length=MAX_LIST_CHARS)
+    free_agents: str = Field(max_length=MAX_LIST_CHARS)
 
 
 @router.get("/lists")
@@ -181,11 +211,11 @@ def get_lists() -> dict:
 
 
 @router.put("/lists")
-def put_lists(body: Lists, league: str | None = None) -> dict:
+def put_lists(body: Lists, league: LeagueName = None) -> dict:
+    ctx = _ctx(league)              # unknown league: 404 before writing
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    (DATA_DIR / ROSTER_FILE).write_text(body.roster, encoding="utf-8")
-    (DATA_DIR / FA_FILE).write_text(body.free_agents, encoding="utf-8")
-    ctx = _ctx(league)
+    _write_atomic({DATA_DIR / ROSTER_FILE: body.roster,
+                   DATA_DIR / FA_FILE: body.free_agents})
     _, miss_r = parse_players(ctx, body.roster)
     _, miss_f = parse_players(ctx, body.free_agents)
     return {"saved": True, "unmatched": miss_r + miss_f}
@@ -219,14 +249,14 @@ def _league_taken(ctx, include_inactive: bool = True) -> set[int] | None:
 
 
 @router.get("/audit")
-def get_audit(start: str | None = None, days: int = 9,
-              league: str | None = None) -> dict:
+def get_audit(start: DateStr = None, days: Days = 9,
+              league: LeagueName = None) -> dict:
     ctx = _ctx(league)
     inactive: set[int] = set()
     roster, _, missing = _lists(ctx, inactive)
     if not roster:
         raise HTTPException(400, f"no roster: add players to data/{ROSTER_FILE}")
-    out = audit(ctx, roster, start or _today(), days, inactive)
+    out = audit(ctx, roster, _day(start), days, inactive)
     out.update(as_of=ctx.as_of, league=ctx.league.name, unmatched=missing,
                warning=ctx.schedule_warning(),
                unit="fpts" if ctx.scorer.points else "z")
@@ -237,11 +267,11 @@ _FA_CACHE: dict = {}
 
 
 @router.get("/free-agents")
-def get_free_agents(start: str | None = None, days: int = 9,
-                    league: str | None = None) -> dict:
+def get_free_agents(start: DateStr = None, days: Days = 9,
+                    league: LeagueName = None) -> dict:
     ctx = _ctx(league)
     fa_path = DATA_DIR / FA_FILE
-    key = (_gen(ctx), start or _today(), days,
+    key = (_gen(ctx), _day(start), days,
            os.path.getmtime(fa_path) if fa_path.exists() else 0)
     if _FA_CACHE.get("key") == key:
         return _FA_CACHE["value"]
@@ -252,7 +282,7 @@ def get_free_agents(start: str | None = None, days: int = 9,
     for bucket in (pl.active, pl.inactive):
         for pid in [p for p in bucket if p in taken]:
             del bucket[pid]
-    rows = free_agent_table(ctx, pl, start or _today(), days)
+    rows = free_agent_table(ctx, pl, _day(start), days)
     counts = {k: sum(1 for r in rows if r["status"] == k) for k in ("FA", "W", "OUT")}
     # names Yahoo lists that aren't in the NHL data (mostly minor-leaguers
     # with no NHL games) are counted, not dumped into the status line
@@ -263,8 +293,8 @@ def get_free_agents(start: str | None = None, days: int = 9,
 
 
 @router.get("/plan")
-def get_plan(hold: int, adds: str = "1,4", start: str | None = None,
-             days: int = 9, locked: str = "", league: str | None = None,
+def get_plan(hold: int, adds: Annotated[str, Query(max_length=40)] = "1,4", start: DateStr = None,
+             days: Days = 9, locked: Annotated[str, Query(max_length=200)] = "", league: LeagueName = None,
              force: bool = False) -> dict:
     ctx = _ctx(league)
     avail: dict[int, str] = {}
@@ -275,8 +305,10 @@ def get_plan(hold: int, adds: str = "1,4", start: str | None = None,
         budget = [int(x) for x in adds.split(",") if x.strip()]
     except ValueError:
         raise HTTPException(422, f"adds must look like 1,4 (got '{adds}')")
+    if any(not 0 <= n <= 20 for n in budget):
+        raise HTTPException(422, "adds per week must be between 0 and 20")
     lock = {t.strip() for t in locked.split(",") if t.strip()}
-    return roster_plan(ctx, roster, fas, hold, start or _today(), days,
+    return roster_plan(ctx, roster, fas, hold, _day(start), days,
                        budget or [0], lock, avail, force=force)
 
 
@@ -316,8 +348,11 @@ def _write_atomic(files: dict) -> None:
         os.replace(tmp, path)
 
 
+_REFRESH_LOCK = threading.Lock()
+
+
 @router.post("/refresh")
-def refresh(league: str | None = None, force: bool = False) -> dict:
+def refresh(league: LeagueName = None, force: bool = False) -> dict:
     """Re-ingest season-to-date stats (+ rosters, schedule), then rewrite
     data/my_roster.txt, data/fa.txt and data/league_rosters.json from the
     public Yahoo league pages.
@@ -325,7 +360,20 @@ def refresh(league: str | None = None, force: bool = False) -> dict:
     Every Yahoo page is fetched before anything is written, and the three
     files are replaced together. A Yahoo failure -- including a free-agent
     list that shrank below FA_SHRINK_FLOOR of the previous one (``force``
-    overrides) -- keeps the old lists and is reported, not raised."""
+    overrides) -- keeps the old lists and is reported, not raised.
+    A refresh already running answers 409."""
+    # one refresh at a time: the timer and a button press must not run two
+    # NHL ingests into the same DB (or interleave the Yahoo file writes)
+    if not _REFRESH_LOCK.acquire(blocking=False):
+        raise HTTPException(409, "a refresh is already running; try again "
+                                 "in a minute")
+    try:
+        return _refresh(league, force)
+    finally:
+        _REFRESH_LOCK.release()
+
+
+def _refresh(league: str | None, force: bool) -> dict:
     import time
 
     from src.inseason.ingest import ingest_current
@@ -401,8 +449,8 @@ _LEAGUE_CACHE: dict[tuple, dict] = {}
 
 
 @router.get("/league")
-def get_league(start: str | None = None, days: int = 21,
-               league: str | None = None) -> dict:
+def get_league(start: DateStr = None, days: Days = 21,
+               league: LeagueName = None) -> dict:
     """Every team's lineup strength by position + your 1-for-1 trades.
     Needs data/league_rosters.json (written by Refresh data)."""
     from src.inseason.teams import analyze
@@ -412,7 +460,7 @@ def get_league(start: str | None = None, days: int = 21,
         raise HTTPException(400, "no league rosters yet: press Refresh data")
     ctx = _ctx(league)
     data = json.loads(path.read_text(encoding="utf-8"))
-    s = start or _today()
+    s = _day(start)
     key = (ctx.league.name, s, days, os.path.getmtime(path), _gen(ctx))
     if key not in _LEAGUE_CACHE:
         _LEAGUE_CACHE.clear()
@@ -424,8 +472,8 @@ def get_league(start: str | None = None, days: int = 21,
 
 
 @router.get("/trade-options")
-def get_trade_options(give: int, start: str | None = None, days: int = 21,
-                      league: str | None = None) -> dict:
+def get_trade_options(give: int, start: DateStr = None, days: Days = 21,
+                      league: LeagueName = None) -> dict:
     """1-for-1 deals for one of your players, from ones the market sees as
     favouring you to ones favouring the other side (teams.trade_options)."""
     from src.inseason.teams import Market, trade_options
@@ -442,7 +490,7 @@ def get_trade_options(give: int, start: str | None = None, days: int = 21,
     market = Market(ctx, mdata["players"]) if mdata else None
     try:
         out = trade_options(ctx, data, int(data["my_team_id"]), give,
-                            start or _today(), days, market=market)
+                            _day(start), days, market=market)
     except ValueError as e:
         raise HTTPException(400, str(e))
     out.update(as_of=ctx.as_of, unit="fpts" if ctx.scorer.points else "z",

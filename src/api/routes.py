@@ -294,8 +294,14 @@ def _build_board(leagues: dict[str, LeagueConfig], league: str,
     }
 
 
+MAX_IDS = 2000      # more than every player a draft could ever take
+
+
 def _parse_ids(raw: str) -> list[int]:
     out: list[int] = []
+    if raw.count(",") >= MAX_IDS:
+        raise HTTPException(status_code=422,
+                            detail=f"At most {MAX_IDS} player ids")
     for tok in raw.split(","):
         tok = tok.strip()
         if not tok:

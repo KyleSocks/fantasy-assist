@@ -7,8 +7,10 @@ from fastapi.responses import FileResponse
 
 from src.api.inseason import router as inseason_router
 from src.api.routes import STATIC_DIR, app  # noqa: F401
+from src.api.security import SecurityMiddleware
 
 app.include_router(inseason_router)
+app.add_middleware(SecurityMiddleware)
 
 
 @app.get("/inseason")
