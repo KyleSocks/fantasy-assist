@@ -108,6 +108,11 @@ def plan_slot(
     for d in dates:
         wi = widx[week_key(d, week_start)]
         nxt: dict[tuple, tuple] = {}
+        # who can be added today (available, has a game), in pool order --
+        # the same for every state, so filtered once per day, not per state
+        today = [(p, v) for p in pool
+                 if available_from.get(p, d) <= d
+                 and (v := values[p].get(d, 0.0)) > 0]
 
         def push(score, holder, used_adds, used, steps):
             key = (holder, used_adds, used)
@@ -122,15 +127,14 @@ def plan_slot(
             # switch (add today, he can play today)
             if used_adds[wi] >= budget[weeks[wi]]:
                 continue
-            for p in pool:
-                if p in used or available_from.get(p, d) > d:
+            ua = list(used_adds)
+            ua[wi] += 1
+            ua = tuple(ua)
+            # never add someone on a day he doesn't play (today has v > 0)
+            for p, v in today:
+                if p in used:
                     continue
-                v = values[p].get(d, 0.0)
-                if v <= 0:
-                    continue  # never add someone on a day he doesn't play
-                ua = list(used_adds)
-                ua[wi] += 1
-                push(score + v, p, tuple(ua), used | {p},
+                push(score + v, p, ua, used | {p},
                      steps + (Step(d, p, holder),))
         states = sorted(nxt.values(), key=lambda s: -s[0])[:beam]
 

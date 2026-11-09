@@ -35,11 +35,7 @@ from src.api.player_detail import (
     _skater_seasons,
 )
 from src.projections.band import compute_band
-from src.projections.projections import (
-    _pos_group,
-    explain,
-    project_all,
-)
+from src.projections.projections import _pos_group, explain
 from src.valuation.league import (
     DEFAULT_LEAGUE,
     LeagueConfig,
@@ -52,6 +48,7 @@ from src.valuation.valuation import auction_values
 from src.draft.recommend import recommend
 
 from src.api.export import board_to_csv
+from src.cache import Memo, config_stamp, db_stamp, file_stamp, project_all_cached
 from src.db import next_season_id
 from src.paths import (  # noqa: F401  (ROOT kept for importers)
     ADP_PATH,
@@ -166,6 +163,25 @@ def _load_adp() -> dict[str, float] | None:
     return adp or None
 
 
+_VALUES = Memo(maxsize=8)
+_BOARDS = Memo(maxsize=8)
+
+
+def _data_key() -> tuple:
+    """Everything a board depends on besides the league name."""
+    return (str(DB_PATH), db_stamp(DB_PATH), config_stamp())
+
+
+def _projections_and_values(cfg: LeagueConfig, season: int):
+    """(projections by id, windowed values) for one league, cached until
+    the DB or config changes. Both are shared: treat them as read-only."""
+    def compute():
+        projs = {p.player_id: p
+                 for p in project_all_cached(season, DB_PATH)}
+        return projs, windowed_values(list(projs.values()), cfg)
+    return _VALUES.get((cfg.name, season) + _data_key(), compute)
+
+
 def build_board(league: str, adp: dict[str, float] | None = None) -> dict:
     """Build the full board payload for one league.
 
@@ -180,9 +196,18 @@ def build_board(league: str, adp: dict[str, float] | None = None) -> dict:
             status_code=404,
             detail=f"Unknown league '{league}'. Available: {sorted(leagues)}",
         )
-    cfg = leagues[league]
     _require_db()
+    if adp is not None:          # explicit ADP (tests): never cached
+        return _build_board(leagues, league, adp)
+    key = (league,) + _data_key() + file_stamp(ADP_PATH)
+    board = _BOARDS.get(key, lambda: _build_board(leagues, league, None))
+    # freshness is "now"-relative, so it is recomputed on every request
+    return {**board, "data_freshness": data_freshness()}
 
+
+def _build_board(leagues: dict[str, LeagueConfig], league: str,
+                 adp: dict[str, float] | None) -> dict:
+    cfg = leagues[league]
     season = _next_season_id()
     conn = sqlite3.connect(DB_PATH)
     try:
@@ -196,8 +221,7 @@ def build_board(league: str, adp: dict[str, float] | None = None) -> dict:
     finally:
         conn.close()
 
-    projs = {p.player_id: p for p in project_all(season, str(DB_PATH))}
-    vals = windowed_values(list(projs.values()), cfg)
+    projs, vals = _projections_and_values(cfg, season)
     auction = auction_values(vals, cfg, key="total_value")
 
     if adp is None:
@@ -296,8 +320,7 @@ def build_recommendations(
     cfg = leagues[league]
     _require_db()
     season = _next_season_id()
-    projs = {p.player_id: p for p in project_all(season, str(DB_PATH))}
-    vals = windowed_values(list(projs.values()), cfg)
+    _, vals = _projections_and_values(cfg, season)
     recs = recommend(drafted_by_me, drafted_all, vals, cfg, round_no)
     return {
         "league": cfg.name,

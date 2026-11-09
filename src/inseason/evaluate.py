@@ -2,14 +2,13 @@
 checks over a schedule window, and the team schedule grid."""
 from __future__ import annotations
 
-import contextlib
 import datetime
-import io
 import sqlite3
 import unicodedata
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 
-from src.projections.projections import project_all
+from src.cache import project_all_cached
 from src.valuation.league import LeagueConfig
 from src.valuation.valuation import value_group
 
@@ -37,25 +36,33 @@ class Context:
     scorer: GameScorer
     games: list[tuple[str, str, str]]   # (date, home, away), regular season
 
+    def _index(self) -> "_ScheduleIndex":
+        """Per-date counts and per-team game lists, built once per
+        ``games`` list (rebuilt if ``games`` is reassigned). Every lookup
+        below used to scan the whole season's schedule."""
+        idx = self.__dict__.get("_sched_idx")
+        if idx is None or idx.games is not self.games:
+            idx = _ScheduleIndex(self.games)
+            self.__dict__["_sched_idx"] = idx
+        return idx
+
     def team_games(self, team: str | None, start: str, end: str,
                    ) -> list[tuple[str, str]]:
         """(date, opponent) for ``team`` with start <= date <= end."""
         if not team:
             return []
-        cache = self.__dict__.setdefault("_tg_cache", {})
-        key = (team, start, end)
-        if key not in cache:
-            cache[key] = [(d, a if h == team else h) for d, h, a in self.games
-                          if start <= d <= end and team in (h, a)]
-        return list(cache[key])
+        idx = self._index()
+        dates, opps = idx.by_team.get(team, ((), ()))
+        lo, hi = bisect_left(dates, start), bisect_right(dates, end)
+        return list(zip(dates[lo:hi], opps[lo:hi]))
 
     def games_on(self, date: str) -> int:
-        return sum(1 for d, _, _ in self.games if d == date)
+        return self._index().per_date.get(date, 0)
 
     def avg_team_games(self, start: str, end: str) -> float:
-        teams = {t for _, h, a in self.games for t in (h, a)}
-        n = sum(1 for d, _, _ in self.games if start <= d <= end)
-        return 2 * n / len(teams) if teams else 0.0
+        idx = self._index()
+        n = bisect_right(idx.dates, end) - bisect_left(idx.dates, start)
+        return 2 * n / len(idx.by_team) if idx.by_team else 0.0
 
     def schedule_warning(self) -> str | None:
         """Non-None when some date has more games than 32 teams can play
@@ -71,7 +78,26 @@ class Context:
                 " uv run python -m src.inseason.ingest")
 
     def season_end(self) -> str:
-        return max((d for d, _, _ in self.games), default=self.as_of)
+        dates = self._index().dates
+        return dates[-1] if dates else self.as_of
+
+
+class _ScheduleIndex:
+    """Sorted views of a regular-season schedule for O(log n) lookups."""
+
+    def __init__(self, games: list[tuple[str, str, str]]):
+        self.games = games
+        self.dates = sorted(d for d, _, _ in games)       # one per game
+        self.per_date: dict[str, int] = {}
+        per_team: dict[str, list[tuple[str, str]]] = {}
+        for d, h, a in games:
+            self.per_date[d] = self.per_date.get(d, 0) + 1
+            per_team.setdefault(h, []).append((d, a))
+            per_team.setdefault(a, []).append((d, h))
+        # stable sort keeps same-day games in schedule (game_id) order
+        self.by_team = {t: (tuple(d for d, _ in g), tuple(o for _, o in g))
+                        for t, g in ((t, sorted(g, key=lambda x: x[0]))
+                                     for t, g in per_team.items())}
 
 
 def build_context(db_path: str, league: LeagueConfig,
@@ -82,9 +108,8 @@ def build_context(db_path: str, league: LeagueConfig,
     try:
         season, as_of = season_and_as_of(conn)
         if priors is None:
-            # project_all prints the goalie allocation report; not wanted here.
-            with contextlib.redirect_stdout(io.StringIO()):
-                priors = priors_from_projections(project_all(season, db_path))
+            priors = priors_from_projections(
+                project_all_cached(season, db_path))
         lines = build_lines(conn, season, priors, icfg)
         skaters, goalies = load_current(conn, season)
         factors = opponent_factors(skaters, goalies, team_games_played(skaters),
@@ -154,12 +179,25 @@ def form(ctx: Context, line: Line) -> dict[str, float | None]:
             "vs_prior_pct": pct, "vs_prior_diff": diff}
 
 
+def game_value(ctx: Context, line: Line, opp: str | None) -> float:
+    """Value of one team game for ``line`` against ``opp``, memoised per
+    context: it depends only on the player and the opponent, and windows
+    re-ask it for every game of every candidate."""
+    memo = ctx.__dict__.setdefault("_game_value", {})
+    key = (line.player_id, opp)
+    v = memo.get(key)
+    if v is None:
+        v = memo[key] = _value(ctx, line,
+                               expected_line(line, ctx.factors.get(opp)))
+    return v
+
+
 def player_window(ctx: Context, pid: int, start: str, end: str) -> dict:
     line = ctx.lines[pid]
     off = ctx.icfg["off_night_max_games"]
     games = []
     for d, opp in ctx.team_games(line.team, start, end):
-        v = _value(ctx, line, expected_line(line, ctx.factors.get(opp)))
+        v = game_value(ctx, line, opp)
         games.append({"date": d, "opp": opp, "value": v,
                       "off_night": ctx.games_on(d) <= off})
     return {"games": games, "value": sum(g["value"] for g in games),

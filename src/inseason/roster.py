@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass, field
 
-from .evaluate import Context, expected_line, find_players, form, hold_check
+from .evaluate import Context, find_players, form, game_value, hold_check
 from .lineup import best_lineup, can_fit, marginal_values
 from .plan import nhl_eligibility, plan_slot, week_key
 
@@ -177,8 +177,7 @@ def game_values(ctx: Context, pid: int, dates: list[str],
     for d, opp in ctx.team_games(ln.team, dates[0], dates[-1]):
         if d == dates[0] and ln.team in locked:
             continue
-        out[d] = ctx.scorer.value_stats(pid, ln.position,
-                                        expected_line(ln, ctx.factors.get(opp)))
+        out[d] = game_value(ctx, ln, opp)
     return out
 
 
