@@ -188,23 +188,31 @@ def _volume_weight(p: Projection, pool: list[Projection],
 def _compute_pool_stats(
     pool: list[Projection],
     cfg: LeagueConfig,
+    group: list[Projection] | None = None,
 ) -> tuple[dict[int, float], dict[int, dict[str, float]]]:
     """Compute pass z-scores for a single position pool.
+
+    Mean/std come from ``pool`` (the rosterable players) and are applied to
+    every player in ``group`` (the whole position group; default: the pool),
+    so players outside the pool get their genuine -- usually negative --
+    z-scores rather than 0. That is what makes the (pool_size+1)th player a
+    real replacement level.
 
     Returns (total_z, cat_z) where total_z maps player_id -> sum of z-scores
     across the pool's categories, and cat_z maps player_id -> {cat: z}.
     Only the categories relevant to this pool are scored.
     """
+    group = pool if group is None else group
     pos = _pos_group(pool[0].position) if pool else "F"
     cats = _cats_for_position(cfg, pos)
     rate_cats = _rate_cats(cfg)
-    pid_map = {p.player_id: p for p in pool}
+    pid_map = {p.player_id: p for p in group}
 
     mean_saves = _pool_mean_saves(pool)
     pass1_z: dict[int, float] = {}
     pass1_cat_z: dict[int, dict[str, float]] = {}
     for cat in cats:
-        zmap = _zscore_category(pool, pool, cat, cfg)
+        zmap = _zscore_category(pool, group, cat, cfg)
         for pid, z in zmap.items():
             if cat in rate_cats:
                 z *= _volume_weight(pid_map[pid], pool, mean_saves)
@@ -226,14 +234,16 @@ def _select_pools(by_pos: dict[str, list[Projection]], pools: dict[str, int],
 
 def _zscore_pools(
     pool: dict[str, list[Projection]], cfg: LeagueConfig,
+    by_pos: dict[str, list[Projection]],
 ) -> tuple[dict[int, float], dict[int, dict[str, float]]]:
-    """Run _compute_pool_stats on every non-empty pool and merge the results."""
+    """Run _compute_pool_stats on every non-empty pool (applied to its whole
+    position group in ``by_pos``) and merge the results."""
     total_z: dict[int, float] = {}
     cat_z: dict[int, dict[str, float]] = {}
-    for pl in pool.values():
+    for pos, pl in pool.items():
         if not pl:
             continue
-        pz, pcz = _compute_pool_stats(pl, cfg)
+        pz, pcz = _compute_pool_stats(pl, cfg, by_pos[pos])
         for pid, z in pz.items():
             total_z[pid] = z
         for pid, cz in pcz.items():
@@ -260,11 +270,11 @@ def _compute_values(projs: list[Projection], cfg: LeagueConfig,
         cat_z: dict[int, dict[str, float]] = {p.player_id: {} for p in projs}
     else:
         # Pass 1: z-score using pool mean/std, applied to all players
-        pass1_z, _ = _zscore_pools(pool, cfg)
+        pass1_z, _ = _zscore_pools(pool, cfg, by_pos)
         # Pass 2: recompute the pool from pass-1 values, then z-score again
         pool2 = _select_pools(by_pos, pools, min_starts,
                               key=lambda p: pass1_z.get(p.player_id, 0.0))
-        values, cat_z = _zscore_pools(pool2, cfg)
+        values, cat_z = _zscore_pools(pool2, cfg, by_pos)
 
     result: list[PlayerValue] = []
     for p in projs:
