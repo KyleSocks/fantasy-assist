@@ -35,7 +35,7 @@ function fmtNum(v) {
 function chartData() {
   const cat = detail.categories[activeCat];
   return [
-    detail.labels.slice(),
+    detail.labels.map((_, i) => i),   // x = index; axis shows detail.labels
     cat.actual.concat([cat.proj]),
     cat.actual.concat([cat.hi]),
     cat.actual.concat([cat.lo]),
@@ -58,27 +58,39 @@ function updateBandNote() {
 
 function mountChart() {
   const host = $("uplot-host");
-  const ACCENT = "#4c8fd4";
-  const BAND = "rgba(76,143,212,0.25)";
+  const ACCENT = "#2f7cf6";                  // --accent (rink blue)
+  const BAND = "rgba(47,124,246,0.22)";
+  const BAND_EDGE = "rgba(47,124,246,0.45)";
+  const AXIS = { stroke: "#8a9bb0", grid: { stroke: "#22344a", width: 1 },
+                 ticks: { stroke: "#22344a", width: 1 } };   // --muted / --line
+  const label = (i) => (Number.isInteger(i) ? detail.labels[i] ?? "" : "");
   uplot = new uPlot({
     width: host.clientWidth || 340,
     height: DETAIL_CHART_H,
-    scales: { x: { distr: 2 } },  // categorical x: even-spaced season labels
+    // x is the season index (even spacing); not a time scale, or uPlot
+    // formats the labels as dates ("NaN")
+    scales: { x: { time: false, range: (u, lo, hi) => [lo - 0.3, hi + 0.3] } },
     series: [
-      { stroke: ACCENT, width: 2, points: { show: true, size: 6 } },
-      { stroke: ACCENT, width: 1 },
-      { stroke: ACCENT, width: 1 },
+      {},                                                        // x
+      { stroke: ACCENT, width: 2, points: { show: true, size: 6 } },  // actual -> projection
+      { stroke: BAND_EDGE, width: 1, points: { show: false } },      // band high
+      { stroke: BAND_EDGE, width: 1, points: { show: false } },      // band low
     ],
-    bands: [{ series: [1, 2], fill: BAND }],
+    bands: [{ series: [2, 3], fill: BAND }],
     legend: { show: false },
     cursor: { drag: false },
-    axes: [{ pad: 4 }, { pad: 8 }],
+    axes: [
+      { ...AXIS, splits: () => detail.labels.map((_, i) => i), values: (u, v) => v.map(label) },
+      { ...AXIS, size: 44 },
+    ],
   }, chartData(), host);
 
   // autoSize is not in this build: track the host width manually.
   resObserver = new ResizeObserver((entries) => {
     const w = Math.floor(entries[0].contentRect.width);
-    if (w > 0 && uplot) uplot.setSize(w, DETAIL_CHART_H);
+    // uPlot takes an object here; setSize(w, h) left width undefined and
+    // blanked the chart the moment the observer first fired.
+    if (w > 0 && uplot) uplot.setSize({ width: w, height: DETAIL_CHART_H });
   });
   resObserver.observe(host);
 }

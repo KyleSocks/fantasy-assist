@@ -1,21 +1,39 @@
-/* NHL Draft Board + Mid-Season — locked palette:
-   bg #0f1115 | panel #171a21 | text #e6e8eb | accent #4c8fd4 | muted #7a828c
-   Green/red only for +/- values and verdicts. No shadows, no gradients,
-   radius <= 4px, font sizes 12/14/18/24px only (one exception: form fields
-   are 16px on phones, or iOS zooms the page when you tap them). No emoji;
-   the sort caret is a CSS triangle. */
+/* Marshall & Co. hockey ops: draft board + mid-season.
+   "Arena at night": boards navy background, bench-navy panels, ice text,
+   blue line = anything you can click, red line = the brand stripe and the
+   goal light only. Green/red mean +/-.
+   Type: Barlow (body, tables) + Barlow Condensed (headings, scores, big
+   numbers), self-hosted under /static/vendor/fonts (OFL).
+   Rules: no shadows, radius <= 4px, font sizes 12/14/18/24/32px (form
+   fields 16px on phones, or iOS zooms). No emoji. One animation: the goal
+   light when you draft a player to your team (skipped for reduced motion). */
+
+@font-face { font-family: "Barlow"; font-weight: 400; font-display: swap;
+  src: url("/static/vendor/fonts/barlow-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 500; font-display: swap;
+  src: url("/static/vendor/fonts/barlow-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 600 700; font-display: swap;
+  src: url("/static/vendor/fonts/barlow-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 600; font-display: swap;
+  src: url("/static/vendor/fonts/barlow-condensed-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 700; font-display: swap;
+  src: url("/static/vendor/fonts/barlow-condensed-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 700; font-style: italic; font-display: swap;
+  src: url("/static/vendor/fonts/barlow-condensed-latin-700-italic.woff2") format("woff2"); }
 
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --raised: #1d212a;      /* hover / selected rows, chips */
-  --line: #262b34;        /* hairlines between rows and sections */
-  --text: #e6e8eb;
-  --accent: #4c8fd4;
-  --muted: #7a828c;
+  --bg: #0c1521;          /* boards navy */
+  --panel: #13202f;       /* bench */
+  --raised: #1a2a3d;      /* hover / selected rows, chips */
+  --line: #22344a;        /* hairlines between rows and sections */
+  --text: #e8f1f7;        /* ice */
+  --accent: #2f7cf6;      /* blue line: interactive */
+  --red: #e23440;         /* red line: brand stripe + goal light */
+  --muted: #8a9bb0;
   --pos: #3fb950;
   --neg: #f85149;
-  --bar-h: 56px;          /* header height; board.js keeps it exact */
+  --bar-h: 64px;          /* header height; board.js keeps it exact */
+  --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; box-shadow: none; }
@@ -25,9 +43,9 @@ html, body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+  font-family: "Barlow", system-ui, "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 1.45;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -68,17 +86,63 @@ a { color: var(--accent); }
 /* ── top bar (both pages) ─────────────────────────────────── */
 
 .bar {
+  position: relative;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px 16px;
-  min-height: 56px;
-  padding: 8px 16px;
+  gap: 8px 20px;
+  min-height: 64px;
+  padding: 8px 16px 11px;
   background: var(--panel);
-  border-bottom: 1px solid var(--line);
+  transition: background-color .25s;
 }
 
-.bar h1 { margin: 0; font-size: 24px; font-weight: 600; white-space: nowrap; }
+/* the center red line under the header (dashed, like the real one) */
+.bar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: repeating-linear-gradient(90deg, var(--red) 0 22px, transparent 22px 28px);
+}
+
+/* brand: mark + team name over the page name */
+.brand { display: flex; align-items: center; gap: 10px; margin: 0; white-space: nowrap; }
+.brand img { width: 40px; height: 40px; flex: none; }
+.brand-text { display: flex; flex-direction: column; line-height: 1; }
+.brand-team { font-family: var(--display); font-weight: 600; font-size: 12px; color: var(--muted); letter-spacing: .04em; }
+.brand-page { font-family: var(--display); font-weight: 700; font-style: italic; font-size: 32px; letter-spacing: .01em; }
+
+/* goal light: drafting a player to your team */
+.bar.goal { background: #4a1219; }
+.goal-toast {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--bar-h) + 12px);
+  z-index: 40;
+  max-width: calc(100% - 24px);
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  background: var(--red);
+  color: #fff;
+  border-radius: 4px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  animation: goal-in .25s ease-out;
+}
+@keyframes goal-in { from { opacity: 0; transform: translate(-50%, -8px); } }
+@media (prefers-reduced-motion: reduce) {
+  .bar { transition: none; }
+  .bar.goal { background: var(--panel); }
+  .goal-toast { animation: none; }
+}
 
 .controls {
   display: flex;
@@ -110,21 +174,27 @@ input[type="search"] { width: 200px; }
   border-color: var(--raised);
   color: var(--muted);
 }
-.chip.active { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* tabs (sidebar on the board, section tabs mid-season) */
-.tabs { display: flex; gap: 4px; padding: 8px 8px 0 8px; }
+.tabs { display: flex; gap: 4px; padding: 8px 8px 0 8px; border-bottom: 1px solid var(--line); }
 
+/* tabs read like blue lines: the active one is underlined in rink blue */
 .tab {
   flex: 1;
-  font-size: 12px;
-  padding: 5px 6px;
-  background: var(--raised);
-  border-color: var(--raised);
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .02em;
+  padding: 6px 6px 4px;
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
   color: var(--muted);
 }
-.tab:hover { color: var(--text); }
-.tab.active { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+.tab:hover { color: var(--text); border-bottom-color: var(--line); }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
 
 /* sort caret (CSS triangle) */
 .caret {
@@ -166,8 +236,10 @@ body.board-page { display: flex; flex-direction: column; height: 100vh; height: 
 
 .round {
   padding: 8px 12px;
-  font-size: 12px;
-  color: var(--muted);
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--text);
   border-bottom: 1px solid var(--line);
 }
 
@@ -198,9 +270,10 @@ body.board-page { display: flex; flex-direction: column; height: 100vh; height: 
   font-size: 12px;
 }
 
+.rec:first-child { border-left: 3px solid var(--red); }
 .rec-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; font-weight: 600; }
 .rec-pos { color: var(--muted); font-size: 12px; font-weight: 400; }
-.rec-value { color: var(--accent); font-size: 14px; font-variant-numeric: tabular-nums; }
+.rec-value { font-family: var(--display); font-weight: 700; color: var(--accent); font-size: 24px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .rec-reason { color: var(--muted); }
 .rec-actions { display: flex; gap: 6px; margin-top: 2px; }
 
@@ -212,7 +285,7 @@ body.board-page { display: flex; flex-direction: column; height: 100vh; height: 
   border-color: #353b46;
   color: var(--text);
 }
-.draft-btn[data-dest="me"]:hover { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.draft-btn[data-dest="me"]:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* my roster tab */
 .roster { display: flex; flex-direction: column; gap: 8px; }
@@ -244,7 +317,7 @@ body.board-page { display: flex; flex-direction: column; height: 100vh; height: 
   border-color: var(--raised);
   color: var(--muted);
 }
-.dest.active { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.dest.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .paster-list { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
 .paster-item {
@@ -277,7 +350,7 @@ body.board-page { display: flex; flex-direction: column; height: 100vh; height: 
 .draft-idx { color: var(--muted); min-width: 20px; text-align: right; font-variant-numeric: tabular-nums; }
 .draft-name { font-size: 12px; }
 .draft-tag { font-size: 12px; padding: 0 6px; background: var(--raised); color: var(--muted); border-radius: 4px; }
-.tag-me { background: var(--accent); color: var(--bg); }
+.tag-me { background: var(--accent); color: #fff; }
 .undo-btn { margin-left: auto; font-size: 12px; padding: 1px 8px; background: var(--raised); }
 
 .draft-empty { font-size: 12px; color: var(--muted); }
@@ -338,7 +411,7 @@ td.neg { color: var(--neg); }
 
 /* ── uPlot (drill-down chart) ─────────────────────────────── */
 
-.uplot { font-family: system-ui; }
+.uplot { font-family: "Barlow", system-ui; }
 
 /* ── player drill-down panel (right, non-modal) ───────────── */
 
@@ -368,7 +441,7 @@ td.neg { color: var(--neg); }
   border-bottom: 1px solid var(--line);
 }
 
-.panel-title { margin: 0; font-size: 18px; font-weight: 600; }
+.panel-title { margin: 0; font-family: var(--display); font-weight: 700; font-size: 24px; line-height: 1.1; }
 
 .panel-close {
   font-size: 18px;
@@ -389,7 +462,7 @@ td.neg { color: var(--neg); }
 /* category tabs */
 .dtabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .dtab { font-size: 12px; padding: 3px 9px; background: var(--raised); border-color: var(--raised); color: var(--muted); }
-.dtab.active { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.dtab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .uplot-host { width: 100%; }
 .band-note { font-size: 12px; color: var(--muted); }
@@ -432,8 +505,9 @@ td.neg { color: var(--neg); }
 @media (max-width: 760px) {
   select, input:not([type="checkbox"]), textarea { font-size: 16px; }
 
-  .bar { padding: 8px 12px; gap: 8px; }
-  .bar h1 { font-size: 18px; }
+  .bar { padding: 8px 12px 11px; gap: 8px; }
+  .brand img { width: 34px; height: 34px; }
+  .brand-page { font-size: 24px; }
   .navlink { order: 1; }                         /* top-right, next to the title */
   .controls { order: 2; flex-basis: 100%; }
 
@@ -452,14 +526,16 @@ td.neg { color: var(--neg); }
   }
   .mtab {
     flex: 1;
-    font-size: 12px;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 14px;
     padding: 6px 2px;
     background: var(--raised);
     border-color: var(--raised);
     color: var(--muted);
     white-space: nowrap;
   }
-  .mtab.active { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+  .mtab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   /* one view at a time */
   .layout { display: flex; flex-direction: column; }

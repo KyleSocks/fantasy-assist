@@ -3,13 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>NHL Draft Board</title>
+  <meta name="theme-color" content="#13202f">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <title>Draft board · Marshall &amp; Co.</title>
   <link rel="stylesheet" href="/static/vendor/uPlot.min.css">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="board-page" data-mview="board">
   <header class="bar">
-    <h1>NHL Draft Board</h1>
+    <h1 class="brand">
+      <img src="/static/brand.svg" alt="">
+      <span class="brand-text"><span class="brand-team">Marshall &amp; Co.</span><span class="brand-page">Draft board</span></span>
+    </h1>
     <a href="/inseason" class="navlink">Mid-season</a>
     <div class="controls">
       <select id="league" aria-label="League"></select>

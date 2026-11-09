@@ -14,29 +14,31 @@
   z-index: 5;
   display: flex;
   gap: 4px;
-  padding: 8px 16px;
+  padding: 6px 16px 0;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
   scrollbar-width: none;
 }
 .ins-tabs::-webkit-scrollbar { display: none; }
-.ins-tabs .tab { flex: 1 0 auto; font-size: 14px; padding: 6px 14px; }
+.ins-tabs .tab { flex: 1 0 auto; font-size: 18px; padding: 4px 14px 2px; }
 
 .ins-main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 
 /* ── text ─────────────────────────────────────────────────── */
 
 .panel h3 {
-  margin: 24px 0 8px;
-  font-size: 18px;
-  font-weight: 600;
+  margin: 28px 0 8px;
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 700;
   display: flex;
   gap: 8px 16px;
   align-items: center;
   flex-wrap: wrap;
 }
-.panel h3 .muted, .panel h3 label { font-weight: 400; }
+.panel h3 .muted, .panel h3 label, .panel h3 input { font-family: "Barlow", system-ui, sans-serif; font-weight: 400; font-size: 14px; }
+.panel h3 .muted { font-size: 12px; }
 .hint { color: var(--muted); margin: 0 0 12px; font-size: 14px; max-width: 75ch; }
 .muted { color: var(--muted); font-size: 12px; }
 .ins .status { min-height: 20px; padding: 0; margin-bottom: 8px; border: 0; font-size: 14px; }
@@ -133,7 +135,7 @@ label.inline {
   padding: 10px 14px;
   min-width: 9rem;
 }
-.stat b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+.stat b { display: block; font-family: var(--display); font-weight: 700; font-size: 32px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .stat span { color: var(--muted); font-size: 12px; }
 
 .steps { list-style: none; padding: 0; margin: 0 0 16px; }
@@ -141,6 +143,7 @@ label.inline {
 
 .strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr)); gap: 6px; margin-bottom: 16px; }
 .night { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px; font-size: 12px; }
+.night .bar::after { content: none; }
 .night .bar { height: 6px; min-height: 0; padding: 0; background: var(--accent); border: 0; border-radius: 4px; margin: 4px 0; }
 .night.zero .bar { background: #333a45; }
 
@@ -153,7 +156,7 @@ label.inline {
   padding: 12px 16px;
   margin: 16px 0;
 }
-.team-card h4 { margin: 0 0 6px; font-size: 18px; }
+.team-card h4 { margin: 0 0 6px; font-family: var(--display); font-weight: 700; font-size: 24px; }
 .pill {
   display: inline-block;
   background: var(--raised);
@@ -189,8 +192,8 @@ label.inline {
   .ins #days { width: 3.5em; }
   .asof { order: 4; flex: 1 1 7rem; align-self: center; text-align: right; white-space: normal; }
 
-  .ins-tabs { padding: 6px 12px; }
-  .ins-tabs .tab { font-size: 14px; padding: 6px 12px; }
+  .ins-tabs { padding: 4px 12px 0; }
+  .ins-tabs .tab { font-size: 18px; padding: 6px 10px 4px; }
   .ins-main { padding: 12px; }
 
   .ins th, .ins td { padding: 6px 8px; }
@@ -204,10 +207,10 @@ label.inline {
   .form-row > label:not(.inline) > input { width: 100%; }
   .form-row > button { flex: 1 1 100%; }
 
-  .panel h3 { font-size: 14px; margin-top: 20px; }
+  .panel h3 { font-size: 18px; margin-top: 20px; }
   .summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .stat { min-width: 0; }
-  .stat b { font-size: 18px; }
+  .stat b { font-size: 24px; }
   .strip { grid-template-columns: repeat(auto-fill, minmax(4.75rem, 1fr)); }
   .lists { grid-template-columns: 1fr; }
   .lists textarea { min-height: 14rem; }

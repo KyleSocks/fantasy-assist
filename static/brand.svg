@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Marshall &amp; Co.">
+  <!-- Marshall & Co. mark: two crossed sticks over a puck. Original artwork. -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- left-hand stick: shaft, blade, knob tape -->
+    <path d="M13 6 L41 44" stroke="#e8f1f7" stroke-width="5"/>
+    <path d="M41 44 Q44 49 53 49" stroke="#e8f1f7" stroke-width="6"/>
+    <path d="M13 6 L16.5 10.8" stroke="#e23440" stroke-width="5.4"/>
+    <!-- right-hand stick -->
+    <path d="M51 6 L23 44" stroke="#e8f1f7" stroke-width="5"/>
+    <path d="M23 44 Q20 49 11 49" stroke="#e8f1f7" stroke-width="6"/>
+    <path d="M51 6 L47.5 10.8" stroke="#2f7cf6" stroke-width="5.4"/>
+    <!-- blade tape -->
+    <path d="M45.5 48.6 L50 49" stroke="#0c1521" stroke-width="1.4"/>
+    <path d="M18.5 48.6 L14 49" stroke="#0c1521" stroke-width="1.4"/>
+  </g>
+  <!-- puck -->
+  <path d="M20 54 v4.5 c0 2.8 5.4 4.5 12 4.5 s12-1.7 12-4.5 V54" fill="#05080d" stroke="#3d5573" stroke-width="1.2"/>
+  <ellipse cx="32" cy="54" rx="12" ry="4.2" fill="#1b2a3c" stroke="#3d5573" stroke-width="1.2"/>
+</svg>
