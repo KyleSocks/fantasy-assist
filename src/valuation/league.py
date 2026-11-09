@@ -32,7 +32,7 @@ STAT_FIELD_MAP: dict[str, str] = {
     "W": "wins",
     "SO": "shutouts",
     "SV%": "save_pct",
-    "SHP": "shutouts",
+    "SHP": "sh_points",          # shorthanded points (skaters)
     "GS": "games_started",
     "GA": "goals_against",
     "SV": "saves",

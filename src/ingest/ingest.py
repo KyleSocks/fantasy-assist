@@ -107,7 +107,8 @@ def _ingest_skaters(conn, fetcher: Fetcher, season_id: int,
     )
     summary, team_map = _combine_rows(
         raw_summary, SkaterSummary,
-        ["gamesPlayed", "goals", "assists", "points", "shots", "ppPoints"],
+        ["gamesPlayed", "goals", "assists", "points", "shots", "ppPoints",
+         "shPoints"],
     )
 
     raw_realtime = fetcher.get_paged(
@@ -145,15 +146,18 @@ def _ingest_skaters(conn, fetcher: Fetcher, season_id: int,
             continue
         cur.execute(
             "INSERT INTO skater_seasons (player_id, season_id, team_abbrev, gp, goals,"
-            " assists, points, shots, blocks, hits, pp_points, pp_toi_sec, toi_sec)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            " assists, points, shots, blocks, hits, pp_points, sh_points,"
+            " pp_toi_sec, toi_sec)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             " ON CONFLICT(player_id, season_id) DO UPDATE SET"
             " gp=excluded.gp, goals=excluded.goals, assists=excluded.assists,"
             " points=excluded.points, shots=excluded.shots, blocks=excluded.blocks,"
             " hits=excluded.hits, pp_points=excluded.pp_points,"
+            " sh_points=excluded.sh_points,"
             " pp_toi_sec=excluded.pp_toi_sec, toi_sec=excluded.toi_sec",
               (pid, season_id, team_abbrev, s.gamesPlayed, s.goals, s.assists,
-               s.points, s.shots, blocks, hits, s.ppPoints, pp_toi_sec, toi_sec),
+               s.points, s.shots, blocks, hits, s.ppPoints, s.shPoints,
+               pp_toi_sec, toi_sec),
         )
         counts["skater_seasons"] += 1
     return counts, notes
@@ -286,12 +290,18 @@ def main() -> None:
                         help="SQLite database path")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print planned writes only")
+    parser.add_argument("--season-ids", default=None,
+                        help="exact seasons, e.g. 20232024,20242025,20252026 "
+                             "(overrides --seasons; use mid-season to refresh "
+                             "completed seasons without pulling the current one)")
     args = parser.parse_args()
+    ids = ([int(x) for x in args.season_ids.split(",") if x.strip()]
+           if args.season_ids else None)
     try:
         if args.dry_run:
             _dry_run_report(args.seasons, args.db)
             return
-        report = ingest_seasons(args.seasons, args.db)
+        report = ingest_seasons(args.seasons, args.db, season_ids=ids)
         report2 = ingest_rosters(args.db)
         for r in (report, report2):
             for table, count in r.rows_written.items():

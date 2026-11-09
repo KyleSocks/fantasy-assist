@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mid-Season Assistant</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/inseason.css">
+</head>
+<body class="ins">
+  <header class="bar">
+    <h1>Mid-Season</h1>
+    <div class="controls">
+      <select id="league" aria-label="League"></select>
+      <label>Start <input id="start" type="date"></label>
+      <label>Days <input id="days" type="number" min="1" max="21" value="9"></label>
+      <span id="asof" class="muted"></span>
+      <button id="refresh" type="button" class="primary" title="Re-ingest this season's stats and pull your roster + free agents from Yahoo">Refresh data</button>
+      <a href="/" class="navlink">Draft board</a>
+    </div>
+  </header>
+  <nav class="tabs ins-tabs" aria-label="Sections">
+    <button type="button" class="tab active" data-tab="roster">My roster</button>
+    <button type="button" class="tab" data-tab="plan">Plan</button>
+    <button type="button" class="tab" data-tab="fa">Free agents</button>
+    <button type="button" class="tab" data-tab="league">League</button>
+    <button type="button" class="tab" data-tab="schedule">Schedule</button>
+    <button type="button" class="tab" data-tab="lists">Lists</button>
+  </nav>
+  <main class="ins-main">
+    <div id="status" class="status" role="status"></div>
+
+    <section id="tab-roster" class="panel">
+      <p class="hint">Lowest blended value first. <b>Adds</b> = fantasy points he adds to your
+        best nightly lineup over the window (0 when he'd sit on the bench).</p>
+      <div class="scroll"><table id="roster-table"></table></div>
+      <h3>Nightly lineup</h3>
+      <div class="scroll"><table id="nights-table"></table></div>
+    </section>
+
+    <section id="tab-plan" class="panel" hidden>
+      <div class="form-row">
+        <label>Stream the spot of <select id="hold"></select></label>
+        <label>Adds left per week <input id="adds" value="1,4" size="6"
+          title="this week first, e.g. 1,4"></label>
+        <label>Locked today <input id="locked" placeholder="DET,STL" size="12"
+          title="NHL teams whose game today has already started"></label>
+        <button id="run-plan" type="button" class="primary">Run plan</button>
+      </div>
+      <div id="plan-out"></div>
+    </section>
+
+    <section id="tab-fa" class="panel" hidden>
+      <p class="hint">Every player you can pick up: free agents, waiver players (addable once
+        they clear) and injured free agents (stash candidates for an IR slot), best blended
+        value first.</p>
+      <div class="form-row">
+        <label>Search <input id="fa-search" type="search" placeholder="name or team" size="16"></label>
+        <label class="inline"><input id="fa-show-FA" type="checkbox" checked> free agents</label>
+        <label class="inline"><input id="fa-show-W" type="checkbox" checked> waivers</label>
+        <label class="inline"><input id="fa-show-OUT" type="checkbox" checked> injured</label>
+        <label>Position <select id="fa-pos"><option value="">all</option><option>C</option>
+          <option>LW</option><option>RW</option><option>D</option><option>G</option></select></label>
+        <span id="fa-counts" class="muted"></span>
+      </div>
+      <div class="scroll"><table id="fa-table"></table></div>
+      <h3>Single-game streams <input id="stream-date" type="date">
+        <label class="inline"><input id="stream-all" type="checkbox"> include rostered pool</label></h3>
+      <p id="streams-note" class="hint"></p>
+      <h3>Skaters</h3>
+      <div class="scroll"><table id="streams-table"></table></div>
+      <h3>Goalies <span class="muted">valued as if he starts &middot; confirm the starter first</span></h3>
+      <div class="scroll"><table id="gstreams-table"></table></div>
+    </section>
+
+    <section id="tab-league" class="panel" hidden>
+      <div class="form-row">
+        <label>Window <select id="league-days">
+          <option value="14">2 weeks</option><option value="21" selected>3 weeks</option>
+          <option value="28">4 weeks</option></select></label>
+        <span id="league-meta" class="muted"></span>
+      </div>
+      <p class="hint">Each team's best nightly lineup over the window (from the Start date),
+        split by the slot each starter fills, shown vs the league average. <b>Bench</b> =
+        points from players who had to sit (surplus to trade from). Click a team for its roster.</p>
+      <div class="scroll"><table id="league-table"></table></div>
+      <div id="team-detail"></div>
+      <h3>1-for-1 trades for your team
+        <label class="inline"><input id="tr-mutual" type="checkbox" checked> both teams gain</label>
+        <label class="inline"><input id="tr-pg" type="checkbox" checked> no per-game loss for me</label>
+        <label class="inline"><input id="tr-fair" type="checkbox" checked> realistic (they lose &le; 0.5/game)</label>
+      </h3>
+      <p class="hint"><b>Me / Them</b> = change in each lineup's total over the window.
+        <b>Per-game</b> = blended value you gain or give up long term; a window gain with a
+        negative per-game is a schedule play that costs you later.</p>
+      <div class="scroll"><table id="trades-table"></table></div>
+    </section>
+
+    <section id="tab-schedule" class="panel" hidden>
+      <div class="scroll"><table id="sched-table"></table></div>
+    </section>
+
+    <section id="tab-lists" class="panel" hidden>
+      <p class="hint">One player per line: <code>Name | TEAM | C,LW</code> (Yahoo positions).
+        Roster = everyone you'd keep, no IR. Saved to <code>data/my_roster.txt</code> and
+        <code>data/fa.txt</code>.</p>
+      <div class="lists">
+        <label>My roster<textarea id="roster-text" spellcheck="false"></textarea></label>
+        <label>Free agents<textarea id="fa-text" spellcheck="false"></textarea></label>
+      </div>
+      <button id="save-lists" type="button" class="primary">Save lists</button>
+      <span id="lists-msg" class="muted"></span>
+    </section>
+  </main>
+  <script src="/static/inseason.js"></script>
+</body>
+</html>

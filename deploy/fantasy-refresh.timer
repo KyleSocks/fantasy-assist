@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh fantasy-assist every morning and mid-afternoon
+
+[Timer]
+# 06:30 after last night's games are final; 14:30 picks up morning
+# waiver/injury news before evening lineups lock.
+OnCalendar=*-*-* 06:30:00 America/New_York
+OnCalendar=*-*-* 14:30:00 America/New_York
+Persistent=true
+
+[Install]
+WantedBy=timers.target

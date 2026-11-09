@@ -1,0 +1,48 @@
+# Mid-season assistant settings (src/inseason/).
+#
+# Blended per-game rate for every stat:
+#     blended = (preseason_rate * K + season_to_date_total) / (K + games)
+# K is the prior strength in games (starts for goalies): at games == K the
+# season so far and the preseason projection count equally. Small K = trust
+# this season quickly (stats that stabilise fast: shots, hits, blocks);
+# large K = lean on the projection (goals, shutouts are noisy).
+# These are starting values, not fitted -- see the follow-up prompt for a
+# backtest that tunes them.
+skater_k_games:
+  goals: 40
+  assists: 30
+  pp_points: 30
+  sh_points: 60       # shorthanded points: rare, very noisy
+  shots: 15
+  hits: 10
+  blocks: 10
+goalie_k_starts:
+  wins: 20
+  saves: 15
+  goals_against: 15
+  shutouts: 40
+# save_pct blends in shots against, same units as regression.yaml's k.
+goalie_save_pct_k_shots: 1000
+# Share of team games a goalie starts.
+start_share_k_games: 10
+# Opponent strength (goals/shots against and for per game) regresses to the
+# league mean with this many games of league-average prior.
+opponent_k_games: 10
+# A night with this many NHL games or fewer counts as an "off-night".
+off_night_max_games: 7
+# Goalie single-game streams are valued as if he STARTS that game (you'd
+# only stream a confirmed starter), but goalies who start fewer than this
+# share of their team's games (third-stringers, call-ups) aren't listed.
+stream_goalie_min_start_share: 0.15
+# hold check: ROS per-game value at least this fraction above replacement
+# is a HOLD regardless of the short window.
+hold_margin: 0.15
+# Refresh button / src.inseason.yahoo_public: your public Yahoo league.
+# league_id and team_id are in the team page URL:
+#   hockey.fantasysports.yahoo.com/hockey/<league_id>/<team_id>
+yahoo:
+  league_id: 19725
+  team_id: 5
+  free_agent_pages: 0   # 0 = every available player (free agents, waivers,
+                        # injured). N = top N pages (25 each) by current
+                        # rank + top N by preseason rank (faster)

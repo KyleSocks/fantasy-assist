@@ -68,9 +68,18 @@ def _skater_baseline(conn: sqlite3.Connection, prior_seasons: list[int],
             _compute_pos_median_toi(conn, prior_seasons, group))
 
 
+def _open(db_path: str) -> sqlite3.Connection:
+    """Connect, adding any columns newer than the DB (e.g. sh_points) so an
+    old database still projects before its first re-ingest."""
+    from src.ingest.models import _add_missing_columns
+    conn = sqlite3.connect(db_path)
+    _add_missing_columns(conn)
+    return conn
+
+
 def project_all(season_id: int, db_path: str) -> list[Projection]:
     """Project next-season totals for every skater and goalie."""
-    conn = sqlite3.connect(db_path)
+    conn = _open(db_path)
     try:
         cfg = _load_config()
         prior_seasons = _prior_seasons(conn, season_id)
@@ -106,7 +115,7 @@ def project_all(season_id: int, db_path: str) -> list[Projection]:
 
 def explain(player_id: int, season_id: int, db_path: str) -> dict:
     """Return all intermediate terms for a player's projection."""
-    conn = sqlite3.connect(db_path)
+    conn = _open(db_path)
     try:
         cfg = _load_config()
         prior_seasons = _prior_seasons(conn, season_id)
