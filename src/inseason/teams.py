@@ -330,3 +330,4 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
         "market_k_games": float(ctx.icfg.get("market_k_games", 5)),
         "market_weights": market.weights if market else None,
     }
+

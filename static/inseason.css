@@ -167,6 +167,13 @@ label.inline {
 }
 .pill.sit { opacity: .55; }
 
+/* trade with a team: tick boxes for both rosters */
+.pick { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px; }
+.pick h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.pick label { display: flex; gap: 6px; align-items: center; font-size: 13px; padding: 3px 0; cursor: pointer; }
+.pick label .muted { margin-left: auto; white-space: nowrap; }
+.deal-cut { display: block; font-size: 11px; }
+
 /* ── lists ────────────────────────────────────────────────── */
 
 .lists { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px; }
@@ -213,6 +220,7 @@ label.inline {
   .stat b { font-size: 24px; }
   .strip { grid-template-columns: repeat(auto-fill, minmax(4.75rem, 1fr)); }
   .lists { grid-template-columns: 1fr; }
+  .pick { grid-template-columns: 1fr; }
   .lists textarea { min-height: 14rem; }
   #save-lists { width: 100%; }
   #lists-msg { display: block; margin: 8px 0 0; }

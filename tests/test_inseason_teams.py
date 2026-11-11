@@ -146,3 +146,48 @@ def test_market_ranks_by_yahoo_signals_and_maps_to_model_values(db):  # noqa: F8
 def trade_options_with(ctx, market):
     from src.inseason.teams import trade_options
     return trade_options(ctx, LEAGUE, 1, 1, "2026-11-01", 4, max_tilt=99, market=market)
+
+
+# ── package deals with one team ────────────────────────────────────────
+
+def test_partner_trades_packages_cuts_and_offer(db):  # noqa: F811
+    from src.inseason.partner import partner_trades
+    ctx = _trade_ctx(db)
+    r = partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, offer=([3, 4], [7]))
+    assert r["partner"]["name"] == "Theirs"
+    V = {p["id"]: p["ros_value"] for p in r["mine"] + r["theirs"]}
+    M = {p["id"]: p["market_value"] for p in r["mine"] + r["theirs"]}
+    assert r["deals"] and r["found"] >= len(r["deals"])
+    for d in r["deals"]:
+        assert 1 <= len(d["give"]) <= 2 and 1 <= len(d["get"]) <= 2
+        assert d["my_gain"] > 0 and d["tilt"] >= -0.6
+        # taking back more players than you send costs you your worst
+        assert len(d["my_cut"]) == max(len(d["get"]) - len(d["give"]), 0)
+        assert len(d["their_cut"]) == max(len(d["give"]) - len(d["get"]), 0)
+        assert d["my_gain"] == pytest.approx(
+            sum(V[p] for p in d["get"]) - sum(V[p] for p in d["give"])
+            - sum(max(V[p], 0) for p in d["my_cut"]))
+        assert d["their_view"] == pytest.approx(
+            sum(M[p] for p in d["give"]) - sum(M[p] for p in d["get"])
+            - sum(max(M[p], 0) for p in d["their_cut"]))
+        assert d["sweet_spot"] == (d["tilt"] >= -0.15)
+        assert "my_fit" in d and "their_fit" in d
+    # sweet spots first
+    flags = [d["sweet_spot"] for d in r["deals"]]
+    assert flags == sorted(flags, reverse=True)
+    # 2-for-1 offer: they must cut one of their own, I lose nothing extra
+    o = r["offer"]
+    assert o["give"] == [3, 4] and o["get"] == [7]
+    assert len(o["their_cut"]) == 1 and o["my_cut"] == []
+    # 1-for-1 only
+    one = partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, max_size=1)
+    assert all(len(d["give"]) == len(d["get"]) == 1 for d in one["deals"])
+
+
+def test_partner_trades_rejects_bad_input(db):  # noqa: F811
+    from src.inseason.partner import partner_trades
+    ctx = _trade_ctx(db)
+    with pytest.raises(ValueError):
+        partner_trades(ctx, LEAGUE, 1, 1, "2026-11-01", 4)      # myself
+    with pytest.raises(ValueError):
+        partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, offer=([7], [3]))  # swapped

@@ -101,6 +101,12 @@ rank, IR and goalies excluded). Takes about a minute.
 API (same data, for the UI): `/api/inseason/streams`, `/api/inseason/player/{id}`,
 `/api/inseason/schedule`.
 
+**Trade with a team** (League tab): pick a partner and get every 1-1, 2-1, 1-2 and 2-2
+package you win by your model (rest of season above replacement), with how it looks to
+them by Yahoo's market numbers and each lineup's fit over the window; tick players on
+both sides to score an offer you received. Taking back more players than you send cuts
+your worst. Endpoint: `/api/inseason/partner-trades?partner=<team id>&give=ids&get=ids`.
+
 ## Running on a home server
 
 `docker compose up -d --build` runs the whole app (draft board + mid-season
