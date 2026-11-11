@@ -84,6 +84,13 @@ def test_trade_options_endpoint(db, tmp_path, monkeypatch):  # noqa: F811
     assert r.status_code == 200 and r.json()["give"]["name"] == "Alex Ovechkin"
     assert c.get("/api/inseason/trade-options?league=t&give=2").status_code == 400
     assert c.get("/api/inseason/trade-options?league=t&give=999").status_code == 404
+    r = c.get("/api/inseason/partner-trades?league=t&partner=2&start=2026-11-01&days=4"
+              "&give=3,4&get=7")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["partner"]["name"] == "Theirs" and j["offer"]["get"] == [7]
+    assert c.get("/api/inseason/partner-trades?league=t&partner=1").status_code == 400
+    assert c.get("/api/inseason/partner-trades?league=t&partner=2&give=x").status_code == 422
 
 
 def test_streams_report_what_they_add_to_my_lineup(db, tmp_path, monkeypatch):  # noqa: F811

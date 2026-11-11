@@ -9,6 +9,7 @@ GET /api/inseason/free-agents?start=&days=9&league=
 GET /api/inseason/plan?hold=<id>&adds=1,4&start=&days=9&locked=DET,STL
 POST /api/inseason/refresh            re-ingest stats + pull roster/FA/league from Yahoo
 GET /api/inseason/league?start=&days=21   team strengths + 1-for-1 trades
+GET /api/inseason/partner-trades?partner=<team id>&give=ids&get=ids   package deals with one team
 
 The context (projection + blend + scorer) is cached per league and is
 rebuilt when data/hockey.db changes on disk.
@@ -455,54 +456,5 @@ def _refresh(league: str | None, force: bool) -> dict:
     return out
 
 
-_LEAGUE_CACHE: dict[tuple, dict] = {}
-
-
-@router.get("/league")
-def get_league(start: DateStr = None, days: Days = 21,
-               league: LeagueName = None) -> dict:
-    """Every team's lineup strength by position + your 1-for-1 trades.
-    Needs data/league_rosters.json (written by Refresh data)."""
-    from src.inseason.teams import analyze
-
-    path = DATA_DIR / LEAGUE_FILE
-    if not path.exists():
-        raise HTTPException(400, "no league rosters yet: press Refresh data")
-    ctx = _ctx(league)
-    data = json.loads(path.read_text(encoding="utf-8"))
-    s = _day(start)
-    key = (ctx.league.name, s, days, os.path.getmtime(path), _gen(ctx))
-    if key not in _LEAGUE_CACHE:
-        _LEAGUE_CACHE.clear()
-        out = analyze(ctx, data, int(data["my_team_id"]), s, days)
-        out.update(fetched=data.get("fetched"), as_of=ctx.as_of,
-                   unit="fpts" if ctx.scorer.points else "z")
-        _LEAGUE_CACHE[key] = out
-    return _LEAGUE_CACHE[key]
-
-
-@router.get("/trade-options")
-def get_trade_options(give: int, start: DateStr = None, days: Days = 21,
-                      league: LeagueName = None) -> dict:
-    """1-for-1 deals for one of your players, from ones the market sees as
-    favouring you to ones favouring the other side (teams.trade_options)."""
-    from src.inseason.teams import Market, trade_options
-
-    path = DATA_DIR / LEAGUE_FILE
-    if not path.exists():
-        raise HTTPException(400, "no league rosters yet: press Refresh data")
-    ctx = _ctx(league)
-    if give not in ctx.lines:
-        raise HTTPException(404, f"Unknown player id {give}")
-    data = json.loads(path.read_text(encoding="utf-8"))
-    mpath = DATA_DIR / MARKET_FILE
-    mdata = json.loads(mpath.read_text(encoding="utf-8")) if mpath.exists() else None
-    market = Market(ctx, mdata["players"]) if mdata else None
-    try:
-        out = trade_options(ctx, data, int(data["my_team_id"]), give,
-                            _day(start), days, market=market)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    out.update(as_of=ctx.as_of, unit="fpts" if ctx.scorer.points else "z",
-               market_fetched=mdata.get("fetched") if mdata else None)
-    return out
+# league tab endpoints register on this router
+from src.api import inseason_league  # noqa: E402,F401

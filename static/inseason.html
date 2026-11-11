@@ -118,6 +118,25 @@
         (positional need).</p>
       <div id="shop-meta" class="muted"></div>
       <div class="scroll"><table id="shop-table"></table></div>
+
+      <h3>Trade with a team</h3>
+      <div class="form-row">
+        <label>Partner <select id="pt-team"></select></label>
+        <label>Deal size <select id="pt-size"><option value="2" selected>up to 2-for-2</option>
+          <option value="1">1-for-1 only</option></select></label>
+        <label class="inline"><input id="pt-sweet" type="checkbox" checked> only ones they'd likely take</label>
+        <button id="pt-run">Find deals</button>
+      </div>
+      <p class="hint">Every 1-1, 2-1, 1-2 and 2-2 package with one team. <b>My gain</b> =
+        rest of season above replacement by your model; taking back more players than you
+        send means cutting your worst (shown under the deal). <b>Looks to them</b> = what they
+        gain as a typical manager sees it (Yahoo % rostered / Fan Pts / name value).
+        <b>★</b> = you win and it looks even or better to them. <b>Fit</b> = change in each
+        lineup over the window. Tick players on both sides to score an offer you got.</p>
+      <div id="pt-pick" class="pick"></div>
+      <div id="pt-offer"></div>
+      <div id="pt-meta" class="muted"></div>
+      <div class="scroll"><table id="pt-table"></table></div>
     </section>
 
     <section id="tab-schedule" class="panel" hidden>
@@ -137,5 +156,6 @@
     </section>
   </main>
   <script src="/static/inseason.js"></script>
+  <script src="/static/inseason-partner.js"></script>
 </body>
 </html>

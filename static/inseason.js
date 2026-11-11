@@ -305,6 +305,7 @@
       showTeam(L.teams.find((t) => t.mine));
       drawTrades(names);
       fillShop(L);
+      if (window.insPartner) window.insPartner.fill(L);
       status("");
     } catch (e) { status(e.message, true); }
   };
@@ -413,6 +414,10 @@
   ["tr-mutual", "tr-pg", "tr-fair"].forEach((id) => $(id).addEventListener("change", () =>
     drawTrades(Object.fromEntries((leagueData?.teams || []).map((t) => [t.id, t.name])))));
   $("league-days").addEventListener("change", () => loaders.league());
+
+  // shared with static/inseason-partner.js (trade with a team)
+  window.insKit = { $, esc, num, signed, cls, table, api, status,
+    unit: () => unit, league: () => leagueData };
 
   // ── schedule ─────────────────────────────────────────────────────────
   loaders.schedule = async () => {
