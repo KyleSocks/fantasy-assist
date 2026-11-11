@@ -95,7 +95,8 @@
         <label class="inline"><input id="tr-pg" type="checkbox" checked> no per-game loss for me</label>
         <label class="inline"><input id="tr-fair" type="checkbox" checked> realistic (they lose &le; 0.5/game)</label>
       </h3>
-      <p class="hint"><b>Me / Them</b> = change in each lineup's total over the window.
+      <p class="hint"><b>Winner</b> = which team gains more over the window, and by how much.
+        <b>Me / Them</b> = change in each lineup's total over the window.
         <b>Per-game</b> = blended value you gain or give up long term; a window gain with a
         negative per-game is a schedule play that costs you later.</p>
       <div class="scroll"><table id="trades-table"></table></div>
@@ -111,9 +112,9 @@
       <p class="hint">Every 1-for-1 for that player, ordered by how the deal looks to a
         <b>typical manager</b> &mdash; % rostered across Yahoo, this season's Fan Pts and
         name value (pre-season rank), weights in config/inseason.yaml: top = looks like you
-        win (harder sell), bottom = looks like they win. <b>My gain</b> is what it's really
-        worth to you by your model, rest of season above replacement on each player's real
-        schedule. <b>★</b> = you gain, but to them it looks even or in their favour &mdash;
+        win (harder sell), bottom = looks like they win. <b>Winner</b> = who really wins and
+        by how many points, by your model (rest of season above replacement on each player's
+        real schedule). <b>They'll see</b> = who a typical manager would think wins. <b>★</b> = you gain, but to them it looks even or in their favour &mdash;
         the ones worth proposing. <b>Fit</b> = change in each lineup over the window
         (positional need).</p>
       <div id="shop-meta" class="muted"></div>
@@ -127,12 +128,12 @@
         <label class="inline"><input id="pt-sweet" type="checkbox" checked> only ones they'd likely take</label>
         <button id="pt-run">Find deals</button>
       </div>
-      <p class="hint">Every 1-1, 2-1, 1-2 and 2-2 package with one team. <b>My gain</b> =
-        rest of season above replacement by your model; taking back more players than you
-        send means cutting your worst (shown under the deal). <b>Looks to them</b> = what they
-        gain as a typical manager sees it (Yahoo % rostered / Fan Pts / name value).
-        <b>★</b> = you win and it looks even or better to them. <b>Fit</b> = change in each
-        lineup over the window. <b>Tick players</b> (up to 2 a side) to see only deals that
+      <p class="hint">Every 1-1, 2-1, 1-2 and 2-2 package with one team. <b>Winner</b> = which
+        team really wins and by how many points, rest of season above replacement by your
+        model; taking back more players than you send means cutting your worst (shown under
+        the deal). <b>They'll see</b> = who a typical manager would think wins (Yahoo %
+        rostered / Fan Pts / name value). <b>★</b> = you win and they should see it as even or
+        a win for them. <b>Next N days</b> = whose lineup gains more over the window. <b>Tick players</b> (up to 2 a side) to see only deals that
         include them, with the other spots filled in &mdash; wins and losses, best for you
         first (untick "only ones they'd likely take" to see the losing ones too). Tick both
         sides to also score that exact offer.</p>
