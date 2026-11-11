@@ -15,9 +15,11 @@ pg_delta is a schedule play that costs you later in the season.
 """
 from __future__ import annotations
 
+import datetime
+
 from src.valuation.valuation import value_group
 
-from .evaluate import Context, form, player_window
+from .evaluate import Context, form, ros_over_replacement
 from .lineup import best_lineup
 from .roster import _match, dates_from, game_values, parse_players
 
@@ -39,10 +41,13 @@ def team_players(ctx: Context, players: list[dict]) -> tuple[dict[int, set[str]]
 
 
 class _Sim:
-    """Nightly lineups with cached per-player game values."""
+    """Nightly lineups with cached per-player game values. ``weighted``:
+    each night counts ctx.game_weight(date) (fantasy-playoff nights extra)."""
 
-    def __init__(self, ctx: Context, dates: list[str], slots: dict[str, int]):
+    def __init__(self, ctx: Context, dates: list[str], slots: dict[str, int],
+                 weighted: bool = False):
         self.ctx, self.dates, self.slots = ctx, dates, slots
+        self.w = ctx.game_weight if weighted else (lambda d: 1.0)
         self.gv: dict[int, dict[str, float]] = {}
 
     def games(self, pid: int) -> dict[str, float]:
@@ -56,8 +61,49 @@ class _Sim:
                             if self.games(p).get(d, 0.0) > 0], self.slots)
 
     def total(self, roster: dict[int, set[str]], only: set[str] | None = None) -> float:
-        return sum(self.night(roster, d)[0] for d in self.dates
+        return sum(self.w(d) * self.night(roster, d)[0] for d in self.dates
                    if only is None or d in only)
+
+
+def ros_dates(ctx: Context, start: str) -> list[str]:
+    """Every date from ``start`` to the end of the fantasy playoffs."""
+    end = ctx.fantasy_end()
+    if start > end:
+        return []
+    n = (datetime.date.fromisoformat(end) - datetime.date.fromisoformat(start)).days
+    return dates_from(start, n + 1)
+
+
+class RosLineup:
+    """Rest-of-season value of a roster as your best nightly lineup, through
+    the fantasy playoffs (weighted): what a trade is really worth. A player
+    who'd sit on your bench adds nothing; one below replacement never starts,
+    so trading him away costs nothing (and dumping one on you gains them
+    nothing). Each change re-simulates only the nights a moved player plays.
+    """
+
+    def __init__(self, ctx: Context, roster: dict[int, set[str]], start: str):
+        self.sim = _Sim(ctx, ros_dates(ctx, start), league_slots(ctx), weighted=True)
+        self.roster = roster
+        self.base = {d: self.sim.night(roster, d)[0] for d in self.sim.dates}
+
+    def gain(self, out: set[int] | list[int], add: dict[int, set[str]]) -> float:
+        """Lineup value after removing ``out`` and adding ``add``, minus now."""
+        nights: set[str] = set()
+        for p in (*out, *add):
+            nights |= set(self.sim.games(p))
+        after = {p: e for p, e in self.roster.items() if p not in out}
+        after.update(add)
+        return sum(self.sim.w(d) * (self.sim.night(after, d)[0] - self.base[d])
+                   for d in nights)
+
+    def loss_without(self, p: int) -> float:
+        """What ``p`` adds to the lineup (>= 0): the cost of losing him."""
+        return -self.gain({p}, {})
+
+    def gain_with(self, p: int, elig: set[str]) -> float:
+        """What adding ``p`` (with no one leaving) adds to the lineup."""
+        return self.gain(set(), {p: elig})
 
 
 def team_report(sim: _Sim, roster: dict[int, set[str]]) -> dict:
@@ -249,13 +295,15 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
     """Every 1-for-1 deal for ``give`` (one of your players), from deals the
     market would see as favouring you to ones that favour the other side.
 
-    Two lenses, rest of season, per game above replacement x games:
-    - ``my_gain`` -- YOUR model: blended value and each player's actual
-      remaining schedule (what the trade is really worth to you);
+    Two lenses, rest of season through the fantasy playoffs (weighted):
+    - ``my_gain`` -- YOUR model: change in your best nightly lineup with
+      the swap (RosLineup), each player's real schedule -- a player who'd
+      sit on your bench adds nothing;
     - ``market_edge`` -- the MARKET view (``market``: Yahoo % rostered,
       Fan Pts per game and pre-season rank -- see Market; without it the
       season-to-date fallback), league-average schedule, from your side:
-      > 0 = the other manager sees you winning.
+      > 0 = the other manager sees you winning. A player below replacement
+      counts 0 (he'd just be dropped), not negative.
     ``tilt`` = market_edge / ``give``'s whole rest-of-season output as the
     market sees it (market per game x games) -- the gap as a share of what
     he's worth; deals with |tilt| > ``max_tilt`` are dropped (no one accepts
@@ -276,28 +324,29 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
         raise ValueError(f"{ctx.lines[give].name} isn't on your active roster")
     mkt_pg = market.per_game if market else (lambda p: market_per_game(ctx, p))
     card = market.card if market else (lambda p: {"market_source": "season-to-date"})
-    end = ctx.season_end()
-    avg_ros = ctx.avg_team_games(start, end)
+    avg_ros = ctx.weighted_team_games(start, ctx.fantasy_end())
     repl = ctx.scorer.replacement
     cache: dict[int, tuple[float, float]] = {}
 
     def values(pid: int) -> tuple[float, float]:
-        """(model ROS value over replacement, market ROS value over repl)."""
+        """(model ROS value over replacement, market ROS value over repl,
+        floored at 0: a below-replacement player is just dropped)."""
         if pid not in cache:
             r = repl[value_group(ctx.lines[pid].position)]
-            ours = player_window(ctx, pid, start, end)["value"] - r * avg_ros
-            cache[pid] = (ours, (mkt_pg(pid) - r) * avg_ros)
+            cache[pid] = (ros_over_replacement(ctx, pid, start),
+                          max((mkt_pg(pid) - r) * avg_ros, 0.0))
         return cache[pid]
 
     g_ours, g_mkt = values(give)
     scale = max(abs(mkt_pg(give)) * avg_ros, 1e-9)
     ge = mine[give]
+    ros = RosLineup(ctx, mine, start)
     rows = []
     for tid, theirs in rosters.items():
         if tid == my_team_id:
             continue
         for get, te in theirs.items():
-            ours, mkt = values(get)
+            _, mkt = values(get)
             edge = mkt - g_mkt
             tilt = edge / scale
             if abs(tilt) > max_tilt:
@@ -305,7 +354,7 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
             nights = set(sim.games(give)) | set(sim.games(get))
             m_after = {**{p: e for p, e in mine.items() if p != give}, get: te}
             t_after = {**{p: e for p, e in theirs.items() if p != get}, give: ge}
-            my_gain = ours - g_ours
+            my_gain = ros.gain({give}, {get: te})
             rows.append({
                 "partner_id": tid, "partner": names[tid],
                 "get": {"id": get, "name": ctx.lines[get].name,
@@ -327,6 +376,8 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
                  "market_pg": mkt_pg(give), **card(give),
                  "ros_value": g_ours, "market_value": g_mkt},
         "dates": dates, "ros_games": avg_ros, "options": rows,
+        "ros_end": ctx.fantasy_end(),
+        "playoff_game_weight": float(ctx.icfg.get("playoff_game_weight", 1.0)),
         "market_k_games": float(ctx.icfg.get("market_k_games", 5)),
         "market_weights": market.weights if market else None,
     }

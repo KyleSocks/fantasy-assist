@@ -110,7 +110,7 @@ def _print_hold(ctx, h: dict, unit: str) -> None:
         print(f"      {g['date']} vs {g['opp']:<3} {g['value']:6.2f}"
               f"{'  off-night' if g['off_night'] else ''}")
     print(f"  window vs replacement on avg schedule: {h['window_vs_replacement']:+.2f}")
-    print(f"  rest of season ({h['ros_games']} games, avg {h['avg_ros_games']:.1f}):"
+    print(f"  rest of season to {h['ros_end']} ({h['ros_games']} games, avg {h['avg_ros_games']:.1f}):"
           f" {h['ros_vs_replacement']:+.2f} vs replacement")
     print(f"  VERDICT: {h['verdict']}")
 

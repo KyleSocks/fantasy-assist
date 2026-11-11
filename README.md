@@ -89,6 +89,13 @@ How the numbers are made (tunable in `config/inseason.yaml`):
   The hold check compares the player's next-N-days value with a replacement
   player on a league-average schedule, plus the same over the rest of the
   season, and gives HOLD / BORDERLINE / DROP CANDIDATE.
+- **Rest of season** runs to the end of your fantasy playoffs (`playoff_window` in the
+  league yaml), not the NHL's last day, and a playoff game counts `playoff_game_weight`
+  times (inseason.yaml, default 2).
+- **Trades** are valued as the change in your best nightly lineup over that span, not a
+  sum of player values: a player who'd sit on your bench adds nothing, and one below
+  replacement never starts (so dumping him on someone gains them nothing). The market
+  view ("They'll see") floors each player at 0 for the same reason.
 
 **GUI:** run the server (`uv run uvicorn src.api.main:app`, or `server-start.bat`) and open
 http://127.0.0.1:8000/inseason -- tabs for the roster audit, the streaming plan, free
