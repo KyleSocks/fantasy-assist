@@ -16,6 +16,9 @@
   const signed = (v, d = 1) => (v == null ? "–" : (v >= 0 ? "+" : "") + Number(v).toFixed(d));
   const pct = (v) => (v == null ? "–" : (v >= 0 ? "+" : "") + Math.round(v * 100) + "%");
   const cls = (v) => (v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "");
+  // who wins a trade and by how much: g = your gain (+) or loss (-)
+  const winner = (g, them = "Them", d = 0) => (Math.abs(g) < 0.5 ? '<span class="muted">Even</span>'
+    : g > 0 ? `<b class="pos">You by ${num(g, d)}</b>` : `<b class="neg">${esc(them)} by ${num(-g, d)}</b>`);
   const mmss = (s) => (s == null ? "–" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
   const md = (d) => d.slice(5).replace("-", "/");
   const dow = (d) => new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" });
@@ -341,11 +344,13 @@
       { key: "partner", label: "With", left: true, sort: (x) => names[x.partner_id], fmt: (x) => esc(names[x.partner_id]) },
       { key: "give", label: "You give", left: true, sort: (x) => x.give.name, fmt: (x) => pl(x.give) },
       { key: "get", label: "You get", left: true, sort: (x) => x.get.name, fmt: (x) => pl(x.get) },
-      { key: "my_gain", label: "Me", fmt: (x) => `<b class="${cls(x.my_gain)}">${signed(x.my_gain)}</b>` },
+      { key: "win", label: "Winner", title: "who gains more over the window, and by how much",
+        sort: (x) => x.my_gain - x.their_gain, fmt: (x) => winner(x.my_gain - x.their_gain, names[x.partner_id], 1) },
+      { key: "my_gain", label: "Me", fmt: (x) => `<span class="${cls(x.my_gain)}">${signed(x.my_gain)}</span>` },
       { key: "their_gain", label: "Them", fmt: (x) => `<span class="${cls(x.their_gain)}">${signed(x.their_gain)}</span>` },
       { key: "pg_delta", label: "Per-game", fmt: (x) => `<span class="${cls(x.pg_delta)}">${signed(x.pg_delta, 2)}</span>` },
     ], rows);
-    if (!rows.length) $("trades-table").innerHTML += '<tbody><tr><td class="l" colspan="6">No trades pass these filters.</td></tr></tbody>';
+    if (!rows.length) $("trades-table").innerHTML += '<tbody><tr><td class="l" colspan="7">No trades pass these filters.</td></tr></tbody>';
   }
   // ── shop a player: deals from "looks like I win" to "looks like they win"
   let shopData = null;
@@ -356,11 +361,8 @@
       `<option value="${p.id}">${esc(p.name)} (${esc(p.elig.join(","))}, ${num(p.per_game)})</option>`).join("");
     if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
   }
-  const leanCell = (x) => {
-    const k = x.lean === "favors you" ? "p1" : x.lean === "favors them" ? "n1" : "";
-    return `<span class="heat ${k}" title="market edge ${signed(x.market_edge, 0)}">${esc(x.lean)}
-      ${signed(100 * x.tilt, 0)}%</span>`;
-  };
+  const leanCell = (x) => `<span title="${esc(x.lean)} ${signed(100 * x.tilt, 0)}% of your player's value">${
+    winner(x.market_edge, x.partner)}</span>`;
   function drawShop() {
     if (!shopData) return;
     const pos = $("shop-pos").value, gain = $("shop-gain").checked;
@@ -390,10 +392,10 @@
       { key: "pre_rank", label: "Pre", minor: true, title: "Yahoo pre-season rank (name value)",
         sort: (x) => (x.get.pre_rank == null ? null : -x.get.pre_rank),
         fmt: (x) => (x.get.pre_rank == null ? "–" : `#${num(x.get.pre_rank, 0)}`) },
-      { key: "market_edge", label: "Looks to them", title: "how a typical manager sees it (tilt vs the value of your player)",
+      { key: "market_edge", label: "They'll see", title: "how a typical manager sees it (tilt vs the value of your player)",
         fmt: leanCell },
-      { key: "my_gain", label: "My gain", title: `rest of season, ${unit} above replacement, your model`,
-        fmt: (x) => `<b class="${cls(x.my_gain)}">${signed(x.my_gain, 0)}</b>` },
+      { key: "my_gain", label: "Winner", title: `really, by your model: rest of season, ${unit} above replacement`,
+        fmt: (x) => winner(x.my_gain, x.partner) },
       { key: "my_fit", label: "Fit me", fmt: (x) => `<span class="${cls(x.my_fit)}">${signed(x.my_fit)}</span>` },
       { key: "their_fit", label: "Fit them", minor: true, fmt: (x) => `<span class="${cls(x.their_fit)}">${signed(x.their_fit)}</span>` },
     ], rows);
@@ -416,7 +418,7 @@
   $("league-days").addEventListener("change", () => loaders.league());
 
   // shared with static/inseason-partner.js (trade with a team)
-  window.insKit = { $, esc, num, signed, cls, table, api, status,
+  window.insKit = { $, esc, num, signed, cls, winner, table, api, status,
     unit: () => unit, league: () => leagueData };
 
   // ── schedule ─────────────────────────────────────────────────────────

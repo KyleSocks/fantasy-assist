@@ -3,7 +3,7 @@
 // helpers static/inseason.js exposes as window.insKit.
 (function () {
   "use strict";
-  const { $, esc, num, signed, cls, table, api, status, unit, league } = window.insKit;
+  const { $, esc, num, signed, winner, table, api, status, unit, league } = window.insKit;
   let ptData = null;
   function fill(L) {
     const sel = $("pt-team"), prev = sel.value;
@@ -24,13 +24,14 @@
     $("pt-offer").innerHTML = "";
   }
   const ticked = (cls) => [...document.querySelectorAll(`.${cls}:checked`)].map((x) => x.value);
-  function lookCell(x) {
-    const k = x.lean === "they win" ? "p1" : x.lean === "you win" ? "n1" : "";
-    return `<span class="heat ${k}" title="they gain ${signed(x.their_view, 0)} as the market sees it">${esc(x.lean)}
-      ${signed(100 * x.tilt, 0)}%</span>`;
-  }
+  // their_view = what they gain as the market sees it, so their view of
+  // "your gain" is -their_view
+  const lookCell = (x, them) => winner(-x.their_view, them);
+  const sentence = (g, them) => (Math.abs(g) < 0.5 ? "an even trade"
+    : g > 0 ? `you win by ${num(g, 0)}` : `${esc(them)} wins by ${num(-g, 0)}`);
   function drawDeals() {
     if (!ptData) return;
+    const them = ptData.partner.name, nd = ptData.dates.length;
     const P = Object.fromEntries([...ptData.mine, ...ptData.theirs].map((p) => [p.id, p]));
     const pl = (ids) => ids.map((i) => `${esc(P[i].name)} <span class="muted">${esc(P[i].elig.join(","))}</span>`).join("<br>");
     const cut = (ids, who) => (ids.length ? `<span class="deal-cut muted">${who} cut ${ids.map((i) => esc(P[i].name)).join(", ")}</span>` : "");
@@ -40,21 +41,27 @@
         fmt: (x) => pl(x.give) + cut(x.their_cut, "they") },
       { key: "get", label: "You get", left: true, sort: (x) => P[x.get[0]].name,
         fmt: (x) => pl(x.get) + cut(x.my_cut, "you") },
-      { key: "my_gain", label: "My gain", title: `rest of season, ${unit()} above replacement, your model`,
-        fmt: (x) => `<b class="${cls(x.my_gain)}">${signed(x.my_gain, 0)}</b>` },
-      { key: "tilt", label: "Looks to them", fmt: lookCell },
-      { key: "my_fit", label: "Fit me", fmt: (x) => `<span class="${cls(x.my_fit)}">${signed(x.my_fit)}</span>` },
-      { key: "their_fit", label: "Fit them", minor: true, fmt: (x) => `<span class="${cls(x.their_fit)}">${signed(x.their_fit)}</span>` },
+      { key: "my_gain", label: "Winner", title: `really, by your model: rest of season, ${unit()} above replacement`,
+        fmt: (x) => winner(x.my_gain, them) },
+      { key: "tilt", label: "They'll see", title: "how it looks to a typical manager (Yahoo % rostered / Fan Pts / rank)",
+        sort: (x) => -x.their_view, fmt: (x) => lookCell(x, them) },
+      { key: "fit", label: `Next ${nd} days`, title: "change in each lineup's total", sort: (x) => x.my_fit - x.their_fit,
+        fmt: (x) => `${winner(x.my_fit - x.their_fit, them, 1)}<span class="deal-cut muted">you ${signed(x.my_fit)} · them ${signed(x.their_fit)}</span>` },
     ];
     const o = ptData.offer;
     if (o) {
-      const verdictTxt = o.my_gain > 0 ? '<b class="pos">you win</b>' : '<b class="neg">you lose</b>';
-      $("pt-offer").innerHTML = `<div class="team-card"><h4>This offer: ${verdictTxt} ${signed(o.my_gain, 0)} ${unit()}</h4>
+      const head = Math.abs(o.my_gain) < 0.5 ? "Even trade"
+        : o.my_gain > 0 ? `<span class="pos">You win by ${num(o.my_gain, 0)} ${unit()}</span>`
+        : `<span class="neg">${esc(them)} wins by ${num(-o.my_gain, 0)} ${unit()}</span>`;
+      $("pt-offer").innerHTML = `<div class="team-card"><h4>${head}</h4>
+        <div class="muted">rest of season, your model (${unit()} above replacement)</div>
         <div>Give ${pl(o.give).replace(/<br>/g, " + ")} · get ${pl(o.get).replace(/<br>/g, " + ")}</div>
-        <div class="muted">Looks to them: ${esc(o.lean)} (${signed(o.their_view, 0)}) · next ${ptData.dates.length} days:
-          you ${signed(o.my_fit)}, them ${signed(o.their_fit)}
-          ${o.my_cut.length ? ` · you'd cut ${o.my_cut.map((i) => esc(P[i].name)).join(", ")}` : ""}
-          ${o.their_cut.length ? ` · they'd cut ${o.their_cut.map((i) => esc(P[i].name)).join(", ")}` : ""}</div></div>`;
+        <div>They'll probably see it as: <b>${sentence(-o.their_view, them)}</b></div>
+        <div>Next ${nd} days: <b>${sentence(o.my_fit - o.their_fit, them)}</b>
+          <span class="muted">(you ${signed(o.my_fit)}, them ${signed(o.their_fit)})</span></div>
+        <div class="muted">
+          ${o.my_cut.length ? `You'd cut ${o.my_cut.map((i) => esc(P[i].name)).join(", ")}` : ""}
+          ${o.their_cut.length ? ` They'd cut ${o.their_cut.map((i) => esc(P[i].name)).join(", ")}` : ""}</div></div>`;
     } else $("pt-offer").innerHTML = "";
     const rows = ptData.deals.filter((x) => !$("pt-sweet").checked || x.sweet_spot);
     const P2 = (ids) => ids.map((i) => P[i].name).join(", ");
@@ -67,7 +74,7 @@
     const el = $("pt-table");
     el._sort = {};
     table(el, cols, rows);
-    if (!rows.length) el.innerHTML += '<tbody><tr><td class="l" colspan="7">No deals pass these filters.</td></tr></tbody>';
+    if (!rows.length) el.innerHTML += '<tbody><tr><td class="l" colspan="6">No deals pass these filters.</td></tr></tbody>';
   }
   $("pt-run").addEventListener("click", async () => {
     const give = ticked("pt-give"), get = ticked("pt-get");
