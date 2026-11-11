@@ -118,7 +118,7 @@
           const d = r.toi_now != null && r.toi_prior != null ? r.toi_now - r.toi_prior : null;
           return `<span class="${d != null && d <= -90 ? "neg" : ""}">${mmss(r.toi_now)}</span>`; } },
       { key: "rank", label: "Rank", minor: true, title: "rank in F / D by blended value", fmt: (r) => `${r.rank}/${r.pool}` },
-      { key: "ros_vs_repl", label: "ROS vs repl", title: "rest of season vs a replacement player on an average schedule",
+      { key: "ros_vs_repl", label: "ROS vs repl", title: "through the end of your fantasy playoffs (playoff games weighted), vs a replacement player on an average schedule",
         fmt: (r) => `<span class="${cls(r.ros_vs_repl)}">${signed(r.ros_vs_repl)}</span>` },
       ...extra,
       { key: "verdict", label: "Verdict", left: true, fmt: (r) => verdict(r.verdict) },
@@ -394,7 +394,7 @@
         fmt: (x) => (x.get.pre_rank == null ? "–" : `#${num(x.get.pre_rank, 0)}`) },
       { key: "market_edge", label: "They'll see", title: "how a typical manager sees it (tilt vs the value of your player)",
         fmt: leanCell },
-      { key: "my_gain", label: "Winner", title: `really, by your model: rest of season, ${unit} above replacement`,
+      { key: "my_gain", label: "Winner", title: `your lineup, ${unit}, through ${shopData.ros_end} (playoff games x${shopData.playoff_game_weight})`,
         fmt: (x) => winner(x.my_gain, x.partner) },
       { key: "my_fit", label: "Fit me", fmt: (x) => `<span class="${cls(x.my_fit)}">${signed(x.my_fit)}</span>` },
       { key: "their_fit", label: "Fit them", minor: true, fmt: (x) => `<span class="${cls(x.their_fit)}">${signed(x.their_fit)}</span>` },

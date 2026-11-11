@@ -113,8 +113,10 @@
         <b>typical manager</b> &mdash; % rostered across Yahoo, this season's Fan Pts and
         name value (pre-season rank), weights in config/inseason.yaml: top = looks like you
         win (harder sell), bottom = looks like they win. <b>Winner</b> = who really wins and
-        by how many points, by your model (rest of season above replacement on each player's
-        real schedule). <b>They'll see</b> = who a typical manager would think wins. <b>★</b> = you gain, but to them it looks even or in their favour &mdash;
+        by how many points: your lineup simulated night by night through the end of your fantasy playoffs
+        (playoff games count extra, <code>playoff_game_weight</code> in inseason.yaml): a player who'd
+        sit on your bench adds nothing. <b>They'll see</b> = who a typical manager would think wins (a player below
+        replacement counts as 0: he'd just be dropped). <b>★</b> = you gain, but to them it looks even or in their favour &mdash;
         the ones worth proposing. <b>Fit</b> = change in each lineup over the window
         (positional need).</p>
       <div id="shop-meta" class="muted"></div>
@@ -129,9 +131,10 @@
         <button id="pt-run">Find deals</button>
       </div>
       <p class="hint">Every 1-1, 2-1, 1-2 and 2-2 package with one team. <b>Winner</b> = which
-        team really wins and by how many points, rest of season above replacement by your
-        model; taking back more players than you send means cutting your worst (shown under
-        the deal). <b>They'll see</b> = who a typical manager would think wins (Yahoo %
+        team really wins and by how many points: your lineup simulated night by night through the end of your fantasy playoffs
+        (playoff games count extra, <code>playoff_game_weight</code> in inseason.yaml): a player who'd
+        sit on your bench adds nothing. Taking back more players
+        than you send means cutting the ones who add least (shown under the deal). <b>They'll see</b> = who a typical manager would think wins (Yahoo %
         rostered / Fan Pts / name value). <b>★</b> = you win and they should see it as even or
         a win for them. <b>Next N days</b> = whose lineup gains more over the window. <b>Tick players</b> (up to 2 a side) to see only deals that
         include them, with the other spots filled in &mdash; wins and losses, best for you

@@ -41,7 +41,7 @@
         fmt: (x) => pl(x.give) + cut(x.their_cut, "they") },
       { key: "get", label: "You get", left: true, sort: (x) => P[x.get[0]].name,
         fmt: (x) => pl(x.get) + cut(x.my_cut, "you") },
-      { key: "my_gain", label: "Winner", title: `really, by your model: rest of season, ${unit()} above replacement`,
+      { key: "my_gain", label: "Winner", title: `your lineup, ${unit()}, through ${ptData.ros_end} (playoff games x${ptData.playoff_game_weight})`,
         fmt: (x) => winner(x.my_gain, them) },
       { key: "tilt", label: "They'll see", title: "how it looks to a typical manager (Yahoo % rostered / Fan Pts / rank)",
         sort: (x) => -x.their_view, fmt: (x) => lookCell(x, them) },
@@ -54,7 +54,7 @@
         : o.my_gain > 0 ? `<span class="pos">You win by ${num(o.my_gain, 0)} ${unit()}</span>`
         : `<span class="neg">${esc(them)} wins by ${num(-o.my_gain, 0)} ${unit()}</span>`;
       $("pt-offer").innerHTML = `<div class="team-card"><h4>${head}</h4>
-        <div class="muted">rest of season, your model (${unit()} above replacement)</div>
+        <div class="muted">your best nightly lineup through ${esc(ptData.ros_end)}, playoff games x${num(ptData.playoff_game_weight, 1)}</div>
         <div>Give ${pl(o.give).replace(/<br>/g, " + ")} · get ${pl(o.get).replace(/<br>/g, " + ")}</div>
         <div>They'll probably see it as: <b>${sentence(-o.their_view, them)}</b></div>
         <div>Next ${nd} days: <b>${sentence(o.my_fit - o.their_fit, them)}</b>
@@ -68,7 +68,8 @@
     const req = ptData.constrained
       ? `${ptData.found} deals including your ticks (${[P2(ticked("pt-give").map(Number).filter((i) => P[i])),
           P2(ticked("pt-get").map(Number).filter((i) => P[i]))].filter(Boolean).join(" / ")}), best for you first${$("pt-sweet").checked ? ", likely-accept only" : ""}`
-      : `${ptData.found} deals you win with ${ptData.partner.name}`;
+      : `${ptData.found} deals you win with ${ptData.partner.name}`
+        + ` (best ${ptData.scored} of ${ptData.considered} packages lineup-simulated)`;
     $("pt-meta").textContent = `${req}; ${rows.length} shown`
       + ` · market data ${ptData.market_fetched || "none (press Refresh data)"}`;
     const el = $("pt-table");

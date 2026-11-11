@@ -63,3 +63,8 @@ yahoo:
   free_agent_pages: 0   # 0 = every available player (free agents, waivers,
                         # injured). N = top N pages (25 each) by current
                         # rank + top N by preseason rank (faster)
+# Rest-of-season values (hold checks, trades) run to the end of the league's
+# fantasy playoffs (playoff_window in the league yaml), and a game in that
+# window counts this many times: those weeks decide the title. 1 = no extra
+# weight. A judgment call -- raise it once your playoff spot is safe.
+playoff_game_weight: 2.0

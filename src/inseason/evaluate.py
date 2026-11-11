@@ -78,8 +78,36 @@ class Context:
                 " uv run python -m src.inseason.ingest")
 
     def season_end(self) -> str:
+        """Last NHL regular-season date."""
         dates = self._index().dates
         return dates[-1] if dates else self.as_of
+
+    # ── the fantasy season: what "rest of season" means ──────────────────
+    # Rest-of-season values run to the end of the league's fantasy playoffs
+    # (league yaml playoff_window), not the NHL's last day, and a playoff
+    # game counts ``playoff_game_weight`` times (inseason.yaml): those weeks
+    # decide the title. Without a playoff_window: NHL season end, weight 1.
+
+    def fantasy_end(self) -> str:
+        end = self.season_end()
+        po = self.league.playoff_window
+        return min(end, po[1]) if po else end
+
+    def game_weight(self, date: str) -> float:
+        if date > self.fantasy_end():
+            return 0.0
+        po = self.league.playoff_window
+        if po and po[0] <= date <= po[1]:
+            return float(self.icfg.get("playoff_game_weight", 1.0))
+        return 1.0
+
+    def weighted_team_games(self, start: str, end: str) -> float:
+        """avg_team_games with each game weighted by game_weight."""
+        idx = self._index()
+        if not idx.by_team:
+            return 0.0
+        lo, hi = bisect_left(idx.dates, start), bisect_right(idx.dates, end)
+        return 2 * sum(self.game_weight(d) for d in idx.dates[lo:hi]) / len(idx.by_team)
 
 
 class _ScheduleIndex:
@@ -204,6 +232,21 @@ def player_window(ctx: Context, pid: int, start: str, end: str) -> dict:
             "off_nights": sum(g["off_night"] for g in games)}
 
 
+def ros_value(ctx: Context, pid: int, start: str) -> float:
+    """Weighted value of every game from ``start`` to the fantasy end."""
+    line = ctx.lines[pid]
+    return sum(game_value(ctx, line, opp) * ctx.game_weight(d)
+               for d, opp in ctx.team_games(line.team, start, ctx.fantasy_end()))
+
+
+def ros_over_replacement(ctx: Context, pid: int, start: str) -> float:
+    """ros_value minus a replacement player's on a league-average schedule
+    (same weights)."""
+    repl = ctx.scorer.replacement[value_group(ctx.lines[pid].position)]
+    return (ros_value(ctx, pid, start)
+            - repl * ctx.weighted_team_games(start, ctx.fantasy_end()))
+
+
 def _end(start: str, days: int) -> str:
     return (datetime.date.fromisoformat(start)
             + datetime.timedelta(days=days - 1)).isoformat()
@@ -292,9 +335,9 @@ def hold_check(ctx: Context, pid: int, start: str, days: int) -> dict:
     repl = sc.replacement[grp]
     end = _end(start, days)
     win = player_window(ctx, pid, start, end)
-    ros = player_window(ctx, pid, start, ctx.season_end())
+    ros = player_window(ctx, pid, start, ctx.fantasy_end())
     avg_win = ctx.avg_team_games(start, end)
-    avg_ros = ctx.avg_team_games(start, ctx.season_end())
+    avg_ros = ctx.avg_team_games(start, ctx.fantasy_end())
     vpg = sc.per_game[pid]
     margin = ctx.icfg["hold_margin"]
     if vpg >= repl + margin * abs(repl) and vpg > 0:
@@ -311,7 +354,9 @@ def hold_check(ctx: Context, pid: int, start: str, days: int) -> dict:
         "start": start, "end": end, "window": win, "avg_window_games": avg_win,
         "window_vs_replacement": win["value"] - repl * avg_win,
         "ros_games": len(ros["games"]), "avg_ros_games": avg_ros,
-        "ros_vs_replacement": ros["value"] - repl * avg_ros,
+        # weighted (playoff games count extra), to the fantasy end
+        "ros_vs_replacement": ros_over_replacement(ctx, pid, start),
+        "ros_end": ctx.fantasy_end(),
         "verdict": verdict}
 
 

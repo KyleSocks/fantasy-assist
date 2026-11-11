@@ -77,21 +77,20 @@ def test_market_per_game_leans_on_this_season(db):  # noqa: F811
 def test_trade_options_range_and_labels(db):  # noqa: F811
     """Ordered from 'looks like you win' to 'looks like they win', with
     your model's gain, labels and the sweet-spot flag consistent."""
-    from src.inseason.evaluate import player_window
     from src.inseason.teams import trade_options
-    from src.valuation.valuation import value_group
     ctx = _trade_ctx(db)
     r = trade_options(ctx, LEAGUE, 1, 1, "2026-11-01", 4, max_tilt=99)
     opts = r["options"]
     assert {o["get"]["name"] for o in opts} == {"Strong Center", "Goalie B"}
     assert [o["market_edge"] for o in opts] == sorted(
         (o["market_edge"] for o in opts), reverse=True)
-    avg = ctx.avg_team_games("2026-11-01", ctx.season_end())
+    from src.inseason.teams import RosLineup, team_players
+    mine = team_players(ctx, LEAGUE["teams"]["1"]["players"])[0]
+    lineup = RosLineup(ctx, mine, "2026-11-01")
     for o in opts:
         pid = o["get"]["id"]
-        repl = ctx.scorer.replacement[value_group(ctx.lines[pid].position)]
-        ros = player_window(ctx, pid, "2026-11-01", ctx.season_end())["value"] - repl * avg
-        assert o["my_gain"] == pytest.approx(ros - r["give"]["ros_value"])
+        # my gain = the swap's change in my rest-of-season lineup
+        assert o["my_gain"] == pytest.approx(lineup.gain({1}, {pid: set(o["get"]["elig"])}))
         assert o["lean"] == ("favors you" if o["tilt"] > .15 else
                              "favors them" if o["tilt"] < -.15 else "even")
         assert o["sweet_spot"] == (o["my_gain"] > 0 and o["tilt"] <= .15)
@@ -155,21 +154,29 @@ def test_partner_trades_packages_cuts_and_offer(db):  # noqa: F811
     ctx = _trade_ctx(db)
     r = partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, offer=([3, 4], [7]))
     assert r["partner"]["name"] == "Theirs"
-    V = {p["id"]: p["ros_value"] for p in r["mine"] + r["theirs"]}
+    from src.inseason.teams import RosLineup, team_players
+    mine = team_players(ctx, LEAGUE["teams"]["1"]["players"])[0]
+    theirs = team_players(ctx, LEAGUE["teams"]["2"]["players"])[0]
+    lineup = RosLineup(ctx, mine, "2026-11-01")
     M = {p["id"]: p["market_value"] for p in r["mine"] + r["theirs"]}
+    keeps = {p["id"]: p["lineup_value"] for p in r["mine"]}
+    assert all(v >= 0 for v in M.values())       # market floors at 0
     assert r["deals"] and r["found"] >= len(r["deals"])
     for d in r["deals"]:
         assert 1 <= len(d["give"]) <= 2 and 1 <= len(d["get"]) <= 2
         assert d["my_gain"] > 0 and d["tilt"] >= -0.6
-        # taking back more players than you send costs you your worst
+        # taking back more players than you send cuts the ones who add
+        # least to your lineup
         assert len(d["my_cut"]) == max(len(d["get"]) - len(d["give"]), 0)
         assert len(d["their_cut"]) == max(len(d["give"]) - len(d["get"]), 0)
-        assert d["my_gain"] == pytest.approx(
-            sum(V[p] for p in d["get"]) - sum(V[p] for p in d["give"])
-            - sum(max(V[p], 0) for p in d["my_cut"]))
+        rest = [p for p in mine if p not in d["give"] and p not in d["my_cut"]]
+        assert all(keeps[c] <= keeps[p] for c in d["my_cut"] for p in rest)
+        # my gain: exact rest-of-season lineup simulation
+        assert d["my_gain"] == pytest.approx(lineup.gain(
+            {*d["give"], *d["my_cut"]}, {p: theirs[p] for p in d["get"]}))
         assert d["their_view"] == pytest.approx(
             sum(M[p] for p in d["give"]) - sum(M[p] for p in d["get"])
-            - sum(max(M[p], 0) for p in d["their_cut"]))
+            - sum(M[p] for p in d["their_cut"]))
         assert d["sweet_spot"] == (d["tilt"] >= -0.15)
         assert "my_fit" in d and "their_fit" in d
     # sweet spots first
@@ -213,3 +220,46 @@ def test_partner_trades_ticked_players_filter_deals(db):  # noqa: F811
         partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, require=([1, 3, 4], []))
     with pytest.raises(ValueError):    # 2 ticks in 1-for-1 mode
         partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, max_size=1, require=([1, 3], []))
+
+
+# ── rest of season = lineup value through the fantasy playoffs ────────
+
+def test_ros_lineup_bench_player_is_worth_only_his_open_nights(db):  # noqa: F811
+    """One D slot. Dee Two (CCC) plays 11-01 vs AAA, 11-02 and 11-04 vs BBB;
+    Dee Man (BBB) plays 11-02 and 11-04 vs CCC, 11-03 vs AAA. Losing Dee
+    Two costs his 11-01 game (no other D plays) plus, on the two shared
+    nights, only what he beats Dee Man by."""
+    from src.inseason.evaluate import game_value
+    from src.inseason.teams import RosLineup, team_players
+    ctx = _trade_ctx(db)
+    mine = team_players(ctx, LEAGUE["teams"]["1"]["players"])[0]
+    r = RosLineup(ctx, mine, "2026-11-01")
+    dt, dm = ctx.lines[5], ctx.lines[4]
+    shared = 2 * max(game_value(ctx, dt, "BBB") - game_value(ctx, dm, "CCC"), 0)
+    assert r.loss_without(5) == pytest.approx(game_value(ctx, dt, "AAA") + shared)
+    # Goalie B fills my empty G slot: every game of his counts
+    gb = ctx.lines[7]
+    assert r.gain_with(7, {"G"}) == pytest.approx(
+        2 * game_value(ctx, gb, "CCC") + game_value(ctx, gb, "AAA"))
+
+
+def test_fantasy_end_and_playoff_weight(db):  # noqa: F811
+    """Fantasy playoffs = 11-03 only, weight 2: 11-04 doesn't count, 11-03
+    counts double. Ovi (AAA) plays 11-01 vs CCC and 11-03 vs BBB."""
+    from src.inseason.evaluate import game_value, hold_check, ros_value
+    ctx = _trade_ctx(db)
+    ctx.league = POINTS.model_copy(update={
+        "regular_window": ("2026-10-01", "2026-11-02"),
+        "playoff_window": ("2026-11-03", "2026-11-03")})
+    ctx.icfg["playoff_game_weight"] = 2.0
+    assert ctx.season_end() == "2026-11-04" and ctx.fantasy_end() == "2026-11-03"
+    assert [ctx.game_weight(d) for d in ("2026-11-02", "2026-11-03", "2026-11-04")] == [1, 2, 0]
+    # games 11-01, 11-02 (weight 1) + 11-03 (weight 2) = 4, x2 teams / 3 teams
+    assert ctx.weighted_team_games("2026-11-01", "2026-11-04") == pytest.approx(8 / 3)
+    ovi = ctx.lines[1]
+    expect = game_value(ctx, ovi, "CCC") + 2 * game_value(ctx, ovi, "BBB")
+    assert ros_value(ctx, 1, "2026-11-01") == pytest.approx(expect)
+    h = hold_check(ctx, 1, "2026-11-01", 4)
+    assert h["ros_end"] == "2026-11-03" and h["ros_games"] == 2
+    assert h["ros_vs_replacement"] == pytest.approx(
+        expect - ctx.scorer.replacement["F"] * 8 / 3)
