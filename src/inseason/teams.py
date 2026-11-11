@@ -21,7 +21,7 @@ from src.valuation.valuation import value_group
 
 from .evaluate import Context, form, ros_over_replacement
 from .lineup import best_lineup
-from .roster import _match, dates_from, game_values, parse_players
+from .roster import _match, dates_from, game_values, parse_list, parse_players
 
 SLOT_ORDER = ("C", "LW", "RW", "D", "Util", "G")
 
@@ -33,11 +33,27 @@ def league_slots(ctx: Context) -> dict[str, int]:
     return {s: n for s, n in slots.items() if n > 0}
 
 
+def _roster_text(players: list[dict]) -> str:
+    return "\n".join(f"{p['name']} | {p['team']} | {','.join(p['positions'])}"
+                     + (" | IR" if p.get("inactive") else "")
+                     + (f"  # {p['injury']}" if p.get("injury") else "")
+                     for p in players)
+
+
 def team_players(ctx: Context, players: list[dict]) -> tuple[dict[int, set[str]], list[str]]:
     """{pid: positions} for a stored roster (list of {name, team, positions})."""
-    text = "\n".join(f"{p['name']} | {p['team']} | {','.join(p['positions'])}"
-                     + (" | IR" if p.get("inactive") else "") for p in players)
-    return parse_players(ctx, text)
+    return parse_players(ctx, _roster_text(players))
+
+
+def team_tags(ctx: Context, players: list[dict]) -> dict[int, str]:
+    """{pid: Yahoo injury tag (DTD, O, IR-LT ...)} for a stored roster."""
+    return parse_list(ctx, _roster_text(players)).tags
+
+
+def close_call(gain: float, moved: float) -> bool:
+    """A margin under 10% of the lineup value changing hands (or 5 pts) is
+    inside rest-of-season projection error: too close to call."""
+    return abs(gain) < max(5.0, 0.1 * moved)
 
 
 class _Sim:
@@ -141,10 +157,14 @@ def analyze(ctx: Context, league: dict, my_team_id: int, start: str,
     teams = []
     for tid, rep in sorted(reports.items(), key=lambda kv: -kv[1]["total"]):
         roster = rosters[tid]
+        tags = team_tags(ctx, league["teams"][str(tid)]["players"])
         players = sorted(({
             "id": p, "name": ctx.lines[p].name, "team": ctx.lines[p].team,
             "elig": sorted(e), "per_game": ctx.scorer.per_game[p],
-            "games": len(sim.games(p)), "starts": rep["starts"].get(p, 0)}
+            "games": len(sim.games(p)), "starts": rep["starts"].get(p, 0),
+            "injury": tags.get(p), "playoff_games": ctx.playoff_games(ctx.lines[p].team),
+            "avail": (ctx.lines[p].start_share if ctx.lines[p].is_goalie
+                      else ctx.lines[p].play_share)}
             for p, e in roster.items()), key=lambda x: -x["per_game"])
         teams.append({
             "id": tid, "name": names[tid],
@@ -208,8 +228,10 @@ class Market:
 
     Three signals, each turned into a percentile within F / D / G:
       rostered -- % of all Yahoo leagues rostering him (the crowd's verdict)
-      points   -- Yahoo Fan Pts per game this season (what casual managers
-                  look at; no projection, no regression)
+      points   -- Yahoo Fan Pts this season: the TOTAL by default, as the
+                  trade screen shows it (so a player who missed games looks
+                  worse -- how the other manager sees him); per game with
+                  ``market_points: per_game`` in inseason.yaml
       name     -- Yahoo pre-season rank (reputation / draft position)
     The weighted mean (``market_weights`` in inseason.yaml; missing signals
     are skipped) ranks players; a player's market value per game is the
@@ -224,6 +246,7 @@ class Market:
         self.ctx = ctx
         w = weights or ctx.icfg.get("market_weights") or DEFAULT_MARKET_WEIGHTS
         self.weights = {k: float(w.get(k, 0)) for k in DEFAULT_MARKET_WEIGHTS}
+        self.per_game_points = ctx.icfg.get("market_points", "total") == "per_game"
         self.info: dict[int, dict] = {}
         for r in rows:
             ln = _match(ctx, [r["name"], r.get("team") or "",
@@ -242,8 +265,14 @@ class Market:
         r = self.info[pid]
         gp, fpts = r.get("gp"), r.get("fpts")
         pre = r.get("pre_rank")
+        if fpts is None:
+            pts = None
+        elif self.per_game_points:
+            pts = fpts / gp if gp else None
+        else:
+            pts = fpts
         return {"rostered": r.get("pct_ros"),
-                "points": (fpts / gp) if gp and fpts is not None else None,
+                "points": pts,
                 # lower rank = better: negate so higher is better everywhere
                 "name": -pre if pre else None}
 
@@ -341,6 +370,7 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
     scale = max(abs(mkt_pg(give)) * avg_ros, 1e-9)
     ge = mine[give]
     ros = RosLineup(ctx, mine, start)
+    give_loss = ros.loss_without(give)
     rows = []
     for tid, theirs in rosters.items():
         if tid == my_team_id:
@@ -355,6 +385,7 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
             m_after = {**{p: e for p, e in mine.items() if p != give}, get: te}
             t_after = {**{p: e for p, e in theirs.items() if p != get}, give: ge}
             my_gain = ros.gain({give}, {get: te})
+            close = close_call(my_gain, give_loss + ros.gain_with(get, te))
             rows.append({
                 "partner_id": tid, "partner": names[tid],
                 "get": {"id": get, "name": ctx.lines[get].name,
@@ -364,7 +395,7 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
                 "my_gain": my_gain, "market_edge": edge, "tilt": tilt,
                 "lean": ("favors you" if tilt > 0.15 else
                          "favors them" if tilt < -0.15 else "even"),
-                "sweet_spot": my_gain > 0 and tilt <= 0.15,
+                "sweet_spot": my_gain > 0 and tilt <= 0.15, "close": close,
                 "my_fit": sim.total(m_after, nights) - sim.total(mine, nights),
                 "their_fit": sim.total(t_after, nights) - sim.total(theirs, nights),
             })

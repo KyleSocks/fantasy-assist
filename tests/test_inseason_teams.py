@@ -263,3 +263,58 @@ def test_fantasy_end_and_playoff_weight(db):  # noqa: F811
     assert h["ros_end"] == "2026-11-03" and h["ros_games"] == 2
     assert h["ros_vs_replacement"] == pytest.approx(
         expect - ctx.scorer.replacement["F"] * 8 / 3)
+
+
+def test_waiver_replacement_is_best_free_agent(db):  # noqa: F811
+    """Formula replacement: F 2.445 (Strong Center), D 1.495 (Dee Two). With
+    Depth Wing + Dee Two the only free agents, F replacement drops to Depth
+    Wing's value, D stays Dee Two's, G (no free agent) keeps the formula."""
+    from src.inseason.evaluate import apply_waiver_replacement
+    ctx = _trade_ctx(db)
+    formula = dict(ctx.scorer.replacement)
+    by = apply_waiver_replacement(ctx, {3, 5})
+    assert by == {"F": "Depth Wing", "D": "Dee Two"}
+    assert ctx.scorer.replacement["F"] == pytest.approx(ctx.scorer.per_game[3])
+    assert ctx.scorer.replacement["D"] == pytest.approx(1.495)
+    assert ctx.scorer.replacement["G"] == pytest.approx(formula["G"])
+    # re-applying starts from the formula, not the last result
+    apply_waiver_replacement(ctx, set())
+    assert ctx.scorer.replacement == pytest.approx(formula)
+
+
+def test_open_roster_spot_gets_best_free_agent(db):  # noqa: F811
+    """Give Depth Wing + Dee Man for Strong Center: one spot opens. Goalie A
+    (a free agent) fills my empty G slot, so the deal is worth the lineup
+    with Strong Center AND Goalie A."""
+    from src.inseason.partner import partner_trades
+    from src.inseason.teams import RosLineup, team_players
+    ctx = _trade_ctx(db)
+    mine = team_players(ctx, LEAGUE["teams"]["1"]["players"])[0]
+    lineup = RosLineup(ctx, mine, "2026-11-01")
+    r = partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, require=([3, 4], [2]),
+                       free_agents={6: {"G"}})
+    d = next(x for x in r["deals"] if x["give"] == [3, 4] and x["get"] == [2])
+    assert d["my_adds"] == [6]
+    with_fa = lineup.gain({3, 4}, {2: {"C"}, 6: {"G"}})
+    assert d["my_gain"] == pytest.approx(with_fa)
+    assert with_fa > lineup.gain({3, 4}, {2: {"C"}})
+    assert [p["name"] for p in r["free_agents"]] == ["Goalie A"]
+    # without free agents the spot is worth 0
+    r0 = partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, require=([3, 4], [2]))
+    d0 = next(x for x in r0["deals"] if x["give"] == [3, 4] and x["get"] == [2])
+    assert d0["my_adds"] == [] and d0["my_gain"] < d["my_gain"]
+
+
+def test_market_points_signal_is_season_total_by_default(db):  # noqa: F811
+    """Strong Center: 40 Fan Pts in 10 GP (4.0/gm). Ovi: 30 in 5 GP (6.0/gm,
+    missed games). Points only: the trade screen's total ranks Strong Center
+    first; per game ranks Ovi first."""
+    from src.inseason.teams import Market
+    ctx = _trade_ctx(db)
+    rows = [{"name": "Strong Center", "team": "BBB", "positions": ["C"], "gp": 10, "fpts": 40.0},
+            {"name": "Alex Ovechkin", "team": "AAA", "positions": ["LW"], "gp": 5, "fpts": 30.0}]
+    w = {"rostered": 0, "points": 1, "name": 0}
+    top = max(ctx.scorer.per_game[1], ctx.scorer.per_game[2])
+    assert Market(ctx, rows, w).per_game(2) == pytest.approx(top)
+    ctx.icfg["market_points"] = "per_game"
+    assert Market(ctx, rows, w).per_game(1) == pytest.approx(top)

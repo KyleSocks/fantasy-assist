@@ -152,17 +152,30 @@ def test_goalie_blend_and_start_share(ctx):
     b = ctx.lines[7]                                   # no prior -> 0 share prior
     assert b.start_share == pytest.approx(0.4)        # (0 + 8)/20
     assert b.blended["wins"] == pytest.approx((9 / 14 * 10 + 6) / 18)
+    # saves / GA from one workload x one save %: A's prior SA/start is
+    # 25 + 2.5 = 27.5, observed 165 over 6 starts -> (275 + 165)/16 = 27.5
+    assert a.blended["shots_against"] == pytest.approx(27.5)
+    assert a.blended["saves"] == pytest.approx(27.5 * 241 / 265)
+    assert a.blended["goals_against"] == pytest.approx(27.5 * 24 / 265)
+    # B: league fallback prior 410 shots / 14 starts, 380/410 save %
+    sa_b = (410 / 14 * 10 + 245) / 18
+    sv_b = (380 / 410 * 100 + 230) / (100 + 245)
+    assert b.blended["save_pct"] == pytest.approx(sv_b)
+    assert b.blended["goals_against"] == pytest.approx(sa_b * (1 - sv_b))
 
 
 def test_points_per_game_and_replacement(ctx):
     sc = ctx.scorer
     assert sc.per_game[1] == pytest.approx(2.825)   # .7 + .4 + 1.5 + .225
     assert sc.per_game[2] == pytest.approx(2.445)
-    assert sc.per_game[6] == pytest.approx(1.05)    # .7 * (1.5 + 2.5 - 2.5)
-    assert sc.per_game[7] == pytest.approx(0.4 * (3 * (9 / 14 * 10 + 6) / 18
-                                                  + 0.1 * (380 / 14 * 10 + 230) / 18
-                                                  - (30 / 14 * 10 + 15) / 18))
-    assert sc.replacement == pytest.approx({"F": 2.445, "D": 1.495, "G": 1.05})
+    # .7 * (3 W x .5 + .1 x saves - GA), saves/GA from 27.5 SA at 241/265
+    g6 = 0.7 * (1.5 + 0.1 * 27.5 * 241 / 265 - 27.5 * 24 / 265)
+    assert sc.per_game[6] == pytest.approx(g6)      # 1.0573
+    sa_b = (410 / 14 * 10 + 245) / 18
+    sv_b = (380 / 410 * 100 + 230) / (100 + 245)
+    g7 = 0.4 * (3 * (9 / 14 * 10 + 6) / 18 + 0.1 * sa_b * sv_b - sa_b * (1 - sv_b))
+    assert sc.per_game[7] == pytest.approx(g7)
+    assert sc.replacement == pytest.approx({"F": 2.445, "D": 1.495, "G": min(g6, g7)})
     assert sc.group_rank[1] == 1 and sc.group_rank[3] == 3
 
 
@@ -300,16 +313,18 @@ def test_api_endpoints(db, tmp_path, monkeypatch):
 
 def test_goalie_streams_assume_he_starts(ctx):
     # Goalie B (BBB, blended start share .4) vs CCC on 11-02 (gf .8333,
-    # sf .825301). Per START: 3*.690476 + .1*27.857143*.825301
-    # - 2.023810*.833333 = 2.68398 -- not scaled down by the .4 share.
+    # sf .825301). Blended SA/start (410/14*10 + 245)/18 = 29.880952, save %
+    # (380/410*100 + 230)/345 = .935313. Per START: 3*.690476
+    # + .1*29.880952*.935313*.825301 - 29.880952*.064687*.833333 = 2.76722
+    # -- not scaled down by the .4 share.
     rows = {r["player_id"]: r for r in streams(ctx, "2026-11-02",
                                                likely_available=False)}
     g = rows[7]
-    assert g["value"] == pytest.approx(2.68398, abs=1e-4)
+    assert g["value"] == pytest.approx(2.76722, abs=1e-4)
     assert g["start_share"] == pytest.approx(0.4)
+    sa, sv = (410 / 14 * 10 + 245) / 18, (380 / 410 * 100 + 230) / 345
     assert g["per_game"] == pytest.approx(3 * (9 / 14 * 10 + 6) / 18
-                                          + 0.1 * (380 / 14 * 10 + 230) / 18
-                                          - (30 / 14 * 10 + 15) / 18)
+                                          + 0.1 * sa * sv - sa * (1 - sv))
     # the season / lineup path still weights by start share
     assert ctx.scorer.per_game[7] == pytest.approx(0.4 * g["per_game"])
 
@@ -351,3 +366,31 @@ def test_waiver_and_out_markers_in_lists(ctx):
     ids = {r["player_id"] for r in streams(ctx, "2026-11-02", likely_available=False,
                                            unavailable={2})}
     assert 2 not in ids and 5 in ids
+
+
+def test_skater_play_share_scales_value_per_team_game(db):
+    """Ovi projected to play 90% (gp_share .9), played 10 of AAA's 10:
+    share = (.9 x 20 + 10) / (20 + 10) = 28/30. Dee Two (no projection ->
+    prior 1) played 6 of CCC's 10: (20 + 6) / 30 = 26/30. Values per team
+    game scale by the share; per game played (form's blended) and a stream
+    of a confirmed-playing skater don't."""
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE skater_current SET gp=6 WHERE player_id=5")
+    conn.commit()
+    conn.close()
+    pri = {**PRIORS, 1: dict(PRIORS[1], gp_share=0.9)}
+    c = build_context(db, POINTS, priors=pri, icfg=dict(ICFG, play_share_k_games=20))
+    ovi, dt = c.lines[1], c.lines[5]
+    assert ovi.play_share == pytest.approx(28 / 30)
+    assert dt.play_share_obs == pytest.approx(0.6)
+    assert dt.play_share == pytest.approx(26 / 30)
+    assert c.scorer.per_game[1] == pytest.approx(2.825 * 28 / 30)   # 2.63667
+    from src.inseason.evaluate import form
+    f = form(c, ovi)
+    assert f["blended"] == pytest.approx(2.825) and f["avail"] == pytest.approx(28 / 30)
+    assert f["team_game"] == pytest.approx(2.825 * 28 / 30)
+    assert c.scorer.per_game[5] == pytest.approx(form(c, dt)["blended"] * 26 / 30)
+    # streaming him tonight: he's in the lineup, no availability discount
+    row = next(r for r in streams(c, "2026-11-01", likely_available=False)
+               if r["player_id"] == 1)
+    assert row["per_game"] == pytest.approx(2.825)

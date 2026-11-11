@@ -19,7 +19,7 @@ skater_k_games:
 goalie_k_starts:
   wins: 20
   saves: 15
-  goals_against: 15
+  goals_against: 15   # unused: GA = shots against x (1 - blended SV%), see model.py
   shutouts: 40
 # save_pct blends in shots against, same units as regression.yaml's k.
 goalie_save_pct_k_shots: 1000
@@ -45,12 +45,15 @@ protect_min_gp: 15
 # From Yahoo (pulled by Refresh into data/market.json), each a percentile
 # within F / D / G, weighted:
 #   rostered: % of all Yahoo leagues rostering him
-#   points:   Yahoo Fan Pts per game this season
+#   points:   Yahoo Fan Pts this season (see market_points)
 #   name:     Yahoo pre-season rank (reputation)
 market_weights:
   rostered: 0.5
   points: 0.3
   name: 0.2
+# "total" = season Fan Pts as Yahoo's trade screen shows them (a player who
+# missed games looks worse, as he does to the other manager); "per_game".
+market_points: total
 # Fallback for players with no Yahoo data: season-to-date production with
 # only this many games of preseason prior (the model above uses 10-60).
 market_k_games: 5
@@ -68,3 +71,6 @@ yahoo:
 # window counts this many times: those weeks decide the title. 1 = no extra
 # weight. A judgment call -- raise it once your playoff spot is safe.
 playoff_game_weight: 2.0
+# Skaters: share of team games played (injuries, scratches) blends the
+# projection's durability with this season's games played / team games.
+play_share_k_games: 20

@@ -19,6 +19,7 @@ from fastapi import HTTPException, Query
 
 from src.api import inseason as ins
 from src.api.inseason import DateStr, Days, LeagueName
+from src.inseason.roster import parse_list
 
 _LEAGUE_CACHE: dict[tuple, dict] = {}
 
@@ -106,7 +107,8 @@ def get_partner_trades(partner: int, give: IdList = "", get: IdList = "",
     try:
         out = partner_trades(ctx, data, int(data["my_team_id"]), partner,
                              ins._day(start), days, market=market, max_size=size,
-                             offer=offer, require=req)
+                             offer=offer, require=req,
+                             free_agents=parse_list(ctx, ins._read(ins.FA_FILE)).active)
     except ValueError as e:
         raise HTTPException(400, str(e))
     out.update(as_of=ctx.as_of, unit="fpts" if ctx.scorer.points else "z",
