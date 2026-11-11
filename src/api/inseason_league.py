@@ -77,7 +77,7 @@ IdList = Annotated[str, Query(max_length=40, pattern=r"^[0-9,]*$")]
 
 
 def _ids(s: str) -> list[int]:
-    return [int(x) for x in s.split(",") if x][:2]
+    return [int(x) for x in s.split(",") if x]
 
 
 @ins.router.get("/partner-trades")
@@ -86,7 +86,8 @@ def get_partner_trades(partner: int, give: IdList = "", get: IdList = "",
                        size: Annotated[int, Query(ge=1, le=2)] = 2,
                        league: LeagueName = None) -> dict:
     """Every 1-1 / 2-1 / 1-2 / 2-2 deal with one team (inseason.partner);
-    ``give`` / ``get`` (comma-separated ids) score one specific offer too."""
+    ``give`` / ``get`` (comma-separated ids): players every deal must
+    include; with both, that exact deal is scored on its own as well."""
     from src.inseason.partner import partner_trades
     from src.inseason.teams import Market
 
@@ -98,11 +99,14 @@ def get_partner_trades(partner: int, give: IdList = "", get: IdList = "",
     mpath = ins.DATA_DIR / ins.MARKET_FILE
     mdata = json.loads(mpath.read_text(encoding="utf-8")) if mpath.exists() else None
     market = Market(ctx, mdata["players"]) if mdata else None
-    offer = (_ids(give), _ids(get)) if give and get else None
+    # ticked players: every deal listed includes them; with both sides
+    # ticked, that exact deal is also scored on its own
+    req = (_ids(give), _ids(get))
+    offer = req if req[0] and req[1] else None
     try:
         out = partner_trades(ctx, data, int(data["my_team_id"]), partner,
                              ins._day(start), days, market=market, max_size=size,
-                             offer=offer)
+                             offer=offer, require=req)
     except ValueError as e:
         raise HTTPException(400, str(e))
     out.update(as_of=ctx.as_of, unit="fpts" if ctx.scorer.points else "z",

@@ -16,7 +16,8 @@ from .teams import Market, _Sim, league_slots, market_per_game, team_players
 def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
                    start: str, days: int = 21, market: Market | None = None,
                    max_size: int = 2, offer: tuple[list[int], list[int]] | None = None,
-                   limit: int = 60) -> dict:
+                   limit: int = 60,
+                   require: tuple[list[int], list[int]] | None = None) -> dict:
     """Every package deal (up to ``max_size`` players a side) with one team.
 
     Same two lenses as trade_options, rest of season above replacement:
@@ -29,6 +30,10 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
     and it looks even or better to them. ``my_fit`` / ``their_fit`` = change
     in each lineup over the next ``days``, after the cuts. ``offer``: one
     specific deal (your ids, their ids) to score the same way.
+    ``require``: (your ids, their ids) every listed deal must include --
+    the other slots, up to ``max_size`` a side, are filled from both
+    rosters. With anything required, losing and lopsided deals are kept too
+    (you asked about these players) and the list is ordered by your gain.
     """
     rosters = {int(t): team_players(ctx, v["players"])[0]
                for t, v in league["teams"].items()}
@@ -36,6 +41,12 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
     if partner_id not in rosters or partner_id == my_team_id:
         raise ValueError(f"unknown trade partner {partner_id}")
     mine, theirs = rosters[my_team_id], rosters[partner_id]
+    need_g, need_t = (set(require[0]), set(require[1])) if require else (set(), set())
+    if not need_g <= set(mine) or not need_t <= set(theirs):
+        raise ValueError("ticked players must be on the two active rosters")
+    if len(need_g) > max_size or len(need_t) > max_size:
+        raise ValueError(f"tick at most {max_size} players a side")
+    constrained = bool(need_g or need_t)
     mkt_pg = market.per_game if market else (lambda p: market_per_game(ctx, p))
     card = market.card if market else (lambda p: {"market_source": "season-to-date"})
     end = ctx.season_end()
@@ -71,16 +82,28 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
 
     rows = []
     sizes = range(1, max_size + 1)
+
+    def combos(roster: dict, need: set[int], n: int):
+        # the required players plus every way to fill the rest
+        if len(need) > n:
+            return
+        free = [p for p in roster if p not in need]
+        for extra in itertools.combinations(free, n - len(need)):
+            yield (*sorted(need), *extra)
+
     for ng in sizes:
         for nt in sizes:
-            for give in itertools.combinations(mine, ng):
-                for get in itertools.combinations(theirs, nt):
+            for give in combos(mine, need_g, ng):
+                for get in combos(theirs, need_t, nt):
                     d = deal(give, get)
-                    if d["my_gain"] > 0 and d["tilt"] >= -0.6:
+                    if constrained or (d["my_gain"] > 0 and d["tilt"] >= -0.6):
                         rows.append(d)
     n_found = len(rows)
-    rows.sort(key=lambda d: (not d["sweet_spot"],
-                             -(d["my_gain"] if d["sweet_spot"] else d["tilt"])))
+    if constrained:
+        rows.sort(key=lambda d: -d["my_gain"])
+    else:
+        rows.sort(key=lambda d: (not d["sweet_spot"],
+                                 -(d["my_gain"] if d["sweet_spot"] else d["tilt"])))
     rows = rows[:limit]
     sim = _Sim(ctx, dates_from(start, days), league_slots(ctx))
     base_m, base_t = sim.total(mine), sim.total(theirs)
@@ -115,5 +138,5 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
         "dates": sim.dates, "ros_games": avg_ros, "found": n_found,
         "mine": sorted((player(p, e) for p, e in mine.items()), key=lambda x: -x["ros_value"]),
         "theirs": sorted((player(p, e) for p, e in theirs.items()), key=lambda x: -x["ros_value"]),
-        "deals": rows, "offer": offer_row,
+        "deals": rows, "offer": offer_row, "constrained": constrained,
     }

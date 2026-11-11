@@ -191,3 +191,25 @@ def test_partner_trades_rejects_bad_input(db):  # noqa: F811
         partner_trades(ctx, LEAGUE, 1, 1, "2026-11-01", 4)      # myself
     with pytest.raises(ValueError):
         partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, offer=([7], [3]))  # swapped
+
+
+def test_partner_trades_ticked_players_filter_deals(db):  # noqa: F811
+    """Ticking 2 of mine + 1 of theirs lists only deals with all three --
+    2-for-1 and 2-for-2 with one more of theirs -- losses included."""
+    from src.inseason.partner import partner_trades
+    ctx = _trade_ctx(db)
+    r = partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, require=([3, 4], [7]))
+    assert r["constrained"]
+    combos = {(tuple(sorted(d["give"])), tuple(sorted(d["get"]))) for d in r["deals"]}
+    # their roster is Strong Center (2) + Goalie B (7): exactly two packages
+    assert combos == {((3, 4), (7,)), ((3, 4), (2, 7))}
+    gains = [d["my_gain"] for d in r["deals"]]
+    assert gains == sorted(gains, reverse=True)
+    # one side ticked: every deal has him, sizes 1-2 on both sides
+    one = partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, require=([1], []))
+    assert one["deals"] and all(1 in d["give"] for d in one["deals"])
+    assert {len(d["give"]) for d in one["deals"]} == {1, 2}
+    with pytest.raises(ValueError):    # 3 ticks on one side
+        partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, require=([1, 3, 4], []))
+    with pytest.raises(ValueError):    # 2 ticks in 1-for-1 mode
+        partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, max_size=1, require=([1, 3], []))
