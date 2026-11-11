@@ -33,7 +33,7 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
     ``require``: (your ids, their ids) every listed deal must include --
     the other slots, up to ``max_size`` a side, are filled from both
     rosters. With anything required, losing and lopsided deals are kept too
-    (you asked about these players) and the list is ordered by your gain.
+    (you asked about these players); sweet spots first, then by your gain.
     """
     rosters = {int(t): team_players(ctx, v["players"])[0]
                for t, v in league["teams"].items()}
@@ -100,7 +100,9 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
                         rows.append(d)
     n_found = len(rows)
     if constrained:
-        rows.sort(key=lambda d: -d["my_gain"])
+        # likely-accept deals first so a "likely only" filter never loses
+        # them to the limit, then best for you
+        rows.sort(key=lambda d: (not d["sweet_spot"], -d["my_gain"]))
     else:
         rows.sort(key=lambda d: (not d["sweet_spot"],
                                  -(d["my_gain"] if d["sweet_spot"] else d["tilt"])))

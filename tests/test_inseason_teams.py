@@ -203,8 +203,8 @@ def test_partner_trades_ticked_players_filter_deals(db):  # noqa: F811
     combos = {(tuple(sorted(d["give"])), tuple(sorted(d["get"]))) for d in r["deals"]}
     # their roster is Strong Center (2) + Goalie B (7): exactly two packages
     assert combos == {((3, 4), (7,)), ((3, 4), (2, 7))}
-    gains = [d["my_gain"] for d in r["deals"]]
-    assert gains == sorted(gains, reverse=True)
+    keys = [(not d["sweet_spot"], -d["my_gain"]) for d in r["deals"]]
+    assert keys == sorted(keys)        # likely-accept first, then my gain
     # one side ticked: every deal has him, sizes 1-2 on both sides
     one = partner_trades(ctx, LEAGUE, 1, 2, "2026-11-01", 4, require=([1], []))
     assert one["deals"] and all(1 in d["give"] for d in one["deals"])

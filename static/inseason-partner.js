@@ -56,12 +56,11 @@
           ${o.my_cut.length ? ` · you'd cut ${o.my_cut.map((i) => esc(P[i].name)).join(", ")}` : ""}
           ${o.their_cut.length ? ` · they'd cut ${o.their_cut.map((i) => esc(P[i].name)).join(", ")}` : ""}</div></div>`;
     } else $("pt-offer").innerHTML = "";
-    // ticked players: show every deal with them, wins and losses, best first
-    const rows = ptData.deals.filter((x) => ptData.constrained || !$("pt-sweet").checked || x.sweet_spot);
+    const rows = ptData.deals.filter((x) => !$("pt-sweet").checked || x.sweet_spot);
     const P2 = (ids) => ids.map((i) => P[i].name).join(", ");
     const req = ptData.constrained
       ? `${ptData.found} deals including your ticks (${[P2(ticked("pt-give").map(Number).filter((i) => P[i])),
-          P2(ticked("pt-get").map(Number).filter((i) => P[i]))].filter(Boolean).join(" / ")}), best for you first`
+          P2(ticked("pt-get").map(Number).filter((i) => P[i]))].filter(Boolean).join(" / ")}), best for you first${$("pt-sweet").checked ? ", likely-accept only" : ""}`
       : `${ptData.found} deals you win with ${ptData.partner.name}`;
     $("pt-meta").textContent = `${req}; ${rows.length} shown`
       + ` · market data ${ptData.market_fetched || "none (press Refresh data)"}`;
