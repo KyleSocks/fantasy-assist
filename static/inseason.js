@@ -155,6 +155,10 @@
       unit = a.unit;
       $("asof").textContent = `stats as of ${a.as_of}`;
       rosterPlayers = a.players;
+      $("repl-note").textContent = "Verdicts compare each player with a free agent you could add: "
+        + Object.entries(a.replacement || {}).map(([g, v]) =>
+          `${g} ${num(v)}${(a.replacement_from || {})[g] ? ` (${a.replacement_from[g]})` : ""}`).join(", ")
+        + " per team game.";
       table($("roster-table"), playerCols([
         { key: "window_games", label: "Games", title: "team games in the window" },
         { key: "starts", label: "Starts", title: "games he'd actually start in your best lineup" },

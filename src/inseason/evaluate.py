@@ -253,26 +253,39 @@ def player_window(ctx: Context, pid: int, start: str, end: str) -> dict:
             "off_nights": sum(g["off_night"] for g in games)}
 
 
+def _fa_rank(ctx: Context, group: str) -> int:
+    r = ctx.icfg.get("replacement_fa_rank", 1)
+    return max(1, int(r.get(group, 1) if isinstance(r, dict) else r))
+
+
 def apply_waiver_replacement(ctx: Context, available) -> dict[str, str]:
-    """Replacement level = the best healthy player you could actually pick
-    up in YOUR league, per group (F / D / G), instead of the formula's
-    (pool size + 1)th player. ``available``: player ids of the healthy free
-    agents / waiver players (data/fa.txt's active list). A group with none
-    keeps the formula value. Re-applying starts from the formula values.
-    Returns {group: name of the player who sets it}."""
+    """Replacement level = a healthy player you could actually pick up in
+    YOUR league, per group (F / D / G), instead of the formula's
+    (pool size + 1)th player: the Nth best free agent, N =
+    ``replacement_fa_rank`` (the last one if the group has fewer).
+
+    N = 1 (the single best free agent) sets the bar with the hottest start
+    on the wire -- the max of a few hundred noisy values -- and by
+    definition no free agent can then beat it. ``available``: player ids of
+    the healthy free agents / waiver players (data/fa.txt's active list). A
+    group with none keeps the formula value. Re-applying starts from the
+    formula values. Returns {group: name of the player who sets it}."""
     sc = ctx.scorer
     base = ctx.__dict__.setdefault("_formula_replacement", dict(sc.replacement))
-    best: dict[str, int] = {}
+    groups: dict[str, list[int]] = {}
     for p in available:
         ln = ctx.lines.get(p)
         if ln is None or not ln.team:
             continue
-        g = value_group(ln.position)
-        if g not in best or sc.per_game[p] > sc.per_game[best[g]]:
-            best[g] = p
-    sc.replacement = {g: (sc.per_game[best[g]] if g in best else v)
+        groups.setdefault(value_group(ln.position), []).append(p)
+    setter: dict[str, int] = {}
+    for g, ps in groups.items():
+        ps.sort(key=lambda p: (-sc.per_game[p], p))
+        setter[g] = ps[min(_fa_rank(ctx, g), len(ps)) - 1]
+    sc.replacement = {g: (sc.per_game[setter[g]] if g in setter else v)
                       for g, v in base.items()}
-    ctx.__dict__["replacement_from"] = {g: ctx.lines[p].name for g, p in best.items()}
+    ctx.__dict__["replacement_from"] = {g: ctx.lines[p].name
+                                        for g, p in setter.items()}
     return ctx.__dict__["replacement_from"]
 
 

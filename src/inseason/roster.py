@@ -262,7 +262,9 @@ def audit(ctx: Context, roster: dict[int, set[str]], start: str,
             "can_fit": {k: v for k, v in can_fit(tonight, slots).items() if v},
             "benched": [ctx.lines[p].name for p in playing if p not in assign]})
     return {"players": rows, "nights": night_rows,
-            "replacement": ctx.scorer.replacement}
+            "replacement": ctx.scorer.replacement,
+            # who sets the bar (free agents); absent group = formula value
+            "replacement_from": ctx.__dict__.get("replacement_from", {})}
 
 
 def free_agent_table(ctx: Context, fas: dict[int, set[str]] | PlayerList,

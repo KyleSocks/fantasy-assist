@@ -212,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         from src.inseason.roster import parse_list
         by = apply_waiver_replacement(
             ctx, parse_list(ctx, fa_path.read_text(encoding="utf-8")).active)
-        print("replacement = best available: " + ", ".join(
+        print("replacement (free agents): " + ", ".join(
             f"{g} {n} {ctx.scorer.replacement[g]:.2f}" for g, n in sorted(by.items())))
 
     if args.cmd == "plan":
