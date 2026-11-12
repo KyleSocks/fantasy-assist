@@ -10,7 +10,8 @@ from __future__ import annotations
 import sqlite3
 import pytest
 
-from src.projections.projections import _load_config, _project_goalies
+from src.projections.projections import _project_goalies
+from tests.pinned import pinned_config
 
 
 SEASON_ID = 20262027
@@ -19,7 +20,7 @@ TOLERANCE = 0.01
 
 @pytest.fixture(scope="module")
 def cfg() -> dict:
-    return _load_config()
+    return pinned_config()
 
 
 def _synthetic_conn(goalies, team: str = "AAA", total: int = 82) -> sqlite3.Connection:
