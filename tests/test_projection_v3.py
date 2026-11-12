@@ -450,3 +450,13 @@ def test_goalie_sv_age_curve_is_additive():
     assert p.terms["sv_age_delta"] == pytest.approx(-0.0022)
     assert p.save_pct == pytest.approx(
         p.terms["regressed_rate"]["save_pct"] - 0.0022)
+
+
+def test_league_mean_is_recency_weighted():
+    """League SA/g 33 two seasons ago, 30 last season (shots falling).
+    Pooled mean would be 31.5; 5/3 weighting gives (5*30 + 3*33)/8 = 31.125,
+    so a team at the league rate both years projects 31.125."""
+    from src.projections.team_context import _league
+    hist = {S1: {"AAA": {"games": 82, "wins": 41, "sa": 82 * 33, "ga": 0, "gf": 0}},
+            S2: {"AAA": {"games": 82, "wins": 41, "sa": 82 * 30, "ga": 0, "gf": 0}}}
+    assert _league(hist)["sa_pg"] == pytest.approx(31.125)

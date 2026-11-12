@@ -68,13 +68,22 @@ def team_history(conn: sqlite3.Connection,
 
 
 def _league(hist: dict[int, dict[str, dict]]) -> dict[str, float]:
-    games = sum(b["games"] for s in hist.values() for b in s.values())
-    if games <= 0:
+    """League per-game means, 5/3/2 recency-weighted by season like team
+    history. A pooled (equal-weight) mean lagged league-wide trends: with
+    shot volume falling, it overprojected every team's shots against."""
+    num = {m: 0.0 for m in ("sa", "gf", "ga", "wins")}
+    den = 0.0
+    for w, sid in zip(WEIGHTS, sorted(hist, reverse=True)):
+        games = sum(b["games"] for b in hist[sid].values())
+        if games <= 0:
+            continue
+        for m in num:
+            num[m] += w * sum(b[m] for b in hist[sid].values()) / games
+        den += w
+    if den <= 0:
         return {"sa_pg": 0.0, "gf_pg": 0.0, "ga_pg": 0.0, "win_pg": 0.5}
-    tot = {m: sum(b[m] for s in hist.values() for b in s.values())
-           for m in ("sa", "gf", "ga", "wins")}
-    return {"sa_pg": tot["sa"] / games, "gf_pg": tot["gf"] / games,
-            "ga_pg": tot["ga"] / games, "win_pg": tot["wins"] / games}
+    return {"sa_pg": num["sa"] / den, "gf_pg": num["gf"] / den,
+            "ga_pg": num["ga"] / den, "win_pg": num["wins"] / den}
 
 
 def _weighted_team(hist: dict[int, dict[str, dict]], team: str,
