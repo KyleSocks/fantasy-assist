@@ -35,6 +35,13 @@ goalie_win_rate_bounds: [0.15, 0.80]
 # blended with the goalie's own shutouts per start (this many starts of
 # weight on the Poisson side).
 shutout_scale: 1.0
+# Shots faced per start = team shots against per game x the goalie's own
+# (SA / GS) / team SA per game, regressed toward 1 with this many starts.
+# Starters face a bit less than the team rate (pulled games), backups more.
+goalie_sa_ratio_k: 40
+# Share of each team's starts kept back for goalies outside the projected
+# pool (call-ups, waiver claims); the pool splits the rest.
+goalie_starts_reserve: 0.0
 shutout_k_starts: 60
 
 # Team context (src/projections/team_context.py). *_regress = share of a
