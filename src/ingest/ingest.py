@@ -22,6 +22,7 @@ from .models import (
     init_db,
     log_ingest,
 )
+from .bios import ingest_bios as _bios
 from .rosters import ingest_rosters as _rosters
 from .schedule import ingest_schedule as _schedule
 
@@ -230,9 +231,10 @@ def ingest_seasons(n: int, db_path: str = DEFAULT_DB_ARG,
                 sc, sn = _ingest_skaters(conn, fetcher, season_id)
                 gc, gn = _ingest_goalies(conn, fetcher, season_id)
                 slc, sln = _schedule(conn, fetcher, season_id)
-                for k, v in {**sc, **gc, **slc}.items():
+                bc, bn = _bios(conn, fetcher, season_id)
+                for k, v in {**sc, **gc, **slc, **bc}.items():
                     report.rows_written[k] = report.rows_written.get(k, 0) + v
-                all_notes = sn + gn + sln
+                all_notes = sn + gn + sln + bn
                 report.notes.extend(all_notes)
                 log_ingest(conn, "seasons", season_id,
                             sum(sc.values()) + sum(gc.values()) + sum(slc.values()),

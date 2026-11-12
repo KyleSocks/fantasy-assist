@@ -97,13 +97,21 @@ def _project_skaters(conn: sqlite3.Connection, season_id: int, cfg: dict,
     means = {g: _compute_pos_means(conn, prior_seasons, g) for g in groups}
     medians = {g: _compute_pos_median_toi(conn, prior_seasons, g) for g in groups}
     rates = {g: _compute_pos_rates(conn, prior_seasons, g) for g in groups}
+    # Production projects players on a roster; ex-NHL players backfilled
+    # by src/ingest/bios.py (is_active = 0) are only projected in a
+    # backtest, where the projected season's rows already exist.
+    backtest = conn.execute("SELECT 1 FROM skater_seasons WHERE season_id = ?"
+                            " LIMIT 1", (season_id,)).fetchone() is not None
     out: list[Projection] = []
     for (pid,) in conn.execute(
             "SELECT DISTINCT player_id FROM skater_seasons"
             " WHERE season_id < ? AND gp > 0", (season_id,)).fetchall():
-        row = conn.execute("SELECT position FROM players WHERE player_id = ?",
-                           (pid,)).fetchone()
-        if not row or _pos_group(row[0]) == "G":
+        row = conn.execute(
+            "SELECT position, COALESCE(is_active, 1) FROM players"
+            " WHERE player_id = ?", (pid,)).fetchone()
+        if not row or not row[0] or _pos_group(row[0]) == "G":
+            continue
+        if not backtest and row[1] == 0:
             continue
         g = _group_key(row[0])
         proj = _project_skater(pid, season_id, conn, cfg, means[g], medians[g],

@@ -72,16 +72,19 @@ def _rostered_goalies(conn: sqlite3.Connection, season_id: int | None = None,
         except sqlite3.OperationalError:
             rows = []
         if rows:
-            return [(int(r[0]), r[1], r[2]) for r in rows]
+            # a goalie may have no players row (or no name): never None
+            return [(int(r[0]), r[1] or str(r[0]), r[2]) for r in rows]
     cols = [r[1] for r in conn.execute("PRAGMA table_info(players)")]
+    # backfilled ex-NHL goalies (src/ingest/bios.py) are is_active = 0
+    active = " AND COALESCE(is_active, 1) = 1" if "is_active" in cols else ""
     if "full_name" in cols:
         rows = conn.execute(
-            "SELECT player_id, full_name, current_team_abbrev"
-            " FROM players WHERE position = ? ORDER BY player_id", ("G",)).fetchall()
-        return [(int(r[0]), r[1], r[2]) for r in rows]
+            "SELECT player_id, full_name, current_team_abbrev FROM players"
+            f" WHERE position = ?{active} ORDER BY player_id", ("G",)).fetchall()
+        return [(int(r[0]), r[1] or str(r[0]), r[2]) for r in rows]
     rows = conn.execute(
-        "SELECT player_id, current_team_abbrev"
-        " FROM players WHERE position = ? ORDER BY player_id", ("G",)).fetchall()
+        "SELECT player_id, current_team_abbrev FROM players"
+        f" WHERE position = ?{active} ORDER BY player_id", ("G",)).fetchall()
     return [(int(r[0]), None, r[1]) for r in rows]
 
 
