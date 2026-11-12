@@ -192,6 +192,18 @@ def opponent_factors(skaters: dict[int, dict], goalies: dict[int, dict],
 
 # ── Priors ─────────────────────────────────────────────────────────────
 
+def _per_start_rates(p) -> dict[str, float] | None:
+    """Per-start rates of a goalie projected to 0 starts (off a roster, or
+    the odd man out of his team's pool) from his projection terms; None
+    when he has no history to project from."""
+    raw = (p.terms or {}).get("raw_rates") or {}
+    if not (p.terms or {}).get("season_weights") or "sv_per_start" not in raw:
+        return None
+    return {"wins": raw["wins_pct"], "saves": raw["sv_per_start"],
+            "goals_against": raw["ga_per_start"],
+            "shutouts": raw["so_per_start"]}
+
+
 def priors_from_projections(projs) -> dict[int, dict]:
     """Preseason per-game (skater) / per-start (goalie) rates from project_all."""
     out: dict[int, dict] = {}
@@ -199,7 +211,7 @@ def priors_from_projections(projs) -> dict[int, dict]:
         if p.position == "G":
             gs = p.games_started or 0.0
             per = ({s: (getattr(p, s) or 0.0) / gs for s in GOALIE_STATS}
-                   if gs > 0 else None)
+                   if gs > 0 else _per_start_rates(p))
             out[p.player_id] = {"per_start": per, "save_pct": p.save_pct,
                                 "starts": gs}
         elif p.gp and p.gp > 0:

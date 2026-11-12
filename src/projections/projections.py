@@ -92,14 +92,17 @@ def _open(db_path: str) -> sqlite3.Connection:
 
 
 def _project_skaters(conn: sqlite3.Connection, season_id: int, cfg: dict,
-                     prior_seasons: list[int]) -> list[Projection]:
+                     prior_seasons: list[int],
+                     include_inactive: bool = False) -> list[Projection]:
     groups = ("C", "W", "D")
     means = {g: _compute_pos_means(conn, prior_seasons, g) for g in groups}
     medians = {g: _compute_pos_median_toi(conn, prior_seasons, g) for g in groups}
     rates = {g: _compute_pos_rates(conn, prior_seasons, g) for g in groups}
-    # Production projects players on a roster; ex-NHL players backfilled
-    # by src/ingest/bios.py (is_active = 0) are only projected in a
-    # backtest, where the projected season's rows already exist.
+    # The draft board projects players on a roster; ex-NHL players
+    # backfilled by src/ingest/bios.py (is_active = 0) are projected in a
+    # backtest (the projected season's rows already exist) and for the
+    # in-season tool (include_inactive: a call-up or waiver player needs
+    # his own prior, not the league-average fallback).
     backtest = conn.execute("SELECT 1 FROM skater_seasons WHERE season_id = ?"
                             " LIMIT 1", (season_id,)).fetchone() is not None
     out: list[Projection] = []
@@ -111,7 +114,7 @@ def _project_skaters(conn: sqlite3.Connection, season_id: int, cfg: dict,
             " WHERE player_id = ?", (pid,)).fetchone()
         if not row or not row[0] or _pos_group(row[0]) == "G":
             continue
-        if not backtest and row[1] == 0:
+        if not (backtest or include_inactive) and row[1] == 0:
             continue
         g = _group_key(row[0])
         proj = _project_skater(pid, season_id, conn, cfg, means[g], medians[g],
@@ -122,11 +125,14 @@ def _project_skaters(conn: sqlite3.Connection, season_id: int, cfg: dict,
 
 
 def project_all(season_id: int, db_path: str,
-                cfg_overrides: dict | None = None) -> list[Projection]:
+                cfg_overrides: dict | None = None,
+                include_inactive: bool = False) -> list[Projection]:
     """Project next-season totals for every skater and goalie.
 
     Skaters first: their projected goals by team feed the goalies' team
-    context (src.projections.team_context).
+    context (src.projections.team_context). ``include_inactive`` also
+    projects players not on a current roster (is_active = 0): the in-season
+    tool needs them, the draft board must not see them.
     """
     conn = _open(db_path)
     try:
@@ -134,10 +140,12 @@ def project_all(season_id: int, db_path: str,
         prior_seasons = _prior_seasons(conn, season_id)
         if not prior_seasons:
             return []
-        results = _project_skaters(conn, season_id, cfg, prior_seasons)
+        results = _project_skaters(conn, season_id, cfg, prior_seasons,
+                                   include_inactive)
         pos_means_g = _compute_pos_means(conn, prior_seasons, "G")
         results.extend(_project_goalies(season_id, conn, cfg, pos_means_g,
-                                        skaters=results))
+                                        skaters=results,
+                                        include_inactive=include_inactive))
         return results
     finally:
         conn.close()

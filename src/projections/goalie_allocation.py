@@ -52,6 +52,7 @@ def _apply_goalie_starts(p: Projection, starts: float) -> None:
 
 
 def _rostered_goalies(conn: sqlite3.Connection, season_id: int | None = None,
+                      include_inactive: bool = False,
                       ) -> list[tuple[int, str, str | None]]:
     """Goalies in the projection pool: (player_id, full_name, team).
 
@@ -76,7 +77,9 @@ def _rostered_goalies(conn: sqlite3.Connection, season_id: int | None = None,
             return [(int(r[0]), r[1] or str(r[0]), r[2]) for r in rows]
     cols = [r[1] for r in conn.execute("PRAGMA table_info(players)")]
     # backfilled ex-NHL goalies (src/ingest/bios.py) are is_active = 0
-    active = " AND COALESCE(is_active, 1) = 1" if "is_active" in cols else ""
+    # (no team, so 0 allocated starts) unless include_inactive
+    active = (" AND COALESCE(is_active, 1) = 1"
+              if "is_active" in cols and not include_inactive else "")
     if "full_name" in cols:
         rows = conn.execute(
             "SELECT player_id, full_name, current_team_abbrev FROM players"
