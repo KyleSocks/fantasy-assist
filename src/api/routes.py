@@ -418,7 +418,8 @@ def build_player_detail(player_id: int, league: str) -> dict:
                 season_actuals=actuals,
                 raw=terms["raw_rates"].get(cat),
                 regressed=terms["regressed_rate"].get(cat),
-                age_adj=terms["age_adj"],
+                age_adj=terms.get("age_adj_by_stat", {}).get(
+                    cat, terms["age_adj"]),
                 proj_gp=terms["proj_gp"],
                 category=cat,
                 is_goalie=is_goalie,

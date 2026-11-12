@@ -51,12 +51,28 @@ def _apply_goalie_starts(p: Projection, starts: float) -> None:
     p.terms["proj_gp"] = starts
 
 
-def _rostered_goalies(conn: sqlite3.Connection) -> list[tuple[int, str, str | None]]:
-    """Rostered goalies from the players table: (player_id, full_name, team).
+def _rostered_goalies(conn: sqlite3.Connection, season_id: int | None = None,
+                      ) -> list[tuple[int, str, str | None]]:
+    """Goalies in the projection pool: (player_id, full_name, team).
 
-    The current roster IS the source of team membership. goalie_seasons is
-    never consulted to decide which team a goalie plays for.
+    Production: the current roster (players.current_team_abbrev) IS the
+    source of team membership. Backtest: when ``season_id`` already has
+    goalie_seasons rows (a past season being re-projected), today's roster
+    would be look-ahead, so the pool is the goalies who played that season
+    with that season's team. Prior seasons' goalie_seasons teams are never
+    used to decide membership.
     """
+    if season_id is not None:
+        try:
+            rows = conn.execute(
+                "SELECT g.player_id, p.full_name, g.team_abbrev"
+                " FROM goalie_seasons g LEFT JOIN players p"
+                " ON p.player_id = g.player_id WHERE g.season_id = ?"
+                " ORDER BY g.player_id", (season_id,)).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+        if rows:
+            return [(int(r[0]), r[1], r[2]) for r in rows]
     cols = [r[1] for r in conn.execute("PRAGMA table_info(players)")]
     if "full_name" in cols:
         rows = conn.execute(
@@ -151,7 +167,7 @@ def _allocate_goalie_starts(projs: list[Projection],
         return
     cap = float(cfg.get("max_goalie_starts", 68))
     team_games = _team_games_for(season_id, conn)
-    rostered = _rostered_goalies(conn)
+    rostered = _rostered_goalies(conn, season_id)
     roster_pid = {pid for pid, _, _ in rostered}
     team_of: dict[int, str] = {}
     for pid, _, team in rostered:

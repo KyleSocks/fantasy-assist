@@ -1,8 +1,8 @@
-# Shrinkage parameters (k) for Bayesian regression of per-GP rates toward
-# positional means. k is PER-STAT and must be expressed in the same units as
-# that stat's denominator n, which is accumulated across the observed
-# seasons (see REGRESSION_N in src/projections/common.py):
-#   goals      n = total shots          -> k in equivalent shots
+# Shrinkage parameters (k) for Bayesian regression of PER-60 rates toward
+# positional per-60 means (src/projections/skaters.py). k is PER-STAT and
+# must be expressed in the same units as that stat's sample size n:
+#   goals      projected as shots x shooting %; this k is for shooting %:
+#              n = CAREER shots     -> k in equivalent shots
 #   assists    n = total TOI-minutes    -> k in equivalent TOI-minutes
 #   shots      n = total TOI-minutes    -> k in equivalent TOI-minutes
 #   blocks     n = total TOI-minutes    -> k in equivalent TOI-minutes
@@ -27,6 +27,46 @@ goalie_save_pct_k: 1000
 goalie_starts_k: 25
 # Wins per start regress toward .500 with this many starts of weight.
 goalie_win_rate_k: 40
+# Wins per start = projected team win rate + the goalie's own edge over
+# his teams' win rates, regressed toward 0 with goalie_win_rate_k starts
+# (above). Clamped to these bounds.
+goalie_win_rate_bounds: [0.15, 0.80]
+# Shutouts per start: Poisson P(0 GA) = exp(-GA per start) x shutout_scale,
+# blended with the goalie's own shutouts per start (this many starts of
+# weight on the Poisson side).
+shutout_scale: 1.0
+shutout_k_starts: 60
+
+# Team context (src/projections/team_context.py). *_regress = share of a
+# team's per-game deviation from league average carried into next season.
+team_sa_regress: 0.6
+team_win_regress: 0.6
+team_gf_regress: 0.6
+# Team win rate = team_hist_weight x regressed history
+#               + (1 - team_hist_weight) x Pythagorean from the projected
+#                 roster (GF from projected skater goals, GA from team shots
+#                 against x (1 - projected goalie SV%)).
+team_hist_weight: 0.5
+pythag_exponent: 2.0
+
+# Skaters: small-sample prior. Weight on the positional mean starts at
+# rookie_prior_weight with 0 career GP and falls linearly to 0 at
+# rookie_ramp_gp (was: 50/50 below 100 GP, nothing at 100+).
+rookie_prior_weight: 0.5
+rookie_ramp_gp: 200
+# A skater whose team changed: pull projected PP TOI/GP this far toward the
+# positional mean (new PP depth chart unknown).
+team_change_pp_blend: 0.25
+
+# Games played: share of team games, 5/3/2-weighted over the 3 most recent
+# seasons with at least gp_min_season_gp games (call-ups are not injury
+# evidence), regressed toward gp_prior_share with gp_prior_weight (5/3/2
+# units), clamped to [gp_share_floor, 1]. Projected GP = 82 x share.
+gp_min_season_gp: 10
+gp_prior_share: 0.88
+gp_prior_weight: 3.0
+gp_share_floor: 0.40
+
 # Goalies projected below this many starts are excluded from the
 # draftable pool and ranked below every startable goalie.
 min_startable_starts: 15
@@ -44,6 +84,11 @@ max_goalie_starts: 68
 # +2 years, peaking at 27-28. Ages below/above the table clamp to the
 # nearest entry; fractional ages interpolate linearly. Goalies use flat
 # 1.00 (no goalie curve).
+#
+# Optional, fitted from your database by `python -m src.projections.age_fit`
+# (paste its output here): level_curves_by_stat (per-stat curves for
+# forwards / defensemen; a stat without one uses the shared curve below) and
+# goalie_sv_age (additive save-% levels by age).
 level_curves:
   forwards:
     18: 0.78

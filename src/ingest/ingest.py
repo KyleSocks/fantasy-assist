@@ -55,7 +55,12 @@ class IngestReport:
 
 def _combine_rows(raw_rows: list[dict], model_cls, stat_fields: list[str]):
     """Group a season's raw API rows by playerId and combine a player's
-    multiple rows (regular season + playoffs) into a single record.
+    multiple rows into a single record.
+
+    Every season request filters ``gameTypeId=2`` (regular season only):
+    without it the API folds playoff games into the season row, which
+    inflated GP, totals, goalie starts and the backtest's actuals for every
+    player on a playoff team (fantasy leagues score the regular season).
 
     The NHL stats API returns two rows for a player traded mid-season: a
     regular-season row whose ``teamAbbrevs`` lists every team they played
@@ -102,7 +107,7 @@ def _ingest_skaters(conn, fetcher: Fetcher, season_id: int,
                     dry_run: bool = False) -> tuple[dict[str, int], list[str]]:
     notes: list[str] = []
     raw_summary = fetcher.get_paged(
-        "https://api.nhle.com/stats/rest/en/skater/summary?cayenneExp=seasonId=",
+        "https://api.nhle.com/stats/rest/en/skater/summary?cayenneExp=gameTypeId=2 and seasonId=",
         "skater_summary", season_id,
     )
     summary, team_map = _combine_rows(
@@ -112,7 +117,7 @@ def _ingest_skaters(conn, fetcher: Fetcher, season_id: int,
     )
 
     raw_realtime = fetcher.get_paged(
-        "https://api.nhle.com/stats/rest/en/skater/realtime?cayenneExp=seasonId=",
+        "https://api.nhle.com/stats/rest/en/skater/realtime?cayenneExp=gameTypeId=2 and seasonId=",
         "skater_realtime", season_id,
     )
     realtime, _ = _combine_rows(
@@ -120,11 +125,11 @@ def _ingest_skaters(conn, fetcher: Fetcher, season_id: int,
     )
 
     raw_toi = fetcher.get_paged(
-        "https://api.nhle.com/stats/rest/en/skater/timeonice?cayenneExp=seasonId=",
+        "https://api.nhle.com/stats/rest/en/skater/timeonice?cayenneExp=gameTypeId=2 and seasonId=",
         "skater_toi", season_id,
     )
     toi_map, _ = _combine_rows(
-        raw_toi, SkaterTOI, ["evTimeOnIce", "ppTimeOnIce"],
+        raw_toi, SkaterTOI, ["evTimeOnIce", "ppTimeOnIce", "shTimeOnIce"],
     )
 
     counts: dict[str, int] = {"skater_seasons": 0}
@@ -141,23 +146,26 @@ def _ingest_skaters(conn, fetcher: Fetcher, season_id: int,
             notes.append(f"skater {pid}: blocks NULL")
         pp_toi_sec = int(ti.ppTimeOnIce) if ti and ti.ppTimeOnIce is not None else None
         toi_sec = int(ti.evTimeOnIce) if ti and ti.evTimeOnIce is not None else None
+        sh_toi_sec = (int(ti.shTimeOnIce)
+                      if ti and ti.shTimeOnIce is not None else None)
         if dry_run:
             counts["skater_seasons"] += 1
             continue
         cur.execute(
             "INSERT INTO skater_seasons (player_id, season_id, team_abbrev, gp, goals,"
             " assists, points, shots, blocks, hits, pp_points, sh_points,"
-            " pp_toi_sec, toi_sec)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            " pp_toi_sec, toi_sec, sh_toi_sec)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             " ON CONFLICT(player_id, season_id) DO UPDATE SET"
             " gp=excluded.gp, goals=excluded.goals, assists=excluded.assists,"
             " points=excluded.points, shots=excluded.shots, blocks=excluded.blocks,"
             " hits=excluded.hits, pp_points=excluded.pp_points,"
             " sh_points=excluded.sh_points,"
-            " pp_toi_sec=excluded.pp_toi_sec, toi_sec=excluded.toi_sec",
+            " pp_toi_sec=excluded.pp_toi_sec, toi_sec=excluded.toi_sec,"
+            " sh_toi_sec=excluded.sh_toi_sec",
               (pid, season_id, team_abbrev, s.gamesPlayed, s.goals, s.assists,
                s.points, s.shots, blocks, hits, s.ppPoints, s.shPoints,
-               pp_toi_sec, toi_sec),
+               pp_toi_sec, toi_sec, sh_toi_sec),
         )
         counts["skater_seasons"] += 1
     return counts, notes
@@ -169,7 +177,7 @@ def _ingest_goalies(conn, fetcher: Fetcher, season_id: int,
                     dry_run: bool = False) -> tuple[dict[str, int], list[str]]:
     notes: list[str] = []
     raw_rows = fetcher.get_paged(
-        "https://api.nhle.com/stats/rest/en/goalie/summary?cayenneExp=seasonId=",
+        "https://api.nhle.com/stats/rest/en/goalie/summary?cayenneExp=gameTypeId=2 and seasonId=",
         "goalie_summary", season_id,
     )
     goalies, team_map = _combine_rows(

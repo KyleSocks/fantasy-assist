@@ -57,6 +57,7 @@ class SkaterTOI(_Row):
     seasonId: Optional[int] = None
     evTimeOnIce: Optional[float] = None
     ppTimeOnIce: Optional[float] = None
+    shTimeOnIce: Optional[float] = None
 
 
 class GoalieSummary(_Row):
@@ -140,6 +141,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
 _ADDED_COLUMNS = [
     ("skater_seasons", "sh_points", "INTEGER"),
     ("skater_current", "sh_points", "INTEGER"),
+    ("skater_seasons", "sh_toi_sec", "INTEGER"),
 ]
 
 

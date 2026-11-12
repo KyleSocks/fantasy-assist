@@ -262,8 +262,10 @@ def main() -> None:
             sumback_ok = False
             print(f"  {pid}: explain() returned empty -> FAIL")
             continue
-        worst = max(abs(terms["regressed_rate"][cat] * terms["age_adj"]
-                      * terms["proj_gp"] - terms["final"][cat]) for cat in CATS)
+        by_stat = terms.get("age_adj_by_stat", {})
+        worst = max(abs(terms["regressed_rate"][cat]
+                        * by_stat.get(cat, terms["age_adj"])
+                        * terms["proj_gp"] - terms["final"][cat]) for cat in CATS)
         ok = worst < 1e-6
         sumback_ok = sumback_ok and ok
         print(f"  {pid}: max |regressed_rate*age_adj*proj_gp - final| = "

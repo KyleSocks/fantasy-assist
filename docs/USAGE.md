@@ -118,6 +118,36 @@ Replacement level moves with team_count because it is defined as the raw value o
 
 The projection point on the detail chart is a per-60 rate for skaters, not a season total. Season totals are not comparable across players with different ice time, so the chart values are each season's total and the projection scaled by _per60() (value divided by games played, times 60) in src\api\player_detail.py. The raw season totals and the projection total remain in the payload and in the board's stat columns. Goalie chart values are per-season values, with save_pct as a fraction.
 
+## 7b. Testing and tuning the projections
+
+Season stats are regular season only (`gameTypeId=2`). A database ingested
+before that fix has playoff games folded into every season row, so
+re-ingest once, with enough history for the backtest and age fitting:
+
+```
+uv run python -m src.ingest.ingest --seasons 10
+```
+
+Walk-forward backtest, scored in your league's fantasy points on the
+players you'd draft (top 250 skaters, top 64 goalies):
+
+```
+uv run python -m src.projections.walkforward --db data/hockey.db
+uv run python -m src.projections.walkforward --grid goals=150,200,300 --grid rookie_ramp_gp=100,200,300
+```
+
+It splits each miss into a per-game rate part and a games-played part,
+compares against "repeat last season", and prints residual SD by draft
+tier. `--set key=value` and `--grid key=v1,v2` override
+`config/regression.yaml` without editing it.
+
+Fit per-stat aging curves from your data and paste the output into
+`config/regression.yaml`:
+
+```
+uv run python -m src.projections.age_fit --db data/hockey.db
+```
+
 ## 8. Exporting
 
 GET /api/export?format=csv returns a flat CSV, one row per player. The header is id,name,pos,team,rank,vorp,dollars followed by one column per category in the board's category order. Missing stats become empty cells, and stats are already rounded to one decimal by the board. The league parameter is respected exactly like /api/board, and rank is the board's VORP rank, not any client-side sort or filter. The ADP columns are not in the CSV. format=json returns the full board payload; any other format value returns 422.

@@ -46,27 +46,39 @@ def _goalie(conn, pid: int, season: int, gs: int, wins: int) -> None:
 
 
 def test_goalie_wins_are_per_start_not_per_team_game():
-    """60 GS / 33 W, projected at 62 starts: ~33 W (was 25.0)."""
+    """Wins stay a PER-START rate (wins / team games x starts counted the
+    start share twice). League: AAA vs BBB, 82 games. AAA's goalie: 60 GS,
+    33 W; nobody else won for AAA, BBB has no goalies, so team AAA's win
+    rate is 33/82 = .402439 and the league's 33/164 = .201220.
+      team win (history, regressed .6): .201220 + .6*.201220 = .321951
+      no goals for -> Pythagorean side .5; blend .5/.5 -> .410976
+      edge: 33/60 - .402439 = .147561, x 60/(60+40) = .088537
+      wins per start = .499512 -> x 62 starts = 30.97 W
+    """
     conn = _conn()
     _schedule(conn, S2)
     _goalie(conn, 1, S2, 60, 33)
     cfg = _load_config()
     p = _project_goalie(1, S3, conn, cfg, {"save_pct": 0.905})
-    wpst = p.terms["raw_rates"]["wins_pct"]
-    k = float(cfg.get("goalie_win_rate_k", 40))
-    assert wpst == pytest.approx((33 / 60 * 60 + 0.5 * k) / (60 + k))
+    assert p.terms["raw_rates"]["win_edge"] == pytest.approx(0.0885365853658536)
+    assert p.terms["raw_rates"]["wins_pct"] == pytest.approx(0.4995121951219513)
     _apply_goalie_starts(p, 62)
-    assert 31.5 < p.wins < 34.5
+    assert p.wins == pytest.approx(0.4995121951219513 * 62)
 
 
-def test_backup_moving_into_starter_role_keeps_his_win_rate():
-    """13 W in 25 GS -> a 50-start role projects ~25 W (was 7.9)."""
+def test_backup_moving_into_starter_role_keeps_per_start_rate():
+    """13 W in 25 GS: wins scale with the new start count, not with his old
+    share of team games (the bug gave 7.9 W at 50 starts).
+      team AAA 13/82 = .158537, league 13/164 = .079268
+      team win .079268 + .6*.079268 = .126829 -> blend with .5 = .313415
+      edge (13/25 - .158537) * 25/65 = .139024 -> .452439 per start
+    """
     conn = _conn()
     _schedule(conn, S2)
     _goalie(conn, 2, S2, 25, 13)
     p = _project_goalie(2, S3, conn, _load_config(), {"save_pct": 0.905})
     _apply_goalie_starts(p, 50)
-    assert 24 < p.wins < 26.5
+    assert p.wins == pytest.approx(50 * (0.3134146341463415 + 0.1390243902439024))
 
 
 # ── skater look-ahead ──────────────────────────────────────────────────

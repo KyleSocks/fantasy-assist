@@ -208,3 +208,147 @@ def _compute_pos_median_toi(conn: sqlite3.Connection, season_ids: list[int],
         return 0
     mid = len(vals) // 2
     return vals[mid]
+
+
+# ── Per-60 positional baselines, team lookup, per-stat age curves ─────
+
+# TOI denominator per skater stat for per-60 rates: "pp" = power-play TOI,
+# everything else = total TOI (EV + PP + SH). Goals are not here: they are
+# projected as shots x shooting %.
+PER60_TOI = {"assists": "total", "shots": "total", "blocks": "total",
+             "hits": "total", "pp_points": "pp", "sh_points": "total"}
+
+
+def _toi_parts(ev, pp, sh) -> tuple[float, float, float]:
+    """(ev, pp, sh) seconds with NULL as 0. toi_sec in skater_seasons is
+    EVEN-STRENGTH time (the API's evTimeOnIce); sh_toi_sec is NULL until the
+    first re-ingest after it was added, so total TOI is a slight undercount
+    for penalty killers until then."""
+    return float(ev or 0), float(pp or 0), float(sh or 0)
+
+
+def _compute_pos_rates(conn: sqlite3.Connection, season_ids: list[int],
+                       pos_group: str) -> dict:
+    """Per-60 positional means, shooting % and mean TOI/GP by strength.
+
+    Pooled (sum of stat / sum of TOI) over every player in the group across
+    the given seasons, so it is the league rate per minute played.
+    """
+    positions = {"C": ("C",), "W": ("L", "R")}.get(pos_group, (pos_group,))
+    rows = conn.execute(
+        "SELECT s.gp, s.goals, s.assists, s.shots, s.blocks, s.hits,"
+        " s.pp_points, s.sh_points, s.toi_sec, s.pp_toi_sec, s.sh_toi_sec"
+        " FROM skater_seasons s JOIN players p ON s.player_id = p.player_id"
+        " WHERE s.season_id IN ({}) AND s.gp > 0 AND p.position IN ({})".format(
+            ",".join(str(s) for s in season_ids),
+            ",".join(f"'{x}'" for x in positions))).fetchall()
+    tot = {k: 0.0 for k in ("gp", "goals", "assists", "shots", "blocks",
+                            "hits", "pp_points", "sh_points", "ev", "pp", "sh")}
+    for r in rows:
+        ev, pp, sh = _toi_parts(r[8], r[9], r[10])
+        if ev + pp + sh <= 0:
+            continue
+        for i, k in enumerate(("gp", "goals", "assists", "shots", "blocks",
+                               "hits", "pp_points", "sh_points")):
+            tot[k] += float(r[i] or 0)
+        tot["ev"] += ev
+        tot["pp"] += pp
+        tot["sh"] += sh
+    total_toi = tot["ev"] + tot["pp"] + tot["sh"]
+    per60 = {}
+    for stat, denom in PER60_TOI.items():
+        d = tot["pp"] if denom == "pp" else total_toi
+        per60[stat] = 3600.0 * tot[stat] / d if d > 0 else 0.0
+    gp = tot["gp"]
+    return {
+        "per60": per60,
+        "sh_pct": tot["goals"] / tot["shots"] if tot["shots"] > 0 else 0.0,
+        "pp_toi_pg": tot["pp"] / gp if gp > 0 else 0.0,
+        "ev_toi_pg": tot["ev"] / gp if gp > 0 else 0.0,
+        "sh_toi_pg": tot["sh"] / gp if gp > 0 else 0.0,
+    }
+
+
+def season_team(conn: sqlite3.Connection, table: str, pid: int,
+                season_id: int) -> str | None:
+    """The team a player suits up for in ``season_id``, without look-ahead
+    on his stats.
+
+    In a backtest the projected season's own row exists (rosters are known
+    before a season starts, so using its team is fair); in production it
+    does not, and the current roster (players.current_team_abbrev) is used.
+    """
+    row = conn.execute(
+        f"SELECT team_abbrev FROM {table} WHERE player_id = ? AND season_id = ?",
+        (pid, season_id)).fetchone()
+    if row and row[0]:
+        return row[0]
+    row = conn.execute(
+        "SELECT current_team_abbrev FROM players WHERE player_id = ?",
+        (pid,)).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def curve_for(cfg: dict, group: str, stat: str) -> dict:
+    """Level curve for one stat. ``level_curves_by_stat`` (fitted from the
+    database by ``python -m src.projections.age_fit``) wins when it has the
+    stat; otherwise the shared forwards / defensemen curve."""
+    by_stat = (cfg.get("level_curves_by_stat") or {}).get(group) or {}
+    if stat in by_stat:
+        return {int(a): float(v) for a, v in by_stat[stat].items()}
+    return cfg["level_curves"][group]
+
+
+# ── Games played (durability) ──────────────────────────────────────────
+
+def _team_season_games(conn: sqlite3.Connection, season_id: int,
+                       team: str | None) -> int:
+    """Regular-season games (game_type 2) for a team, else the season's
+    most games by any team, else 82."""
+    if team:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM schedule WHERE season_id = ? AND game_type = 2"
+            " AND (home_abbrev = ? OR away_abbrev = ?)",
+            (season_id, team, team)).fetchone()[0]
+        if n:
+            return int(n)
+    rows = conn.execute(
+        "SELECT home_abbrev, away_abbrev FROM schedule"
+        " WHERE season_id = ? AND game_type = 2", (season_id,)).fetchall()
+    counts: dict[str, int] = {}
+    for h, a in rows:
+        for t in (h, a):
+            counts[t] = counts.get(t, 0) + 1
+    return max(counts.values()) if counts else 82
+
+
+def projected_play_share(seasons: list[tuple[int, int, str | None]],
+                         conn: sqlite3.Connection, cfg: dict) -> dict:
+    """Share of team games a player is projected to play.
+
+    ``seasons``: (season_id, gp, team) for every prior season, any order.
+    Seasons under ``gp_min_season_gp`` games are call-ups / cups of coffee,
+    not evidence about health, and are skipped. The three most recent
+    remaining seasons are weighted 5/3/2 and regressed toward
+    ``gp_prior_share`` with ``gp_prior_weight`` (same units as the 5/3/2
+    weights), then clamped to [gp_share_floor, 1].
+    """
+    min_gp = float(cfg.get("gp_min_season_gp", 10))
+    prior = float(cfg.get("gp_prior_share", 0.88))
+    k = float(cfg.get("gp_prior_weight", 3.0))
+    floor = float(cfg.get("gp_share_floor", 0.40))
+    used = sorted((s for s in seasons if (s[1] or 0) >= min_gp),
+                  key=lambda s: -s[0])[:len(WEIGHTS)]
+    num = den = 0.0
+    shares = []
+    for w, (sid, gp, team) in zip(WEIGHTS, used):
+        games = _team_season_games(conn, sid, team)
+        share = min(float(gp) / games, 1.0) if games else 1.0
+        shares.append(share)
+        num += w * share
+        den += w
+    raw = num / den if den else prior
+    share = (num + k * prior) / (den + k)
+    share = max(floor, min(share, 1.0))
+    return {"raw_share": raw, "season_shares": shares, "share": share,
+            "prior_share": prior, "prior_weight": k}
