@@ -212,7 +212,8 @@ def _team_goals(skaters: list[Projection] | None) -> dict[str, float] | None:
 
 def _project_goalies(season_id: int, conn: sqlite3.Connection,
                      cfg: dict, pos_means: dict,
-                     skaters: list[Projection] | None = None) -> list[Projection]:
+                     skaters: list[Projection] | None = None,
+                     include_inactive: bool = False) -> list[Projection]:
     """Project every rostered goalie, allocate starts per team (zero-sum),
     then apply each team's projected context.
 
@@ -221,7 +222,7 @@ def _project_goalies(season_id: int, conn: sqlite3.Connection,
     goalies who played that season with that season's team.
     """
     hist = team_history(conn, _prior_goalie_seasons(conn, season_id))
-    rostered = _rostered_goalies(conn, season_id)
+    rostered = _rostered_goalies(conn, season_id, include_inactive)
     name_of = {pid: name for pid, name, _ in rostered}
     team_of = {pid: team for pid, _, team in rostered}
     results: list[Projection] = []

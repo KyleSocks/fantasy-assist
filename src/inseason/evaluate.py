@@ -141,8 +141,12 @@ def build_context(db_path: str, league: LeagueConfig,
     try:
         season, as_of = season_and_as_of(conn)
         if priors is None:
+            # include_inactive: free agents off NHL rosters (call-ups,
+            # waiver players) get their own projection as the prior; the
+            # league-average fallback made one of them "the best free
+            # agent" and set replacement level far too high.
             priors = priors_from_projections(
-                project_all_cached(season, db_path))
+                project_all_cached(season, db_path, include_inactive=True))
         lines = build_lines(conn, season, priors, icfg)
         skaters, goalies = load_current(conn, season)
         factors = opponent_factors(skaters, goalies, team_games_played(skaters),

@@ -87,13 +87,17 @@ class Memo:
 _PROJECTIONS = Memo(maxsize=4)
 
 
-def project_all_cached(season: int, db_path: str | os.PathLike) -> list:
-    """project_all(), cached per (season, DB, config). Callers must treat
-    the returned Projection objects as read-only: they are shared."""
+def project_all_cached(season: int, db_path: str | os.PathLike,
+                       include_inactive: bool = False) -> list:
+    """project_all(), cached per (season, DB, config, include_inactive).
+    Callers must treat the returned Projection objects as read-only: they
+    are shared."""
     from src.projections.projections import project_all
 
-    key = (season, str(db_path), db_stamp(db_path), config_stamp())
-    return _PROJECTIONS.get(key, lambda: project_all(season, str(db_path)))
+    key = (season, str(db_path), db_stamp(db_path), config_stamp(),
+           include_inactive)
+    return _PROJECTIONS.get(key, lambda: project_all(
+        season, str(db_path), include_inactive=include_inactive))
 
 
 def clear_all() -> None:
