@@ -93,7 +93,7 @@ def _print_hold(ctx, h: dict, unit: str) -> None:
           + ("" if ln.is_goalie else
              f" x plays {f['avail']:.0%} of games (preseason {ln.play_share_prior:.0%},"
              f" this season {ln.play_share_obs:.0%}) = {f['team_game']:.2f}")
-          f" | replacement {h['replacement_pg']:.2f}")
+          + f" | replacement {h['replacement_pg']:.2f}")
     print(f"  rank {h['group_rank']} in {'G' if ln.is_goalie else ('D' if ln.position == 'D' else 'F')}"
           f" (rostered pool = top {h['pool_size']})")
     if ln.is_goalie:
