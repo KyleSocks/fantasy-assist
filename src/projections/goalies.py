@@ -4,8 +4,9 @@ wins over his teams) combined with his projected team (team_context).
 Per start, once the team's starts are allocated (goalie_allocation):
 
     wins   = team win rate per game + regressed win edge
-    saves  = team shots against per game x SV%
-    GA     = team shots against per game x (1 - SV%)
+    SA     = team shots against per game x his shots-per-start ratio
+    saves  = SA x SV%
+    GA     = SA x (1 - SV%)
     SO     = Poisson P(0 goals) = exp(-GA per start) x shutout_scale,
              blended with his own shutouts per start (k = shutout_k_starts)
 
@@ -70,6 +71,21 @@ def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
             edge_num += w * ((s[3] or 0) / gs - team["wins"] / team["games"])
             edge_den += w
     raw_edge = edge_num / edge_den if edge_den > 0 else 0.0
+
+    # Shots he faces per start vs his team's shots against per game. A
+    # starter faces fewer (he is pulled, relievers take the rest); a backup
+    # more (relief appearances). Regressed toward 1 with goalie_sa_ratio_k
+    # starts of weight.
+    ratio_num = ratio_den = 0.0
+    for w, s in zip(weights, seasons):
+        gs = s[2] or 0
+        team = hist.get(s[0], {}).get(_canon(s[9]))
+        if gs > 0 and team and team["games"] > 0 and team["sa"] > 0:
+            ratio_num += w * ((s[5] or 0) / gs) / (team["sa"] / team["games"])
+            ratio_den += w
+    raw_ratio = ratio_num / ratio_den if ratio_den > 0 else 1.0
+    k_ratio = float(cfg.get("goalie_sa_ratio_k", 40))
+    sa_ratio = 1.0 + (raw_ratio - 1.0) * n_starts / (n_starts + k_ratio)
     k_win = float(cfg.get("goalie_win_rate_k", 40))
     edge = raw_edge * n_starts / (n_starts + k_win)
 
@@ -101,6 +117,7 @@ def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
     terms = {
         "raw_rates": {"save_pct": weighted_sp, "win_edge_raw": raw_edge,
                       "win_edge": edge, "own_so_per_start": own_so,
+                      "sa_ratio_raw": raw_ratio, "sa_ratio": sa_ratio,
                       "starts_raw": raw_starts, "wins_pct": 0.0,
                       "ga_per_start": 0.0, "sv_per_start": 0.0,
                       "so_per_start": 0.0},
@@ -134,7 +151,7 @@ def _finalize_goalie(p: Projection, team: dict, cfg: dict) -> None:
     the goalie's current allocated starts."""
     raw = p.terms["raw_rates"]
     sv = p.save_pct if p.save_pct is not None else 0.0
-    sa = team["sa_pg"]
+    sa = team["sa_pg"] * raw.get("sa_ratio", 1.0)
     lo, hi = cfg.get("goalie_win_rate_bounds", [0.15, 0.80])
     raw["wins_pct"] = max(lo, min(hi, team["win_pg"] + raw.get("win_edge", 0.0)))
     raw["sv_per_start"] = sa * sv

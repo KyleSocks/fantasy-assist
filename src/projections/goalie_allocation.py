@@ -203,9 +203,12 @@ def _allocate_goalie_starts(projs: list[Projection],
     for team in list(by_team.keys()):
         by_team[team] = _cap_team_to_three(team, by_team[team], name_of, conn)
     log.debug("[per-team goalie allocation, post-cap]:")
+    # Share of team starts kept back for goalies outside the pool (injury
+    # call-ups, waiver claims): the pool's goalies split the rest.
+    reserve = float(cfg.get("goalie_starts_reserve", 0.0))
     for team in sorted(by_team):
         members = by_team[team]
-        total = team_games.get(team, 0)
+        total = team_games.get(team, 0) * (1.0 - reserve)
         if total <= 0:
             for p in members:
                 _apply_goalie_starts(p, 0.0)

@@ -334,20 +334,84 @@ def test_chain_levels_peak_normalized():
         18: 0.909, 19: 1.0, 20: 1.0, 21: 0.9}
 
 
-def test_age_fit_on_paired_seasons():
-    """Forward born 2000-06-01 is 23 then 24 (Feb-1 ages), shots/60 up 10%:
-    the forwards shots curve rises 1.1x into 24 and is peak-normalized."""
-    from src.projections.age_fit import fit
+def _age_db(young_shots, old_shots):
+    """Two forwards, same TOI: A born 2000-06-01 (23 -> 24 by Feb-1 age),
+    B born 1990-06-01 (33 -> 34)."""
     conn = _conn()
-    conn.execute("INSERT INTO players (player_id, full_name, position,"
-                 " birth_date) VALUES (1, 'P', 'C', '2000-06-01')")
-    for sid, shots in ((S1, 200), (S2, 220)):
-        conn.execute(
-            "INSERT INTO skater_seasons (player_id, season_id, team_abbrev, gp,"
-            " goals, assists, shots, blocks, hits, pp_points, sh_points,"
-            " pp_toi_sec, toi_sec) VALUES (1, ?, 'AAA', 80, 20, 30, ?, 30, 40,"
-            " 10, 1, 14400, 72000)", (sid, shots))
-    curves = fit(conn, min_toi_min=300, min_pairs=1)
-    shots = curves["level_curves_by_stat"]["forwards"]["shots"]
-    assert shots[23] == pytest.approx(round(1 / 1.1, 3))
+    for pid, bd in ((1, "2000-06-01"), (2, "1990-06-01")):
+        conn.execute("INSERT INTO players (player_id, full_name, position,"
+                     " birth_date) VALUES (?, 'P', 'C', ?)", (pid, bd))
+    for pid, shots in ((1, young_shots), (2, old_shots)):
+        for sid, n in zip((S1, S2), shots):
+            conn.execute(
+                "INSERT INTO skater_seasons (player_id, season_id, team_abbrev,"
+                " gp, goals, assists, shots, blocks, hits, pp_points, sh_points,"
+                " pp_toi_sec, toi_sec) VALUES (?, ?, 'AAA', 80, 20, 30, ?, 30,"
+                " 40, 10, 1, 14400, 72000)", (pid, sid, n))
+    return conn
+
+
+def test_age_fit_on_paired_seasons():
+    """League shots flat (400 -> 400): A +10% into 24, B -10% into 34.
+    Levels: 1 through 23, 1.1 from 24 to 33, .99 at 34; / 1.1 ->
+    23: .909, 24: 1.0, 34: .9."""
+    from src.projections.age_fit import fit
+    shots = fit(_age_db((200, 220), (200, 180)), min_toi_min=300,
+                min_pairs=1)["level_curves_by_stat"]["forwards"]["shots"]
+    assert shots[23] == pytest.approx(0.909)
     assert shots[24] == 1.0
+    assert shots[34] == pytest.approx(0.9)
+
+
+def test_age_fit_ignores_league_wide_change():
+    """Both players +10% because the whole league shot 10% more: that is
+    the era, not aging, so every level stays 1.0."""
+    from src.projections.age_fit import fit
+    shots = fit(_age_db((200, 220), (200, 220)), min_toi_min=300,
+                min_pairs=1)["level_curves_by_stat"]["forwards"]["shots"]
+    assert set(shots.values()) == {1.0}
+
+
+def _pulled_starter_db():
+    """AAA, 82 games, 2460 SA (30 per game). G1 60 GS facing 1620 SA (27 per
+    start: pulled sometimes); G2 22 GS facing 840 (38.18: relief work)."""
+    conn = _conn()
+    _schedule(conn, S2, extra=False)
+    _schedule(conn, S3, extra=False)
+    for pid, gs, sa in ((1, 60, 1620), (2, 22, 840)):
+        conn.execute("INSERT INTO players (player_id, full_name, position,"
+                     " current_team_abbrev) VALUES (?, ?, 'G', 'AAA')",
+                     (pid, f"G{pid}"))
+        conn.execute(
+            "INSERT INTO goalie_seasons (player_id, season_id, team_abbrev, gp,"
+            " games_started, wins, saves, shots_against, goals_against,"
+            " shutouts) VALUES (?, ?, 'AAA', ?, ?, ?, ?, ?, ?, 0)",
+            (pid, S2, gs, gs, gs // 2, int(sa * .91), sa, sa - int(sa * .91)))
+    return conn
+
+
+def test_goalie_shots_per_start_ratio_hand_computed():
+    """G1: 27 / 30 = .9, regressed 1 - .1 * 60/(60+40) = .94.
+    G2: (840/22) / 30 = 1.272727 -> 1 + .272727 * 22/62 = 1.096774.
+    Per-start SA = team SA/g x ratio, so GA/start = 30 * .94 * (1 - SV%)."""
+    conn = _pulled_starter_db()
+    cfg = _load_config()
+    g1 = _project_goalie(1, S3, conn, cfg, {"save_pct": 0.91})
+    g2 = _project_goalie(2, S3, conn, cfg, {"save_pct": 0.91})
+    assert g1.terms["raw_rates"]["sa_ratio"] == pytest.approx(0.94)
+    assert g2.terms["raw_rates"]["sa_ratio"] == pytest.approx(1.0967741935483872)
+    sa = g1.terms["team_context"]["sa_pg"] * 0.94
+    assert g1.terms["raw_rates"]["ga_per_start"] == pytest.approx(
+        sa * (1 - g1.save_pct))
+
+
+def test_goalie_starts_reserve_leaves_starts_for_callups():
+    """Reserve .05: the pool splits 82 * .95 = 77.9 starts in proportion to
+    raw starts 60^2/85 = 42.352941 and 22^2/47 = 10.297872."""
+    conn = _pulled_starter_db()
+    cfg = {**_load_config(), "goalie_starts_reserve": 0.05}
+    projs = {p.player_id: p for p in _project_goalies(S3, conn, cfg,
+                                                       {"save_pct": 0.91})}
+    assert projs[1].games_started + projs[2].games_started == pytest.approx(77.9)
+    assert projs[1].games_started == pytest.approx(
+        77.9 * 42.35294117647059 / (42.35294117647059 + 10.297872340425531))

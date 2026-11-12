@@ -9,6 +9,10 @@ shape config/regression.yaml's level_curves use, but per stat and fitted.
 
 Goalies: the same on save %, additively (a level in save-% points).
 
+Rates are divided by that season's league rate (save % differenced from
+the league's) first, so a league-wide scoring change between two seasons
+-- e.g. save % falling since 2021 -- is not read as aging.
+
 Known bias: the delta method only sees players who kept playing, so the
 decline at old ages is slightly understated.
 
@@ -52,6 +56,22 @@ def smooth(values: dict[int, float]) -> dict[int, float]:
     return out
 
 
+def league_rates(rows: list[tuple]) -> dict[int, dict[str, float]]:
+    """{season: {stat: per-minute rate}} pooled over ``rows`` (the
+    skater_ratios SELECT), PP points on PP minutes."""
+    tot: dict[int, dict[str, float]] = {}
+    for r in rows:
+        t = tot.setdefault(r[1], {k: 0.0 for k in (*STATS, "_toi", "_pp")})
+        t["_toi"] += sum(_toi_parts(r[10], r[9], r[12])) / 60.0
+        t["_pp"] += (r[9] or 0) / 60.0
+        for stat, ci in STATS.items():
+            t[stat] += r[ci] or 0
+    return {sid: {stat: (t[stat] / (t["_pp"] if stat == "pp_points" else t["_toi"])
+                         if (t["_pp"] if stat == "pp_points" else t["_toi"]) > 0
+                         else 0.0) for stat in STATS}
+            for sid, t in tot.items()}
+
+
 def skater_ratios(conn: sqlite3.Connection, positions: tuple[str, ...],
                   min_toi_min: float, min_pairs: int) -> dict[str, dict[int, float]]:
     rows = conn.execute(
@@ -61,6 +81,7 @@ def skater_ratios(conn: sqlite3.Connection, positions: tuple[str, ...],
         " ON p.player_id = s.player_id WHERE s.gp > 0 AND p.position IN ({})"
         .format(",".join(f"'{x}'" for x in positions))).fetchall()
     by = {(r[0], r[1]): r for r in rows}
+    league = league_rates(rows)
     sums: dict[str, dict[int, list[float]]] = {s: {} for s in STATS}
     counts: dict[int, int] = {}
     for (pid, sid), r2 in by.items():
@@ -80,9 +101,12 @@ def skater_ratios(conn: sqlite3.Connection, positions: tuple[str, ...],
             d2 = (r2[9] or 0) / 60.0 if stat == "pp_points" else t2
             if d1 <= 0 or d2 <= 0:
                 continue
+            l1, l2 = league[r1[1]][stat], league[r2[1]][stat]
+            if l1 <= 0 or l2 <= 0:
+                continue
             acc = sums[stat].setdefault(a, [0.0, 0.0])
-            acc[0] += w * (r2[ci] or 0) / d2
-            acc[1] += w * (r1[ci] or 0) / d1
+            acc[0] += w * (r2[ci] or 0) / d2 / l2
+            acc[1] += w * (r1[ci] or 0) / d1 / l1
     out: dict[str, dict[int, float]] = {}
     for stat, by_age in sums.items():
         out[stat] = {a: num / den for a, (num, den) in by_age.items()
@@ -97,6 +121,12 @@ def goalie_deltas(conn: sqlite3.Connection, min_sa: float,
         " FROM goalie_seasons g JOIN players p ON p.player_id = g.player_id"
         " WHERE g.shots_against > 0").fetchall()
     by = {(r[0], r[1]): r for r in rows}
+    lg: dict[int, list[float]] = {}
+    for r in rows:
+        t = lg.setdefault(r[1], [0.0, 0.0])
+        t[0] += r[2] or 0
+        t[1] += r[3] or 0
+    league_sv = {sid: sv / sa for sid, (sv, sa) in lg.items() if sa > 0}
     acc: dict[int, list[float]] = {}
     for (pid, sid), r2 in by.items():
         r1 = by.get((pid, sid - 10001))
@@ -105,7 +135,8 @@ def goalie_deltas(conn: sqlite3.Connection, min_sa: float,
             continue
         w = 2 * r1[3] * r2[3] / (r1[3] + r2[3])
         a = acc.setdefault(int(age), [0.0, 0.0, 0])
-        a[0] += w * (r2[2] / r2[3] - r1[2] / r1[3])
+        a[0] += w * ((r2[2] / r2[3] - league_sv[sid])
+                     - (r1[2] / r1[3] - league_sv[sid - 10001]))
         a[1] += w
         a[2] += 1
     return {age: s / w for age, (s, w, n) in acc.items() if n >= min_pairs and w > 0}
