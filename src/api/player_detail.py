@@ -144,7 +144,19 @@ def _breakdown_rows(terms: dict, is_goalie: bool) -> list[dict]:
     rows.append({"term": "age adjustment L(proj)/L(obs)",
                  "value": terms["age_adj"]})
     rows.append({"term": "projected GP", "value": terms["proj_gp"]})
-    rows.append({"term": "projected TOI/GP", "value": terms["proj_toi_per_gp"]})
+    rows.append({"term": "projected EV TOI/GP (sec)",
+                 "value": terms["proj_toi_per_gp"]})
+    toi = terms.get("toi")
+    if toi:
+        rows.append({"term": "projected PP TOI/GP (sec)", "value": toi["pp_pg"]})
+        rows.append({"term": "projected SH TOI/GP (sec)", "value": toi["sh_pg"]})
+    if terms.get("sh_pct"):
+        rows.append({"term": "shooting % (career, regressed)",
+                     "value": terms["sh_pct"]["regressed"]})
+    tc = terms.get("team_context")
+    if tc:
+        rows.append({"term": "team win rate / game", "value": tc["win_pg"]})
+        rows.append({"term": "team shots against / game", "value": tc["sa_pg"]})
     rows.append({"term": "season weights",
                  "value": " / ".join(f"{w:.2f}" for w in weights)})
     final = terms["final"]
@@ -169,7 +181,8 @@ def _breakdown_rows(terms: dict, is_goalie: bool) -> list[dict]:
             rows.append({"term": f"{cat}: position mean",
                          "value": pos_mean[cat]})
             rows.append({"term": f"{cat}: k (regression)", "value": k[cat]})
-            rows.append({"term": f"{cat}: n (season GP)", "value": n[cat]})
+            rows.append({"term": f"{cat}: n (shots / TOI-min)",
+                         "value": n[cat]})
             rows.append({"term": f"{cat}: regressed rate",
                          "value": regressed[cat]})
             rows.append({"term": f"{cat}: final", "value": final[cat]})

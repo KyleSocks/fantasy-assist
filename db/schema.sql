@@ -30,7 +30,9 @@ CREATE TABLE IF NOT EXISTS skater_seasons (
     pp_points INTEGER,
     sh_points INTEGER,
     pp_toi_sec INTEGER,
+    -- even-strength TOI (the API's evTimeOnIce), not total ice time
     toi_sec INTEGER,
+    sh_toi_sec INTEGER,
     PRIMARY KEY (player_id, season_id)
 );
 

@@ -85,13 +85,16 @@ def test_ingest_stores_shpoints(tmp_path):
 
 def test_projection_sh_points_hand_computed(tmp_path):
     """Two centres on AAA, 2025-26 only (one season -> weight 1), 50 GP each,
-    1000 TOI-minutes each; team plays 82 games -> proj_gp = 82*50/82 = 50.
-      positional mean = (5 + 0) SHP / 100 GP = .05 per GP
-      k = 600 (config), n = 1000
-      A: raw .1   -> (.1*1000 + .05*600)/1600 = .08125 -> rookie (<100 GP)
-                     .5*.08125 + .5*.05 = .065625 -> x 50 = 3.28125
-      B: raw 0    -> (0 + 30)/1600 = .01875 -> .5*.01875 + .025 = .034375
-                     -> x 50 = 1.71875
+    63000 s total TOI each (60000 EV + 3000 PP; SH TOI not ingested yet).
+      positional SHP per 60 = 3600 * 5 / 126000 = .142857
+      k = 600 TOI-min (config), n = 63000 / 60 = 1050 min
+      A: raw 3600*5/63000 = .285714 -> (.285714*1050 + .142857*600)/1650
+         = .233766; rookie weight .5*(1 - 50/200) = .375
+         -> .625*.233766 + .375*.142857 = .199675 per 60
+      B: raw 0 -> 85.714/1650 = .051948 -> .086039 per 60
+      per game at 1260 s TOI = per60 * .35
+      GP: share 50/82 regressed: (5*.609756 + 3*.88)/8 = .711098 -> 58.31
+      A: .199675 * .35 * 58.31 = 4.07507;  B: 1.75593
     No birth dates -> age adjustment 1.0.
     """
     db = str(tmp_path / "p.db")
@@ -109,9 +112,10 @@ def test_projection_sh_points_hand_computed(tmp_path):
     conn.commit()
     conn.close()
     by = {p.player_id: p for p in project_all(20262027, db)}
-    assert by[1].gp == pytest.approx(50.0)
-    assert by[1].sh_points == pytest.approx(3.28125)
-    assert by[2].sh_points == pytest.approx(1.71875)
+    assert by[1].gp == pytest.approx(58.31)
+    assert by[1].sh_points == pytest.approx(4.075073863636364)
+    assert by[2].sh_points == pytest.approx(1.7559261363636365)
+    # positional mean per game at A's TOI: .142857 * .35 = .05
     assert by[1].terms["sh_points"]["pos_mean"] == pytest.approx(0.05)
 
 

@@ -16,6 +16,7 @@ import sqlite3
 # working unchanged.
 from .common import (  # noqa: F401
     CONFIG_PATH,
+    _compute_pos_rates,
     REGRESSION_N,
     SKATER_CATEGORIES,
     SKATER_STATS,
@@ -58,7 +59,7 @@ def _prior_seasons(conn: sqlite3.Connection, season_id: int) -> list[int]:
 
 def _skater_baseline(conn: sqlite3.Connection, prior_seasons: list[int],
                      position: str) -> tuple[dict[str, float], float]:
-    """(positional per-GP means, positional median TOI/GP) for a skater.
+    """(positional per-GP means, positional median EV TOI/GP) for a skater.
 
     C -> centres, L/R -> wingers, anything else -> defencemen.
     """
@@ -66,6 +67,19 @@ def _skater_baseline(conn: sqlite3.Connection, prior_seasons: list[int],
     group = pg if pg in ("C", "W") else "D"
     return (_compute_pos_means(conn, prior_seasons, group),
             _compute_pos_median_toi(conn, prior_seasons, group))
+
+
+def _group_key(position: str) -> str:
+    pg = _pos_group(position)
+    return pg if pg in ("C", "W") else "D"
+
+
+def _config(overrides: dict | None) -> dict:
+    """regression.yaml with optional overrides (the backtest's --set/--grid)."""
+    cfg = _load_config()
+    if overrides:
+        cfg = {**cfg, **overrides}
+    return cfg
 
 
 def _open(db_path: str) -> sqlite3.Connection:
@@ -77,62 +91,79 @@ def _open(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def project_all(season_id: int, db_path: str) -> list[Projection]:
-    """Project next-season totals for every skater and goalie."""
+def _project_skaters(conn: sqlite3.Connection, season_id: int, cfg: dict,
+                     prior_seasons: list[int]) -> list[Projection]:
+    groups = ("C", "W", "D")
+    means = {g: _compute_pos_means(conn, prior_seasons, g) for g in groups}
+    medians = {g: _compute_pos_median_toi(conn, prior_seasons, g) for g in groups}
+    rates = {g: _compute_pos_rates(conn, prior_seasons, g) for g in groups}
+    out: list[Projection] = []
+    for (pid,) in conn.execute(
+            "SELECT DISTINCT player_id FROM skater_seasons"
+            " WHERE season_id < ? AND gp > 0", (season_id,)).fetchall():
+        row = conn.execute("SELECT position FROM players WHERE player_id = ?",
+                           (pid,)).fetchone()
+        if not row or _pos_group(row[0]) == "G":
+            continue
+        g = _group_key(row[0])
+        proj = _project_skater(pid, season_id, conn, cfg, means[g], medians[g],
+                               rates[g])
+        if proj is not None:
+            out.append(proj)
+    return out
+
+
+def project_all(season_id: int, db_path: str,
+                cfg_overrides: dict | None = None) -> list[Projection]:
+    """Project next-season totals for every skater and goalie.
+
+    Skaters first: their projected goals by team feed the goalies' team
+    context (src.projections.team_context).
+    """
     conn = _open(db_path)
     try:
-        cfg = _load_config()
+        cfg = _config(cfg_overrides)
         prior_seasons = _prior_seasons(conn, season_id)
         if not prior_seasons:
             return []
-
-        baselines = {pos: _skater_baseline(conn, prior_seasons, pos)
-                     for pos in ("C", "L", "D")}
+        results = _project_skaters(conn, season_id, cfg, prior_seasons)
         pos_means_g = _compute_pos_means(conn, prior_seasons, "G")
-
-        skaters = [r[0] for r in conn.execute(
-            "SELECT DISTINCT player_id FROM skater_seasons"
-            " WHERE season_id < ? AND gp > 0", (season_id,))]
-        results: list[Projection] = []
-        for pid in skaters:
-            row = conn.execute(
-                "SELECT position FROM players WHERE player_id = ?",
-                (pid,)).fetchone()
-            if not row:
-                continue
-            pg = _pos_group(row[0])
-            pm, pmt = baselines["C" if pg == "C" else "L" if pg == "W" else "D"]
-            proj = _project_skater(pid, season_id, conn, cfg, pm, pmt)
-            if proj is not None:
-                results.append(proj)
-
-        # All goalies (per-team zero-sum starts allocation)
-        results.extend(_project_goalies(season_id, conn, cfg, pos_means_g))
+        results.extend(_project_goalies(season_id, conn, cfg, pos_means_g,
+                                        skaters=results))
         return results
     finally:
         conn.close()
 
 
 def explain(player_id: int, season_id: int, db_path: str) -> dict:
-    """Return all intermediate terms for a player's projection."""
+    """Return all intermediate terms for a player's projection.
+
+    A goalie's terms depend on every team's projected roster, so goalies
+    run the full projection (src.cache.project_all_cached memoizes it).
+    """
     conn = _open(db_path)
     try:
-        cfg = _load_config()
+        cfg = _config(None)
         prior_seasons = _prior_seasons(conn, season_id)
         if not prior_seasons:
             return {}
         row = conn.execute(
             "SELECT position FROM players WHERE player_id = ?",
             (player_id,)).fetchone()
+        proj = None
         if row and _pos_group(row[0]) != "G":
-            pm, pmt = _skater_baseline(conn, prior_seasons, row[0])
-            proj = _project_skater(player_id, season_id, conn, cfg, pm, pmt)
-        else:
-            pm_g = _compute_pos_means(conn, prior_seasons, "G")
-            all_g = _project_goalies(season_id, conn, cfg, pm_g)
-            proj = next((q for q in all_g if q.player_id == player_id), None)
+            g = _group_key(row[0])
+            proj = _project_skater(
+                player_id, season_id, conn, cfg,
+                _compute_pos_means(conn, prior_seasons, g),
+                _compute_pos_median_toi(conn, prior_seasons, g),
+                _compute_pos_rates(conn, prior_seasons, g))
     finally:
         conn.close()
+    if proj is None and not (row and _pos_group(row[0]) != "G"):
+        from src.cache import project_all_cached
+        proj = next((q for q in project_all_cached(season_id, db_path)
+                     if q.player_id == player_id), None)
     if proj is None:
         return {}
     return proj.terms
