@@ -36,6 +36,8 @@ from collections import Counter
 
 import pytest
 
+from tests.pinned import pinned_config
+
 from src.projections.projections import (
     Projection,
     _allocate_goalie_starts,
@@ -67,7 +69,7 @@ KNOWN_EXCLUSIONS: frozenset[int] = frozenset()
 
 @pytest.fixture(scope="module")
 def cfg() -> dict:
-    return _load_config()
+    return pinned_config()
 
 
 def _league_cfg() -> LeagueConfig:

@@ -159,7 +159,25 @@ def summarize(rows_s: list[dict], rows_g: list[dict]) -> dict:
         out["goalie_cats"] = {c: score([getattr(r["p"], c) or 0 for r in rows_g],
                                        [getattr(r["a"], c) or 0 for r in rows_g])
                               for c in G_CATS}
+        out["goalie_per_start"] = goalie_per_start(rows_g)
     return out
+
+
+def goalie_per_start(rows_g: list[dict]) -> dict[str, tuple[float, float]]:
+    """Pooled per-start rates, (projected, actual): separates a starts
+    miss from a per-start miss (shots against, save %, wins, shutouts)."""
+    def pooled(side: str) -> dict[str, float]:
+        gs = sum(r[side].games_started or 0 for r in rows_g)
+        sv = sum(r[side].saves or 0 for r in rows_g)
+        ga = sum(r[side].goals_against or 0 for r in rows_g)
+        if gs <= 0:
+            return {k: 0.0 for k in ("sa", "sv_pct", "wins", "so")}
+        return {"sa": (sv + ga) / gs,
+                "sv_pct": sv / (sv + ga) if sv + ga > 0 else 0.0,
+                "wins": sum(r[side].wins or 0 for r in rows_g) / gs,
+                "so": sum(r[side].shutouts or 0 for r in rows_g) / gs}
+    p, a = pooled("p"), pooled("a")
+    return {k: (p[k], a[k]) for k in p}
 
 
 def _parse_kv(items: list[str]) -> dict:
@@ -190,6 +208,9 @@ def _print_full(res: dict) -> None:
         line("model", res["goalies"])
         for c, s in res["goalie_cats"].items():
             line(c, s)
+        ps = res["goalie_per_start"]
+        print("  per start, projected vs actual: " + ", ".join(
+            f"{k} {p:.3f} vs {a:.3f}" for k, (p, a) in ps.items()))
 
 
 def main() -> None:

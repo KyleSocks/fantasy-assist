@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 from src.ingest.bios import ingest_bios
-from src.projections.common import _load_config
+from tests.pinned import PINNED, pinned_config
 from src.projections.goalies import _project_goalies
 from src.projections.projections import project_all
 
@@ -74,12 +74,12 @@ def test_inactive_players_projected_in_backtests_only(tmp_path):
     db = str(tmp_path / "b.db")
     conn = _db(db)
     # production season (no rows yet): only the rostered player
-    assert {p.player_id for p in project_all(S3, db)} == {2}
+    assert {p.player_id for p in project_all(S3, db, PINNED)} == {2}
     # backtest season: S3 rows exist, so the retired player is projected too
     conn.execute("INSERT INTO skater_seasons (player_id, season_id, team_abbrev,"
                  " gp) VALUES (1, ?, 'AAA', 50)", (S3,))
     conn.commit()
-    assert {p.player_id for p in project_all(S3, db)} == {1, 2}
+    assert {p.player_id for p in project_all(S3, db, PINNED)} == {1, 2}
 
 
 def test_backtest_goalie_pool_without_players_rows_does_not_crash():
@@ -100,7 +100,7 @@ def test_backtest_goalie_pool_without_players_rows_does_not_crash():
                 " gp, games_started, wins, saves, shots_against, goals_against,"
                 " shutouts) VALUES (?, ?, 'AAA', ?, ?, ?, ?, ?, ?, 0)",
                 (pid, s, gs, gs, gs // 2, gs * 27, gs * 30, gs * 3))
-    projs = _project_goalies(S3, conn, _load_config(), {"save_pct": 0.9})
+    projs = _project_goalies(S3, conn, pinned_config(), {"save_pct": 0.9})
     starts = sorted((p.player_id, round(p.games_started, 6)) for p in projs)
     assert [pid for pid, _ in starts] == [11, 12, 13, 14]
     assert sum(gs for _, gs in starts) == 82          # 14 is capped out at 0

@@ -17,13 +17,14 @@ import pytest
 
 from src.projections.age_fit import chain_levels
 from src.projections.common import (
-    Projection, _load_config, curve_for, projected_play_share)
+    Projection, curve_for, projected_play_share)
 from src.projections.goalie_allocation import _rostered_goalies
 from src.projections.goalies import _finalize_goalie, _project_goalie, _project_goalies
 from src.projections.projections import project_all
 from src.projections.skaters import _rookie_weight
 from src.projections.team_context import project_teams, pythag, team_lookup
 from src.projections.walkforward import evaluate, score, split_error
+from tests.pinned import PINNED, pinned_config
 
 SCHEMA = (Path(__file__).resolve().parents[1] / "db" / "schema.sql").read_text()
 S1, S2, S3 = 20232024, 20242025, 20252026
@@ -89,7 +90,7 @@ def test_play_share_recency_weighted_skips_callups_ignores_playoffs():
     for s in (S1, S2, S3):
         _schedule(conn, s)
     out = projected_play_share([(S3, 70, "AAA"), (S2, 5, "AAA"), (S1, 41, "AAA")],
-                               conn, _load_config())
+                               conn, pinned_config())
     assert out["season_shares"] == pytest.approx([70 / 82, 41 / 82])
     assert out["raw_share"] == pytest.approx(0.7210365853658537)
     assert out["share"] == pytest.approx(0.764390243902439)
@@ -98,7 +99,7 @@ def test_play_share_recency_weighted_skips_callups_ignores_playoffs():
 def test_play_share_floor_and_ceiling():
     conn = _conn()
     _schedule(conn, S2)
-    cfg = _load_config()
+    cfg = pinned_config()
     assert projected_play_share([(S2, 82, "AAA")], conn, cfg)["share"] == \
         pytest.approx((5 * 1.0 + 3 * 0.88) / 8)
     low = projected_play_share([(S2, 10, "AAA")], conn,
@@ -146,7 +147,7 @@ def test_skater_per60_times_toi_hand_computed(tmp_path):
     """
     db = str(tmp_path / "s.db")
     _skater_db(db)
-    p = {q.player_id: q for q in project_all(S3, db, {"rookie_ramp_gp": 0})}[1]
+    p = {q.player_id: q for q in project_all(S3, db, {**PINNED, "rookie_ramp_gp": 0})}[1]
     assert p.gp == pytest.approx(77.06)
     assert p.shots == pytest.approx(191.6489483842233)
     assert p.terms["sh_pct"]["regressed"] == pytest.approx(0.09333333333333334)
@@ -165,14 +166,14 @@ def test_team_change_blends_pp_toi_toward_position_mean(tmp_path):
       -> PPP 2.466667/60 * 167.142857/3600 * 77.06 = 8.82520"""
     db = str(tmp_path / "t.db")
     _skater_db(db, new_team="BBB")
-    p = {q.player_id: q for q in project_all(S3, db, {"rookie_ramp_gp": 0})}[1]
+    p = {q.player_id: q for q in project_all(S3, db, {**PINNED, "rookie_ramp_gp": 0})}[1]
     assert p.terms["toi"]["team_changed"] is True
     assert p.terms["toi"]["pp_pg"] == pytest.approx(167.14285714285714)
     assert p.pp_points == pytest.approx(8.825204761904763)
 
 
 def test_rookie_prior_ramps_smoothly():
-    cfg = _load_config()
+    cfg = pinned_config()
     assert [_rookie_weight(cfg, g) for g in (0, 100, 199, 200, 400)] == \
         pytest.approx([0.5, 0.25, 0.0025, 0.0, 0.0])
 
@@ -221,7 +222,7 @@ def test_project_teams_hand_computed():
     """
     conn = _conn()
     _goalie_league(conn)
-    ctx = project_teams(conn, [S2], _load_config(),
+    ctx = project_teams(conn, [S2], pinned_config(),
                         {"AAA": 250.0, "BBB": 200.0}, {"AAA": .915, "BBB": .905})
     a, b = ctx["AAA"], ctx["BBB"]
     assert a["sa_pg"] == pytest.approx(30.6)
@@ -245,7 +246,7 @@ def test_goalie_win_edge_over_own_team():
     """G1: 36/60 - 45/82 = .051220, regressed x 60/(60 + 40) = .030732."""
     conn = _conn()
     _goalie_league(conn)
-    p = _project_goalie(1, S3, conn, _load_config(), {"save_pct": 0.9117})
+    p = _project_goalie(1, S3, conn, pinned_config(), {"save_pct": 0.9117})
     assert p.terms["raw_rates"]["win_edge"] == pytest.approx(0.030731707317073132)
 
 
@@ -260,7 +261,7 @@ def test_finalize_goalie_per_start_rates_hand_computed():
                    save_pct=0.92, position="G", games_started=60)
     p.terms = {"raw_rates": {"win_edge": 0.02, "own_so_per_start": 0.08},
                "n": {"starts": 100}, "final": {"games_started": 60.0}}
-    _finalize_goalie(p, {"sa_pg": 30.0, "win_pg": 0.55}, _load_config())
+    _finalize_goalie(p, {"sa_pg": 30.0, "win_pg": 0.55}, pinned_config())
     assert p.wins == pytest.approx(34.2)
     assert p.saves == pytest.approx(1656.0)
     assert p.goals_against == pytest.approx(144.0)
@@ -271,7 +272,7 @@ def test_project_goalies_uses_team_context_and_sums_starts():
     conn = _conn()
     _goalie_league(conn)
     _schedule(conn, S3, extra=False)
-    projs = _project_goalies(S3, conn, _load_config(), {"save_pct": 0.9117})
+    projs = _project_goalies(S3, conn, pinned_config(), {"save_pct": 0.9117})
     by_team: dict[str, float] = {}
     for p in projs:
         team = {1: "AAA", 2: "AAA", 3: "BBB", 4: "BBB"}[p.player_id]
@@ -395,7 +396,7 @@ def test_goalie_shots_per_start_ratio_hand_computed():
     G2: (840/22) / 30 = 1.272727 -> 1 + .272727 * 22/62 = 1.096774.
     Per-start SA = team SA/g x ratio, so GA/start = 30 * .94 * (1 - SV%)."""
     conn = _pulled_starter_db()
-    cfg = _load_config()
+    cfg = pinned_config()
     g1 = _project_goalie(1, S3, conn, cfg, {"save_pct": 0.91})
     g2 = _project_goalie(2, S3, conn, cfg, {"save_pct": 0.91})
     assert g1.terms["raw_rates"]["sa_ratio"] == pytest.approx(0.94)
@@ -409,9 +410,43 @@ def test_goalie_starts_reserve_leaves_starts_for_callups():
     """Reserve .05: the pool splits 82 * .95 = 77.9 starts in proportion to
     raw starts 60^2/85 = 42.352941 and 22^2/47 = 10.297872."""
     conn = _pulled_starter_db()
-    cfg = {**_load_config(), "goalie_starts_reserve": 0.05}
+    cfg = pinned_config(goalie_starts_reserve=0.05)
     projs = {p.player_id: p for p in _project_goalies(S3, conn, cfg,
                                                        {"save_pct": 0.91})}
     assert projs[1].games_started + projs[2].games_started == pytest.approx(77.9)
     assert projs[1].games_started == pytest.approx(
         77.9 * 42.35294117647059 / (42.35294117647059 + 10.297872340425531))
+
+
+def test_goalie_per_start_pooled_hand_computed():
+    """Projected: 60 GS, 1650 SV, 150 GA, 33 W, 4 SO -> SA 30, SV% .91667,
+    W .55, SO .06667. Actual: 50 GS, 1300 SV, 150 GA, 25 W, 2 SO ->
+    SA 29, SV% .89655, W .5, SO .04."""
+    from src.projections.walkforward import goalie_per_start
+
+    def g(gs, sv, ga, w, so):
+        return Projection(player_id=1, season_id=S3, gp=gs, toi_per_gp=0,
+                          goals=0, assists=0, shots=0, blocks=0, hits=0,
+                          pp_points=0, wins=w, save_pct=None, position="G",
+                          games_started=gs, saves=sv, goals_against=ga,
+                          shutouts=so)
+    out = goalie_per_start([{"p": g(60, 1650, 150, 33, 4),
+                             "a": g(50, 1300, 150, 25, 2)}])
+    assert out["sa"] == pytest.approx((30.0, 29.0))
+    assert out["sv_pct"] == pytest.approx((1650 / 1800, 1300 / 1450))
+    assert out["wins"] == pytest.approx((0.55, 0.5))
+    assert out["so"] == pytest.approx((4 / 60, 0.04))
+
+
+def test_goalie_sv_age_curve_is_additive():
+    """G1 born 1996-06-01: 28 at Feb 1 2025 (observed 2024-25), 29 at Feb 1
+    2026 (projected). Curve 28: -.0085, 29: -.0107 -> SV% moves by
+    -.0107 - (-.0085) = -.0022 from the regressed value."""
+    conn = _conn()
+    _goalie_league(conn)
+    conn.execute("UPDATE players SET birth_date = '1996-06-01' WHERE player_id = 1")
+    cfg = pinned_config(goalie_sv_age={28: -0.0085, 29: -0.0107})
+    p = _project_goalie(1, S3, conn, cfg, {"save_pct": 0.9117})
+    assert p.terms["sv_age_delta"] == pytest.approx(-0.0022)
+    assert p.save_pct == pytest.approx(
+        p.terms["regressed_rate"]["save_pct"] - 0.0022)

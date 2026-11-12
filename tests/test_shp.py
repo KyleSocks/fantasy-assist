@@ -7,6 +7,7 @@ import pytest
 
 from src.ingest.models import init_db
 from src.projections.projections import Projection, project_all
+from tests.pinned import PINNED
 from src.valuation.league import LeagueConfig, STAT_FIELD_MAP, category_vector, points_value
 from src.valuation.valuation import _GOALIE_CAT_NAMES, _SKATER_CAT_NAMES, _cats_for_position
 
@@ -111,7 +112,7 @@ def test_projection_sh_points_hand_computed(tmp_path):
                      (g + 1, "AAA" if g % 2 else "BBB", "BBB" if g % 2 else "AAA"))
     conn.commit()
     conn.close()
-    by = {p.player_id: p for p in project_all(20262027, db)}
+    by = {p.player_id: p for p in project_all(20262027, db, PINNED)}
     assert by[1].gp == pytest.approx(58.31)
     assert by[1].sh_points == pytest.approx(4.075073863636364)
     assert by[2].sh_points == pytest.approx(1.7559261363636365)

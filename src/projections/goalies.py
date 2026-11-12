@@ -99,8 +99,11 @@ def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
     age_delta = 0.0
     curve = cfg.get("goalie_sv_age")
     if curve:
-        row = conn.execute("SELECT birth_date FROM players WHERE player_id = ?",
-                           (pid,)).fetchone()
+        try:
+            row = conn.execute("SELECT birth_date FROM players"
+                               " WHERE player_id = ?", (pid,)).fetchone()
+        except sqlite3.OperationalError:   # players table without birth dates
+            row = None
         bd = row[0] if row else None
         age = age_at(bd, season_id)
         if age is not None:
