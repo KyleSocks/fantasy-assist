@@ -16,9 +16,15 @@
   const signed = (v, d = 1) => (v == null ? "–" : (v >= 0 ? "+" : "") + Number(v).toFixed(d));
   const pct = (v) => (v == null ? "–" : (v >= 0 ? "+" : "") + Math.round(v * 100) + "%");
   const cls = (v) => (v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "");
-  // who wins a trade and by how much: g = your gain (+) or loss (-)
-  const winner = (g, them = "Them", d = 0) => (Math.abs(g) < 0.5 ? '<span class="muted">Even</span>'
+  // who wins a trade and by how much: g = your gain (+) or loss (-);
+  // close = inside projection error (server's close_call)
+  const winner = (g, them = "Them", d = 0, close = false) => (Math.abs(g) < 0.5 ? '<span class="muted">Even</span>'
+    : close ? `<span class="muted" title="margin is inside projection error">Too close (${g > 0 ? "you" : esc(them)} by ${num(Math.abs(g), d)})</span>`
     : g > 0 ? `<b class="pos">You by ${num(g, d)}</b>` : `<b class="neg">${esc(them)} by ${num(-g, d)}</b>`);
+  // Yahoo injury tag, share of games played, fantasy-playoff games
+  const tag = (p) => (p.injury ? `<span class="flag">${esc(p.injury)}</span>` : "");
+  const extras = (p) => [p.avail != null && p.avail < 0.85 ? `plays ${Math.round(p.avail * 100)}%` : "",
+    p.playoff_games != null ? `PO ${p.playoff_games}g` : ""].filter(Boolean).join(" · ");
   const mmss = (s) => (s == null ? "–" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
   const md = (d) => d.slice(5).replace("-", "/");
   const dow = (d) => new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" });
@@ -112,7 +118,11 @@
       { key: "prior", label: "Pre", minor: true, title: `preseason ${unit}/game`, fmt: (r) => num(r.prior) },
       { key: "now", label: "Now", title: `this season ${unit}/game`, fmt: (r) => num(r.now) },
       { key: "vs_prior_pct", label: "vs pre", fmt: (r) => `<span class="${cls(r.vs_prior_pct)}">${pct(r.vs_prior_pct)}</span>` },
-      { key: "blended", label: "Blend", title: "blended per-game value used by every decision", fmt: (r) => `<b>${num(r.blended)}</b>` },
+      { key: "blended", label: "Blend", title: "blended value per game played", fmt: (r) => num(r.blended) },
+      { key: "avail", label: "Plays", minor: true, title: "share of team games he plays / starts (injuries, scratches)",
+        fmt: (r) => (r.avail == null ? "–" : `<span class="${r.avail < 0.85 ? "neg" : ""}">${Math.round(r.avail * 100)}%</span>`) },
+      { key: "team_game", label: "Value", title: "value per team game (blend x plays): what every decision uses",
+        fmt: (r) => `<b>${num(r.team_game)}</b>` },
       { key: "toi_prior", label: "TOI pre", minor: true, title: "EV TOI per game", fmt: (r) => mmss(r.toi_prior) },
       { key: "toi_now", label: "TOI now", minor: true, fmt: (r) => {
           const d = r.toi_now != null && r.toi_prior != null ? r.toi_now - r.toi_prior : null;
@@ -307,7 +317,6 @@
       decorateLeague(el, L);
       showTeam(L.teams.find((t) => t.mine));
       drawTrades(names);
-      fillShop(L);
       if (window.insPartner) window.insPartner.fill(L);
       status("");
     } catch (e) { status(e.message, true); }
@@ -352,73 +361,13 @@
     ], rows);
     if (!rows.length) $("trades-table").innerHTML += '<tbody><tr><td class="l" colspan="7">No trades pass these filters.</td></tr></tbody>';
   }
-  // ── shop a player: deals from "looks like I win" to "looks like they win"
-  let shopData = null;
-  function fillShop(L) {
-    const me = L.teams.find((t) => t.mine);
-    const sel = $("shop-give"), prev = sel.value;
-    sel.innerHTML = (me ? me.players : []).map((p) =>
-      `<option value="${p.id}">${esc(p.name)} (${esc(p.elig.join(","))}, ${num(p.per_game)})</option>`).join("");
-    if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
-  }
-  const leanCell = (x) => `<span title="${esc(x.lean)} ${signed(100 * x.tilt, 0)}% of your player's value">${
-    winner(x.market_edge, x.partner)}</span>`;
-  function drawShop() {
-    if (!shopData) return;
-    const pos = $("shop-pos").value, gain = $("shop-gain").checked;
-    const rows = shopData.options.filter((x) =>
-      (!pos || x.get.elig.includes(pos)) && (!gain || x.my_gain > 0));
-    const g = shopData.give;
-    const src = g.market_source === "yahoo"
-      ? `${num(g.pct_ros, 0)}% rostered, Yahoo pre-season #${g.pre_rank ?? "–"}, ${num(g.fpts, 1)} Fan Pts`
-        + ` in ${g.yahoo_gp ?? "?"} GP (Yahoo data ${esc(shopData.market_fetched || "?")})`
-      : `no Yahoo data yet (press Refresh data): season-to-date with ${num(shopData.market_k_games, 0)} games of prior`;
-    $("shop-meta").innerHTML = `Trading <b>${esc(g.name)}</b>: your model ${num(g.per_game)}/gm,
-      market ~${num(g.market_pg)}/gm &mdash; ${src}.
-      ${g.per_game > g.market_pg + 0.1 ? "You value him more than the market: hard to get full value."
-        : g.market_pg > g.per_game + 0.1 ? "The market values him more than you do: good time to sell." : ""}
-      ${rows.length} deals shown.`;
-    const el = $("shop-table");
-    el._sort = {};   // default: market order, favours-you first
-    table(el, [
-      { key: "star", label: "★", sort: (x) => (x.sweet_spot ? 1 : 0), fmt: (x) => (x.sweet_spot ? "★" : "") },
-      { key: "partner", label: "With", left: true },
-      { key: "get", label: "You get", left: true, stick: true, sort: (x) => x.get.name,
-        fmt: (x) => `${esc(x.get.name)} <span class="muted">${esc(x.get.team)} ${esc(x.get.elig.join(","))}</span>` },
-      { key: "pg", label: "Model / mkt", title: "per game: your model vs the market's view",
-        sort: (x) => x.get.per_game, fmt: (x) => `${num(x.get.per_game)} / ${num(x.get.market_pg)}` },
-      { key: "pct_ros", label: "% Ros", minor: true, title: "% of Yahoo leagues rostering him",
-        sort: (x) => x.get.pct_ros, fmt: (x) => (x.get.pct_ros == null ? "–" : `${num(x.get.pct_ros, 0)}%`) },
-      { key: "pre_rank", label: "Pre", minor: true, title: "Yahoo pre-season rank (name value)",
-        sort: (x) => (x.get.pre_rank == null ? null : -x.get.pre_rank),
-        fmt: (x) => (x.get.pre_rank == null ? "–" : `#${num(x.get.pre_rank, 0)}`) },
-      { key: "market_edge", label: "They'll see", title: "how a typical manager sees it (tilt vs the value of your player)",
-        fmt: leanCell },
-      { key: "my_gain", label: "Winner", title: `your lineup, ${unit}, through ${shopData.ros_end} (playoff games x${shopData.playoff_game_weight})`,
-        fmt: (x) => winner(x.my_gain, x.partner) },
-      { key: "my_fit", label: "Fit me", fmt: (x) => `<span class="${cls(x.my_fit)}">${signed(x.my_fit)}</span>` },
-      { key: "their_fit", label: "Fit them", minor: true, fmt: (x) => `<span class="${cls(x.their_fit)}">${signed(x.their_fit)}</span>` },
-    ], rows);
-    if (!rows.length) el.innerHTML += '<tbody><tr><td class="l" colspan="10">No deals pass these filters.</td></tr></tbody>';
-  }
-  $("shop-run").addEventListener("click", async () => {
-    status("Valuing every player in the league for this trade…");
-    try {
-      shopData = await api(`/api/inseason/trade-options?${new URLSearchParams({
-        league: $("league").value, start: $("start").value, days: $("league-days").value,
-        give: $("shop-give").value })}`);
-      drawShop();
-      status("");
-    } catch (e) { status(e.message, true); }
-  });
-  ["shop-pos", "shop-gain"].forEach((id) => $(id).addEventListener("change", drawShop));
 
   ["tr-mutual", "tr-pg", "tr-fair"].forEach((id) => $(id).addEventListener("change", () =>
     drawTrades(Object.fromEntries((leagueData?.teams || []).map((t) => [t.id, t.name])))));
   $("league-days").addEventListener("change", () => loaders.league());
 
   // shared with static/inseason-partner.js (trade with a team)
-  window.insKit = { $, esc, num, signed, cls, winner, table, api, status,
+  window.insKit = { $, esc, num, signed, cls, winner, tag, extras, table, api, status,
     unit: () => unit, league: () => leagueData };
 
   // ── schedule ─────────────────────────────────────────────────────────

@@ -107,3 +107,17 @@ def test_streams_report_what_they_add_to_my_lineup(db, tmp_path, monkeypatch):  
         assert p["adds"] == pytest.approx(p["value"])
     a = c.get("/api/inseason/audit?league=t&start=2026-11-02&days=1").json()
     assert a["nights"][0]["can_fit"]["F"] >= 1
+
+
+def test_replacement_follows_the_free_agent_file(db, tmp_path, monkeypatch):  # noqa: F811
+    """Saving the free-agent list re-sets replacement to the best healthy
+    one (Depth Wing; Strong Center is OUT). No file = the formula, which
+    in this 7-player world with 12 teams' pools is 0 (nobody is outside)."""
+    c = _client(db, tmp_path, monkeypatch)
+    q = "/api/inseason/player/1?league=t&start=2026-11-01&days=4"
+    assert c.get(q).json()["replacement_pg"] == 0.0
+    c.put("/api/inseason/lists?league=t", json={
+        "roster": "Alex Ovechkin | AAA | LW\n",
+        "free_agents": "Depth Wing | CCC | RW\nStrong Center | BBB | C | OUT\n"})
+    depth = api._ctx("t").scorer.per_game[3]
+    assert c.get(q).json()["replacement_pg"] == pytest.approx(depth)

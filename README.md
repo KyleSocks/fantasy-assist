@@ -96,6 +96,15 @@ How the numbers are made (tunable in `config/inseason.yaml`):
   sum of player values: a player who'd sit on your bench adds nothing, and one below
   replacement never starts (so dumping him on someone gains them nothing). The market
   view ("They'll see") floors each player at 0 for the same reason.
+- **Replacement** is the best healthy free agent in your league per group (from
+  `data/fa.txt`, written by Refresh), not a formula; a trade that opens a roster spot
+  fills it with the best free agent for your lineup.
+- **Skaters' availability**: value per team game = per game played x the share of
+  games he plays (projected durability blended with this season, `play_share_k_games`).
+- **Goalies**: saves and goals against both come from blended shots against x blended
+  save % (1000-shot prior), so a hot or cold stretch doesn't swing GA on its own.
+- **Market view** ("They'll see") uses season-total Fan Pts, as Yahoo's trade screen
+  shows them (`market_points` in inseason.yaml).
 
 **GUI:** run the server (`uv run uvicorn src.api.main:app`, or `server-start.bat`) and open
 http://127.0.0.1:8000/inseason -- tabs for the roster audit, the streaming plan, free

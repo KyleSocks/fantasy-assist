@@ -101,6 +101,11 @@ class Context:
             return float(self.icfg.get("playoff_game_weight", 1.0))
         return 1.0
 
+    def playoff_games(self, team: str | None) -> int | None:
+        """Games ``team`` plays in the fantasy playoffs (None: no window)."""
+        po = self.league.playoff_window
+        return len(self.team_games(team, po[0], po[1])) if po else None
+
     def weighted_team_games(self, start: str, end: str) -> float:
         """avg_team_games with each game weighted by game_weight."""
         idx = self._index()
@@ -155,7 +160,9 @@ def build_context(db_path: str, league: LeagueConfig,
 
 def expected_line(line: Line, opp: dict[str, float] | None,
                   assume_start: bool = False) -> dict[str, float]:
-    """Expected stats for one TEAM game (goalies weighted by start share).
+    """Expected stats for one TEAM game, weighted by the share of games he
+    starts (goalies) or plays (skaters); ``assume_start``: he's confirmed in
+    tonight's lineup (single-game streams), share 1.
 
     ``opp`` is the opponent's factor dict (None = league-average opponent).
     Skaters: goals/assists/PPP scale with opponent goals-against, shots with
@@ -173,10 +180,11 @@ def expected_line(line: Line, opp: dict[str, float] | None,
                 "goals_against": s * b["goals_against"] * f["gf"],
                 "shutouts": s * b["shutouts"], "games_started": s,
                 "save_pct": b["save_pct"]}
-    return {"goals": b["goals"] * f["ga"], "assists": b["assists"] * f["ga"],
-            "pp_points": b["pp_points"] * f["ga"], "shots": b["shots"] * f["sa"],
-            "hits": b["hits"], "blocks": b["blocks"],
-            "sh_points": b.get("sh_points", 0.0)}
+    s = 1.0 if assume_start else line.play_share
+    return {"goals": s * b["goals"] * f["ga"], "assists": s * b["assists"] * f["ga"],
+            "pp_points": s * b["pp_points"] * f["ga"], "shots": s * b["shots"] * f["sa"],
+            "hits": s * b["hits"], "blocks": s * b["blocks"],
+            "sh_points": s * b.get("sh_points", 0.0)}
 
 
 def _value(ctx: Context, line: Line, stats: dict[str, float]) -> float:
@@ -184,7 +192,12 @@ def _value(ctx: Context, line: Line, stats: dict[str, float]) -> float:
 
 
 def form(ctx: Context, line: Line) -> dict[str, float | None]:
-    """Per-game value: preseason prior vs season-to-date vs blended."""
+    """Per-game value: preseason prior vs season-to-date vs blended.
+
+    Goalies: per TEAM game (each weighted by its start share). Skaters: per
+    game PLAYED, so an injured-but-productive player isn't shown as
+    underperforming; ``avail`` (share of team games he plays) is separate,
+    and ``team_game`` = blended x avail is what every decision uses."""
     if line.is_goalie:
         def g(rates, share):
             return dict({k: share * v for k, v in rates.items()
@@ -196,7 +209,9 @@ def form(ctx: Context, line: Line) -> dict[str, float | None]:
     else:
         prior = _value(ctx, line, line.prior)
         obs = _value(ctx, line, line.observed) if line.gp else None
-    blended = ctx.scorer.per_game[line.player_id]
+    team_game = ctx.scorer.per_game[line.player_id]
+    blended = (team_game if line.is_goalie
+               else _value(ctx, line, expected_line(line, None, assume_start=True)))
     diff = (obs - prior) if obs is not None else None
     # A % change is only meaningful against a positive, natural-zero value
     # (fantasy points). Category z-values can sit near 0, so report the
@@ -204,7 +219,9 @@ def form(ctx: Context, line: Line) -> dict[str, float | None]:
     pct = (diff / prior if diff is not None and ctx.scorer.points and prior > 0
            else None)
     return {"prior": prior, "observed": obs, "blended": blended,
-            "vs_prior_pct": pct, "vs_prior_diff": diff}
+            "vs_prior_pct": pct, "vs_prior_diff": diff,
+            "avail": line.start_share if line.is_goalie else line.play_share,
+            "team_game": team_game}
 
 
 def game_value(ctx: Context, line: Line, opp: str | None) -> float:
@@ -230,6 +247,29 @@ def player_window(ctx: Context, pid: int, start: str, end: str) -> dict:
                       "off_night": ctx.games_on(d) <= off})
     return {"games": games, "value": sum(g["value"] for g in games),
             "off_nights": sum(g["off_night"] for g in games)}
+
+
+def apply_waiver_replacement(ctx: Context, available) -> dict[str, str]:
+    """Replacement level = the best healthy player you could actually pick
+    up in YOUR league, per group (F / D / G), instead of the formula's
+    (pool size + 1)th player. ``available``: player ids of the healthy free
+    agents / waiver players (data/fa.txt's active list). A group with none
+    keeps the formula value. Re-applying starts from the formula values.
+    Returns {group: name of the player who sets it}."""
+    sc = ctx.scorer
+    base = ctx.__dict__.setdefault("_formula_replacement", dict(sc.replacement))
+    best: dict[str, int] = {}
+    for p in available:
+        ln = ctx.lines.get(p)
+        if ln is None or not ln.team:
+            continue
+        g = value_group(ln.position)
+        if g not in best or sc.per_game[p] > sc.per_game[best[g]]:
+            best[g] = p
+    sc.replacement = {g: (sc.per_game[best[g]] if g in best else v)
+                      for g, v in base.items()}
+    ctx.__dict__["replacement_from"] = {g: ctx.lines[p].name for g, p in best.items()}
+    return ctx.__dict__["replacement_from"]
 
 
 def ros_value(ctx: Context, pid: int, start: str) -> float:
@@ -293,9 +333,10 @@ def streams(ctx: Context, date: str, top: int = 25, group: str | None = None,
             "player_id": pid, "name": line.name, "pos": line.position,
             "team": line.team, "opp": opp, "gp": line.gp,
             "value": _value(ctx, line, expected_line(
-                line, ctx.factors.get(opp), assume_start=line.is_goalie)),
+                line, ctx.factors.get(opp), assume_start=True)),
+            # per game he plays / starts, comparable with tonight's value
             "per_game": (goalie_per_start(ctx)[pid] if line.is_goalie
-                         else sc.per_game[pid]),
+                         else form(ctx, line)["blended"]),
             "group_rank": sc.group_rank[pid],
             "pool_size": sc.pool_sizes[grp],
             "replacement": (goalie_start_replacement(ctx) if line.is_goalie

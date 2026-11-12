@@ -21,7 +21,7 @@ import datetime
 import os
 import sys
 
-from src.paths import DB_PATH, DEFAULT_LEAGUE_PATH, LEAGUE_DIR
+from src.paths import DATA_DIR, DB_PATH, DEFAULT_LEAGUE_PATH, LEAGUE_DIR
 from src.valuation.league import load_league
 
 from .evaluate import (
@@ -90,6 +90,9 @@ def _print_hold(ctx, h: dict, unit: str) -> None:
     print(f"  per-game {unit}: preseason {f['prior']:.2f} | this season {obs}"
           f" ({_vs(f['vs_prior_pct'], f['vs_prior_diff']).strip()}) over {h['gp']}"
           f" {'starts' if ln.is_goalie else 'GP'} | blended {f['blended']:.2f}"
+          + ("" if ln.is_goalie else
+             f" x plays {f['avail']:.0%} of games (preseason {ln.play_share_prior:.0%},"
+             f" this season {ln.play_share_obs:.0%}) = {f['team_game']:.2f}")
           f" | replacement {h['replacement_pg']:.2f}")
     print(f"  rank {h['group_rank']} in {'G' if ln.is_goalie else ('D' if ln.position == 'D' else 'F')}"
           f" (rostered pool = top {h['pool_size']})")
@@ -203,6 +206,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 2
     unit = "fpts" if ctx.scorer.points else "z"
+    fa_path = DATA_DIR / "fa.txt"
+    if fa_path.exists():          # replacement = best free agent you can add
+        from src.inseason.evaluate import apply_waiver_replacement
+        from src.inseason.roster import parse_list
+        by = apply_waiver_replacement(
+            ctx, parse_list(ctx, fa_path.read_text(encoding="utf-8")).active)
+        print("replacement = best available: " + ", ".join(
+            f"{g} {n} {ctx.scorer.replacement[g]:.2f}" for g, n in sorted(by.items())))
 
     if args.cmd == "plan":
         return _plan(ctx, args, unit)

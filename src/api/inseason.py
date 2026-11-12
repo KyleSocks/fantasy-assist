@@ -71,13 +71,26 @@ def _ctx(league: str | None) -> Context:
     stamp = (str(DB_PATH), db_stamp(DB_PATH), config_stamp())
     hit = _CACHE.get(name)
     if hit and hit[0] == stamp:
-        return hit[1]
+        return _with_waivers(hit[1])
     try:
         ctx = build_context(str(DB_PATH), load_league(str(path)))
     except ValueError as e:
         raise HTTPException(500, str(e))
     _gen(ctx)
     _CACHE[name] = (stamp, ctx)
+    return _with_waivers(ctx)
+
+
+def _with_waivers(ctx: Context) -> Context:
+    """Replacement level from your league's real free agents (data/fa.txt,
+    written by Refresh), re-applied whenever that file changes."""
+    path = DATA_DIR / FA_FILE
+    mtime = os.path.getmtime(path) if path.exists() else None
+    if ctx.__dict__.get("_fa_mtime", "unset") != mtime:
+        from src.inseason.evaluate import apply_waiver_replacement
+        active = parse_list(ctx, _read(FA_FILE)).active if mtime else ()
+        apply_waiver_replacement(ctx, active)
+        ctx.__dict__["_fa_mtime"] = mtime
     return ctx
 
 
@@ -427,7 +440,7 @@ def _refresh(league: str | None, force: bool) -> dict:
                 "fetched": datetime.datetime.now().isoformat(timespec="minutes"),
                 "teams": {str(tid): {"name": t["name"], "players": [
                     {"name": p.name, "team": p.team, "positions": list(p.positions),
-                     "inactive": p.inactive}
+                     "inactive": p.inactive, "injury": p.injury}
                     for p in t["players"]]} for tid, t in teams.items()},
             }, ensure_ascii=False, indent=1)
             DATA_DIR.mkdir(parents=True, exist_ok=True)

@@ -58,6 +58,10 @@ class Line:
     start_share: float = 0.0
     start_share_prior: float = 0.0
     start_share_obs: float = 0.0
+    # skaters: share of team games he plays (injuries, healthy scratches)
+    play_share: float = 1.0
+    play_share_prior: float = 1.0
+    play_share_obs: float = 1.0
     has_projection: bool = True
     extra: dict = field(default_factory=dict)
 
@@ -201,7 +205,9 @@ def priors_from_projections(projs) -> dict[int, dict]:
         elif p.gp and p.gp > 0:
             out[p.player_id] = {
                 "pg": {s: (getattr(p, s, 0.0) or 0.0) / p.gp for s in SKATER_STATS},
-                "toi_pg": p.toi_per_gp}
+                "toi_pg": p.toi_per_gp,
+                # projected gp = 82 x durability
+                "gp_share": min(p.gp / 82.0, 1.0)}
     return out
 
 
@@ -262,6 +268,17 @@ def build_lines(conn, season_id: int, priors: dict[int, dict], cfg: dict,
             prior = dict(per_prior, save_pct=sv_prior)
             obs["save_pct"] = sv / sa if sa else 0.0
             bl["save_pct"] = blend(sv_prior, sv, sa, cfg["goalie_save_pct_k_shots"])
+            # Saves and goals against come from ONE workload and ONE save %:
+            # shots against per start blend fast (k = the saves k), save %
+            # slowly (goalie_save_pct_k_shots). Blending GA per start on its
+            # own let a hot or cold 15-start stretch move it as much as ~400
+            # shots would, while save % (the same skill) needed 1000.
+            sa_prior = per_prior["saves"] + per_prior["goals_against"]
+            obs["shots_against"] = sa / gs if gs else 0.0
+            prior["shots_against"] = sa_prior
+            bl["shots_against"] = blend(sa_prior, sa, gs, kgs["saves"])
+            bl["saves"] = bl["shots_against"] * bl["save_pct"]
+            bl["goals_against"] = bl["shots_against"] * (1 - bl["save_pct"])
             season_games = team_total.get(team or "", 0)
             share_prior = ((pr or {}).get("starts", 0.0) / season_games
                            if season_games else 0.0)
@@ -287,7 +304,19 @@ def build_lines(conn, season_id: int, priors: dict[int, dict], cfg: dict,
                        kg.get(s, 40))
               for s in SKATER_STATS}
         toi_obs = ((cur_s or {}).get("toi_sec") or 0) / gp if gp else None
+        # Share of his team's games he plays. Rates above are per game
+        # PLAYED; a player who misses games is worth less per TEAM game.
+        # Prior: projected durability (unprojected: 1). Observed: gp over
+        # the team's games, a traded player's old-team games pro-rated out.
+        tgp = team_gp.get(team or "", 0)
+        gp_here = (gp * team_share(gp, tgp)
+                   if (cur_s or {}).get("team_abbrev") == team else gp)
+        ps_prior = float((pr or {}).get("gp_share", 1.0))
+        ps_obs = min(gp_here / tgp, 1.0) if tgp else ps_prior
+        ps = min(blend(ps_prior, gp_here, tgp, cfg.get("play_share_k_games", 20)), 1.0)
         lines[pid] = Line(pid, name, pos, team, gp, dict(prior), obs, bl,
                           toi_pg_prior=(pr or {}).get("toi_pg"),
-                          toi_pg_obs=toi_obs, has_projection=has_proj)
+                          toi_pg_obs=toi_obs, has_projection=has_proj,
+                          play_share=ps, play_share_prior=ps_prior,
+                          play_share_obs=ps_obs)
     return lines

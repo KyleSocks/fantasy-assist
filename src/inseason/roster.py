@@ -159,7 +159,7 @@ def drop_protection(ctx: Context, pid: int, start: str) -> str | None:
     min_gp = ctx.icfg.get("protect_min_gp", 15)
     if ln.gp >= min_gp and obs is not None and obs < repl:
         return None
-    return (f"{ln.name} is a hold ({h['form']['blended']:.2f}/gm vs "
+    return (f"{ln.name} is a hold ({h['form']['team_game']:.2f}/gm vs "
             f"{repl:.2f} replacement): not dropped for streamers")
 
 
@@ -203,6 +203,7 @@ def _player_row(ctx: Context, pid: int, elig: set[str], start: str,
         "id": pid, "name": ln.name, "team": ln.team, "pos": ln.position,
         "elig": sorted(elig), "gp": ln.gp,
         "prior": f["prior"], "now": f["observed"], "blended": f["blended"],
+        "avail": f["avail"], "team_game": f["team_game"],
         "vs_prior_pct": f["vs_prior_pct"],
         "toi_prior": ln.toi_pg_prior, "toi_now": ln.toi_pg_obs,
         "rank": h["group_rank"], "pool": h["pool_size"],
@@ -234,7 +235,7 @@ def audit(ctx: Context, roster: dict[int, set[str]], start: str,
         row["lineup_adds"] = full - sum(t for t, _ in without)
         row["starts"] = sum(1 for _, a in nights if p in a)
         rows.append(row)
-    rows.sort(key=lambda r: r["blended"])
+    rows.sort(key=lambda r: r["team_game"])
     for p in sorted(inactive, key=lambda q: -ctx.scorer.per_game.get(q, 0)):
         if p not in ctx.lines:
             continue
@@ -292,7 +293,7 @@ def free_agent_table(ctx: Context, fas: dict[int, set[str]] | PlayerList,
             row["flags"] = [f"injured ({row['tag'] or 'out'})"] + [
                 f for f in row["flags"] if f.startswith("small")]
         rows.append(row)
-    rows.sort(key=lambda r: -r["blended"])
+    rows.sort(key=lambda r: -r["team_game"])
     return rows
 
 
