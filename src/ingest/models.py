@@ -60,6 +60,15 @@ class SkaterTOI(_Row):
     shTimeOnIce: Optional[float] = None
 
 
+class PlayerBio(_Row):
+    """A row of the skater/bios or goalie/bios stats report."""
+    playerId: Optional[int] = None
+    skaterFullName: Optional[str] = None
+    goalieFullName: Optional[str] = None
+    positionCode: Optional[str] = None
+    birthDate: Optional[str] = None
+
+
 class GoalieSummary(_Row):
     playerId: Optional[int] = None
     seasonId: Optional[int] = None
