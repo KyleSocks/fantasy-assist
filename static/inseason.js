@@ -111,7 +111,8 @@
   // Columns shared by the roster and free-agent tables.
   function playerCols(extra = []) {
     return [
-      { key: "name", label: "Player", left: true, fmt: (r) => `${esc(r.name)}${flags(r)}` },
+      { key: "name", label: "Player", left: true,
+        fmt: (r) => `<button type="button" class="plink" data-pid="${r.id}">${esc(r.name)}</button>${flags(r)}` },
       { key: "team", label: "Tm", left: true, minor: true },
       { key: "elig", label: "Pos", left: true, fmt: (r) => esc(r.elig.join(",")), sort: posSort },
       { key: "gp", label: "GP", minor: true },
@@ -371,7 +372,7 @@
   $("league-days").addEventListener("change", () => loaders.league());
 
   // shared with static/inseason-partner.js (trade with a team)
-  window.insKit = { $, esc, num, signed, cls, winner, tag, extras, table, api, status,
+  window.insKit = { $, esc, num, signed, cls, winner, tag, extras, table, api, status, verdict, pct, md, params,
     unit: () => unit, league: () => leagueData };
 
   // ── schedule ─────────────────────────────────────────────────────────

@@ -186,7 +186,8 @@ def get_player(player_id: int, league: LeagueName = None,
         raise HTTPException(404, f"Unknown player id {player_id}")
     h = hold_check(ctx, player_id, _day(start), days)
     ln = h.pop("line")
-    h.update(prior=ln.prior, observed=ln.observed, blended=ln.blended,
+    h.update(name=ln.name, team=ln.team, position=ln.position, gp=ln.gp,
+             prior=ln.prior, observed=ln.observed, blended=ln.blended,
              start_share=ln.start_share if ln.is_goalie else None,
              toi_pg_prior=ln.toi_pg_prior, toi_pg_obs=ln.toi_pg_obs,
              as_of=ctx.as_of, league=ctx.league.name,
@@ -471,3 +472,4 @@ def _refresh(league: str | None, force: bool) -> dict:
 
 # league tab endpoints register on this router
 from src.api import inseason_league  # noqa: E402,F401
+from src.api import inseason_player  # noqa: E402,F401

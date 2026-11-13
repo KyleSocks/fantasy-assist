@@ -225,3 +225,43 @@ label.inline {
   #save-lists { width: 100%; }
   #lists-msg { display: block; margin: 8px 0 0; }
 }
+
+/* ── player detail dialog (inseason-player.js) ────────────── */
+
+.plink { all: unset; cursor: pointer; color: var(--text); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.plink:hover, .plink:focus-visible { color: var(--accent); text-decoration-color: var(--accent); }
+
+#player-dlg { width: min(760px, 100vw); max-height: 92vh; padding: 0 16px 20px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+#player-dlg::backdrop { background: rgba(4, 9, 16, .7); }
+#player-dlg header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 0 8px; background: var(--panel); }
+#player-dlg h2 { margin: 0; font-family: var(--display); font-size: 30px; }
+#player-dlg h3 { margin: 22px 0 8px; font-family: var(--display); font-size: 20px; }
+.pd-sub { margin: 0 0 12px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.pd-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
+.pd-tiles div { display: flex; flex-direction: column; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+.pd-tiles b { font-family: var(--display); font-size: 26px; line-height: 1.15; }
+.pd-stats { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.pd-stats th, .pd-stats td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.pd-stats th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.pd-stats .l { text-align: left; }
+
+.pd-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
+.pd-legend i { display: inline-block; margin-right: 6px; vertical-align: middle; }
+.k-bar { width: 10px; height: 10px; border-radius: 2px; background: var(--accent); }
+.k-pace { width: 14px; height: 2px; background: var(--text); }
+.pd-chart { position: relative; }
+.pd-chart svg { display: block; width: 100%; height: auto; }
+.pd-chart .grid { stroke: var(--line); stroke-width: 1; }
+.pd-chart .zero { stroke: var(--muted); stroke-width: 1; }
+.pd-chart .ax { fill: var(--muted); font-size: 12px; }
+.pd-chart .val { fill: var(--text); font-size: 12px; font-weight: 600; }
+.pd-chart .bar { fill: var(--accent); }
+.pd-chart .pace { stroke: var(--text); stroke-width: 2; stroke-linecap: round; }
+.pd-chart .hit { fill: transparent; }
+.pd-chart .wk { outline: none; cursor: default; }
+.pd-chart .wk:hover .bar, .pd-chart .wk:focus .bar { fill: #5b9bff; }
+.pd-chart .wk:focus-visible .hit { stroke: var(--accent); stroke-width: 1; }
+.pd-tip { margin: 6px 0 0; min-height: 2.9em; font-size: 13px; line-height: 1.45; }
+@media (max-width: 600px) {
+  #player-dlg { max-height: 100vh; height: 100vh; max-width: 100vw; border-radius: 0; border: 0; }
+}
