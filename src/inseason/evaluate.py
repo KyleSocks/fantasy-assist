@@ -400,7 +400,7 @@ def hold_check(ctx: Context, pid: int, start: str, days: int) -> dict:
     margin = ctx.icfg["hold_margin"]
     if vpg >= repl + margin * abs(repl) and vpg > 0:
         verdict = "HOLD"
-    elif vpg < repl:
+    elif vpg < repl - ctx.icfg.get("drop_margin", 0.0) * abs(repl):
         verdict = "DROP CANDIDATE"
     else:
         verdict = "BORDERLINE"

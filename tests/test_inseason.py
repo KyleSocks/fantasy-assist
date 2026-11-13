@@ -394,3 +394,16 @@ def test_skater_play_share_scales_value_per_team_game(db):
     row = next(r for r in streams(c, "2026-11-01", likely_available=False)
                if r["player_id"] == 1)
     assert row["per_game"] == pytest.approx(2.825)
+
+
+def test_drop_margin_makes_the_band_symmetric(db):
+    """F replacement 2.445. Depth Wing is far below it: a drop candidate
+    with drop_margin 0 or .15. Raise the bar to 2.9 and Ovechkin (2.825) is
+    2.6% under it: DROP CANDIDATE with no margin, BORDERLINE with .15
+    (2.825 >= 2.9 * .85 = 2.465)."""
+    ctx = build_context(db, POINTS, priors=PRIORS, icfg=dict(ICFG))
+    ctx.scorer.replacement["F"] = 2.9
+    assert hold_check(ctx, 1, "2026-11-01", 4)["verdict"] == "DROP CANDIDATE"
+    ctx.icfg["drop_margin"] = 0.15
+    assert hold_check(ctx, 1, "2026-11-01", 4)["verdict"] == "BORDERLINE"
+    assert hold_check(ctx, 3, "2026-11-01", 4)["verdict"] == "DROP CANDIDATE"
