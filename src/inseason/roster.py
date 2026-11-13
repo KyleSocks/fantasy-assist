@@ -11,6 +11,7 @@ import datetime
 from dataclasses import dataclass, field
 
 from .evaluate import Context, find_players, form, game_value, hold_check
+from .trend import trend
 from .lineup import best_lineup, can_fit, marginal_values
 from .plan import nhl_eligibility, plan_slot, week_key
 
@@ -186,6 +187,7 @@ def _player_row(ctx: Context, pid: int, elig: set[str], start: str,
     ln = ctx.lines[pid]
     f = form(ctx, ln)
     h = hold_check(ctx, pid, start, days)
+    t = trend(ctx, ln)
     toi_drop = (ln.toi_pg_prior - ln.toi_pg_obs
                 if ln.toi_pg_prior and ln.toi_pg_obs else None)
     flags = []
@@ -205,6 +207,8 @@ def _player_row(ctx: Context, pid: int, elig: set[str], start: str,
         "prior": f["prior"], "now": f["observed"], "blended": f["blended"],
         "avail": f["avail"], "team_game": f["team_game"],
         "vs_prior_pct": f["vs_prior_pct"],
+        "trend": t["per_game"], "trend_pct": t["pct"], "trend_diff": t["diff"],
+        "trend_games": t["games"],
         "toi_prior": ln.toi_pg_prior, "toi_now": ln.toi_pg_obs,
         "rank": h["group_rank"], "pool": h["pool_size"],
         "ros_vs_repl": h["ros_vs_replacement"],

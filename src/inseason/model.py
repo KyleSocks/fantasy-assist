@@ -241,6 +241,32 @@ def _goalie_fallback(goalies: dict[int, dict]) -> tuple[dict[str, float], float]
 
 # ── Lines ──────────────────────────────────────────────────────────────
 
+def load_recent(conn) -> dict[int, dict]:
+    """{pid: {"games", "stats", "start", "end"}} from skater_recent /
+    goalie_recent: totals over the trend window. Goalies' games are starts.
+    Empty when the tables don't exist yet (no refresh since they were added)."""
+    out: dict[int, dict] = {}
+    try:
+        for r in conn.execute(
+                "SELECT player_id, gp, goals, assists, shots, blocks, hits,"
+                " pp_points, sh_points, window_start, window_end FROM skater_recent"):
+            out[r[0]] = {"games": r[1] or 0, "start": r[9], "end": r[10],
+                         "stats": {k: float(v or 0) for k, v in zip(
+                             ("goals", "assists", "shots", "blocks", "hits",
+                              "pp_points", "sh_points"), r[2:9])}}
+        for r in conn.execute(
+                "SELECT player_id, games_started, wins, saves, shots_against,"
+                " goals_against, shutouts, window_start, window_end"
+                " FROM goalie_recent"):
+            out[r[0]] = {"games": r[1] or 0, "start": r[7], "end": r[8],
+                         "stats": {k: float(v or 0) for k, v in zip(
+                             ("wins", "saves", "shots_against", "goals_against",
+                              "shutouts"), r[2:7])}}
+    except sqlite3.OperationalError:
+        return {}
+    return out
+
+
 def build_lines(conn, season_id: int, priors: dict[int, dict], cfg: dict,
                 ) -> dict[int, Line]:
     """Blended Line for every rostered player and every player with stats."""

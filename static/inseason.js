@@ -8,6 +8,7 @@
     .toISOString().slice(0, 10);
   let rosterPlayers = [];
   let unit = "fpts";
+  let trendDays = 21;
 
   // ── helpers ──────────────────────────────────────────────────────────
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g,
@@ -15,6 +16,13 @@
   const num = (v, d = 2) => (v == null ? "–" : Number(v).toFixed(d));
   const signed = (v, d = 1) => (v == null ? "–" : (v >= 0 ? "+" : "") + Number(v).toFixed(d));
   const pct = (v) => (v == null ? "–" : (v >= 0 ? "+" : "") + Math.round(v * 100) + "%");
+  // ▲ / ▼ / ▬ so the direction isn't carried by colour alone
+  const trendTxt = (p, d) => {
+    const v = p ?? d;
+    if (v == null) return "";
+    const up = p != null ? p >= 0.1 : d >= 0.25, down = p != null ? p <= -0.1 : d <= -0.25;
+    return `${up ? "▲" : down ? "▼" : "▬"}${p != null ? pct(p) : signed(d, 2)}`;
+  };
   const cls = (v) => (v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "");
   // who wins a trade and by how much: g = your gain (+) or loss (-);
   // close = inside projection error (server's close_call)
@@ -119,6 +127,10 @@
       { key: "prior", label: "Pre", minor: true, title: `preseason ${unit}/game`, fmt: (r) => num(r.prior) },
       { key: "now", label: "Now", title: `this season ${unit}/game`, fmt: (r) => num(r.now) },
       { key: "vs_prior_pct", label: "vs pre", fmt: (r) => `<span class="${cls(r.vs_prior_pct)}">${pct(r.vs_prior_pct)}</span>` },
+      { key: "trend", label: "Trend", sort: (r) => (r.trend_pct ?? r.trend_diff),
+        title: `last ${trendDays} days, per game (per start for goalies), vs his blend`,
+        fmt: (r) => (r.trend == null ? `<span class="muted" title="${r.trend_games || 0} games in the window">–</span>`
+          : `${num(r.trend)} <span class="${cls(r.trend_diff)}">${trendTxt(r.trend_pct, r.trend_diff)}</span>`) },
       { key: "blended", label: "Blend", title: "blended value per game played", fmt: (r) => num(r.blended) },
       { key: "avail", label: "Plays", minor: true, title: "share of team games he plays / starts (injuries, scratches)",
         fmt: (r) => (r.avail == null ? "–" : `<span class="${r.avail < 0.85 ? "neg" : ""}">${Math.round(r.avail * 100)}%</span>`) },
@@ -154,6 +166,7 @@
     try {
       const a = await api(`/api/inseason/audit?${params()}`);
       unit = a.unit;
+      trendDays = a.trend_days || trendDays;
       $("asof").textContent = `stats as of ${a.as_of}`;
       rosterPlayers = a.players;
       $("repl-note").textContent = "Verdicts compare each player with a free agent you could add: "
@@ -239,6 +252,7 @@
     status("Loading free agents…");
     try {
       faData = await api(`/api/inseason/free-agents?${params()}`);
+      trendDays = faData.trend_days || trendDays;
       drawFreeAgents();
       status("");
       await loadStreams();
@@ -372,7 +386,7 @@
   $("league-days").addEventListener("change", () => loaders.league());
 
   // shared with static/inseason-partner.js (trade with a team)
-  window.insKit = { $, esc, num, signed, cls, winner, tag, extras, table, api, status, verdict, pct, md, params,
+  window.insKit = { $, esc, num, signed, cls, winner, tag, extras, table, api, status, verdict, pct, md, params, trendTxt,
     unit: () => unit, league: () => leagueData };
 
   // ── schedule ─────────────────────────────────────────────────────────

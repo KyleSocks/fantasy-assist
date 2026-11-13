@@ -125,3 +125,19 @@ CREATE TABLE IF NOT EXISTS goalie_current (
     as_of TEXT NOT NULL,
     PRIMARY KEY (player_id, season_id)
 );
+
+-- Last ~3 weeks of regular-season totals (config/inseason.yaml trend_days),
+-- replaced on every in-season refresh. Feeds the Trend column.
+CREATE TABLE IF NOT EXISTS skater_recent (
+    player_id INTEGER PRIMARY KEY,
+    gp INTEGER, goals INTEGER, assists INTEGER, shots INTEGER,
+    blocks INTEGER, hits INTEGER, pp_points INTEGER, sh_points INTEGER,
+    window_start TEXT NOT NULL, window_end TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS goalie_recent (
+    player_id INTEGER PRIMARY KEY,
+    gp INTEGER, games_started INTEGER, wins INTEGER, saves INTEGER,
+    shots_against INTEGER, goals_against INTEGER, shutouts INTEGER,
+    window_start TEXT NOT NULL, window_end TEXT NOT NULL
+);

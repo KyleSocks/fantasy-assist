@@ -42,6 +42,11 @@ replacement_fa_rank:
   F: 5
   D: 3
   G: 2
+# Trend column: production over the last this-many days (pulled on every
+# refresh) vs his blended rate. Fewer than trend_min_games games in the
+# window -> no trend shown.
+trend_days: 21
+trend_min_games: 3
 # hold check: ROS per-game value at least this fraction above replacement
 # is a HOLD regardless of the short window.
 hold_margin: 0.05   # was 0.15: lenient, so a HOLD turning BORDERLINE means a real slip

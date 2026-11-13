@@ -4,7 +4,7 @@
 // (/api/inseason/player/<id>/games). Uses window.insKit.
 (function () {
   "use strict";
-  const { $, esc, num, api, verdict, pct, md, params } = window.insKit;
+  const { $, esc, num, api, verdict, pct, md, params, cls, trendTxt } = window.insKit;
   const dlg = $("player-dlg");
   const LABELS = { goals: "G", assists: "A", pp_points: "PPP", sh_points: "SHP", shots: "SOG",
     hits: "HIT", blocks: "BLK", games_started: "GS", wins: "W", saves: "SV",
@@ -38,6 +38,13 @@
     }
   }
 
+  function trendTile(p) {
+    const t = p.trend || {}, per = p.position === "G" ? "start" : "game";
+    if (t.per_game == null) return [`Last ${p.trend_days} days`, "–", `${t.games || 0} ${per}s: too few to read`];
+    return [`Last ${p.trend_days} days`, `${num(t.per_game)} <span class="${cls(t.diff)}">${trendTxt(t.pct, t.diff)}</span>`,
+      `${t.games} ${per}s · vs ${num(t.base)} blend`];
+  }
+
   function summary(p) {
     const f = p.form, u = p.unit;
     const tiles = [
@@ -46,6 +53,7 @@
       ["Blend", num(f.blended), `${u} / game played`],
       ["Plays", f.avail == null ? "–" : `${Math.round(f.avail * 100)}%`, "of team games"],
       ["Value", num(f.team_game), `vs ${num(p.replacement_pg)} free-agent bar`],
+      trendTile(p),
     ];
     const keys = Object.keys(p.blended).filter((k) => LABELS[k]);
     return `<p class="pd-sub">${esc(p.team || "–")} · ${esc(p.position)} · ${p.gp} GP ${verdict(p.verdict)}

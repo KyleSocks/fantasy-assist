@@ -186,6 +186,8 @@ def get_player(player_id: int, league: LeagueName = None,
         raise HTTPException(404, f"Unknown player id {player_id}")
     h = hold_check(ctx, player_id, _day(start), days)
     ln = h.pop("line")
+    from src.inseason.trend import trend
+    h.update(trend=trend(ctx, ln), trend_days=ctx.icfg.get("trend_days", 21))
     h.update(name=ln.name, team=ln.team, position=ln.position, gp=ln.gp,
              prior=ln.prior, observed=ln.observed, blended=ln.blended,
              start_share=ln.start_share if ln.is_goalie else None,
@@ -273,6 +275,7 @@ def get_audit(start: DateStr = None, days: Days = 9,
     if not roster:
         raise HTTPException(400, f"no roster: add players to data/{ROSTER_FILE}")
     out = audit(ctx, roster, _day(start), days, inactive)
+    out.update(trend_days=ctx.icfg.get("trend_days", 21))
     out.update(as_of=ctx.as_of, league=ctx.league.name, unmatched=missing,
                warning=ctx.schedule_warning(),
                unit="fpts" if ctx.scorer.points else "z")
@@ -303,7 +306,8 @@ def get_free_agents(start: DateStr = None, days: Days = 9,
     # names Yahoo lists that aren't in the NHL data (mostly minor-leaguers
     # with no NHL games) are counted, not dumped into the status line
     out = {"players": rows, "counts": counts, "unmatched": pl.missing,
-           "unmatched_count": len(pl.missing), "as_of": ctx.as_of}
+           "unmatched_count": len(pl.missing), "as_of": ctx.as_of,
+           "trend_days": ctx.icfg.get("trend_days", 21)}
     _FA_CACHE.update(key=key, value=out)
     return out
 
