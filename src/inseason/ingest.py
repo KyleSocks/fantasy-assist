@@ -151,7 +151,8 @@ def ingest_current(db_path: str = DEFAULT_DB_ARG, season_id: int | None = None,
                    schedule: bool = True, rosters: bool = True,
                    fetcher=None, as_of: str | None = None,
                    schedule_start: datetime.date | None = None,
-                   trend_days: int | None = None) -> dict[str, int]:
+                   trend_days: int | None = None,
+                   notes_out: list[str] | None = None) -> dict[str, int]:
     """Ingest season-to-date stats (+ rosters, + schedule). Returns row counts."""
     season_id = season_id or current_season_id()
     as_of = as_of or datetime.date.today().isoformat()
@@ -186,6 +187,8 @@ def ingest_current(db_path: str = DEFAULT_DB_ARG, season_id: int | None = None,
                 notes += sn
             log_ingest(conn, "inseason", season_id, sum(counts.values()),
                        notes=notes)
+            if notes_out is not None:
+                notes_out.extend(n for n in notes if n.startswith("recent-games"))
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")

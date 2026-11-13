@@ -416,11 +416,13 @@ def _refresh(league: str | None, force: bool) -> dict:
 
     t0 = time.monotonic()
     try:
-        counts = ingest_current(str(DB_PATH))
+        notes: list[str] = []
+        counts = ingest_current(str(DB_PATH), notes_out=notes)
     except Exception as e:  # network / API errors surface to the page
         raise HTTPException(502, f"stats ingest failed: {e}")
     _CACHE.clear()
-    out = {"ingest": counts, "yahoo": None, "yahoo_error": None}
+    out = {"ingest": counts, "yahoo": None, "yahoo_error": None,
+           "ingest_notes": notes}
     y = (load_inseason_config() or {}).get("yahoo") or {}
     if not y.get("league_id") or not y.get("team_id"):
         out["yahoo_error"] = "set yahoo.league_id / team_id in config/inseason.yaml"

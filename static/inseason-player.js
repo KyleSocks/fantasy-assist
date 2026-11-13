@@ -4,7 +4,7 @@
 // (/api/inseason/player/<id>/games). Uses window.insKit.
 (function () {
   "use strict";
-  const { $, esc, num, api, verdict, pct, md, params, cls, trendTxt } = window.insKit;
+  const { $, esc, num, signed, api, verdict, pct, md, params, cls, trendTxt } = window.insKit;
   const dlg = $("player-dlg");
   const LABELS = { goals: "G", assists: "A", pp_points: "PPP", sh_points: "SHP", shots: "SOG",
     hits: "HIT", blocks: "BLK", games_started: "GS", wins: "W", saves: "SV",
@@ -53,6 +53,8 @@
       ["Blend", num(f.blended), `${u} / game played`],
       ["Plays", f.avail == null ? "–" : `${Math.round(f.avail * 100)}%`, "of team games"],
       ["Value", num(f.team_game), `vs ${num(p.replacement_pg)} free-agent bar`],
+      ["Rest of season", `<span class="${cls(p.ros_vs_replacement)}">${signed(p.ros_vs_replacement, 0)}</span>`,
+        `${u} vs a free agent · ${p.ros_games} games to ${md(p.ros_end)}`],
       trendTile(p),
     ];
     const keys = Object.keys(p.blended).filter((k) => LABELS[k]);

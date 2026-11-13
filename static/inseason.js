@@ -136,13 +136,13 @@
         fmt: (r) => (r.avail == null ? "–" : `<span class="${r.avail < 0.85 ? "neg" : ""}">${Math.round(r.avail * 100)}%</span>`) },
       { key: "team_game", label: "Value", title: "value per team game (blend x plays): what every decision uses",
         fmt: (r) => `<b>${num(r.team_game)}</b>` },
+      { key: "ros_vs_repl", label: "Season +/-", title: "long-term value: fantasy points above a replacement free agent from now through the end of your fantasy playoffs (playoff games weighted)",
+        fmt: (r) => `<span class="${cls(r.ros_vs_repl)}">${signed(r.ros_vs_repl)}</span>` },
       { key: "toi_prior", label: "TOI pre", minor: true, title: "EV TOI per game", fmt: (r) => mmss(r.toi_prior) },
       { key: "toi_now", label: "TOI now", minor: true, fmt: (r) => {
           const d = r.toi_now != null && r.toi_prior != null ? r.toi_now - r.toi_prior : null;
           return `<span class="${d != null && d <= -90 ? "neg" : ""}">${mmss(r.toi_now)}</span>`; } },
       { key: "rank", label: "Rank", minor: true, title: "rank in F / D by blended value", fmt: (r) => `${r.rank}/${r.pool}` },
-      { key: "ros_vs_repl", label: "ROS vs repl", title: "through the end of your fantasy playoffs (playoff games weighted), vs a replacement player on an average schedule",
-        fmt: (r) => `<span class="${cls(r.ros_vs_repl)}">${signed(r.ros_vs_repl)}</span>` },
       ...extra,
       { key: "verdict", label: "Verdict", left: true, fmt: (r) => verdict(r.verdict) },
     ];
@@ -440,10 +440,11 @@
       const y = r.yahoo;
       const msg = `Updated in ${r.seconds}s: ${r.ingest.skater_current} skaters, ` +
         `${r.ingest.goalie_current} goalies` +
+        (r.ingest.skater_recent != null ? `, trend for ${r.ingest.skater_recent} skaters` : "") +
         (y ? `; Yahoo roster ${y.roster}, free agents ${y.free_agents}, ${y.teams} team rosters` : "") +
         (r.market != null ? `; market data for ${r.market} rostered players` : "");
       await load();
-      const err = [r.yahoo_error, r.market_error].filter(Boolean).join(". ");
+      const err = [...(r.ingest_notes || []), r.yahoo_error, r.market_error].filter(Boolean).join(". ");
       status(err ? `${msg}. ${err}` : msg, !!err);
     } catch (e) { status(`Refresh failed: ${e.message}`, true); }
     btn.disabled = false;

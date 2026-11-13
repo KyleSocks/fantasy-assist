@@ -89,3 +89,18 @@ def test_too_few_games_or_no_data_shows_no_trend(db):  # noqa: F811
     ctx = build_context(db, POINTS, priors=PRIORS, icfg=dict(ICFG, trend_min_games=5))
     t = trend(ctx, ctx.lines[1])
     assert t["per_game"] is None and t["games"] == 4               # 4 < 5
+
+
+def test_failed_trend_fetch_is_reported_not_fatal(tmp_path):
+    """The season fixture has no recent-window reports: the refresh still
+    writes season totals, and the failure comes back in notes_out so the
+    Refresh button can show it."""
+    from src.inseason.ingest import ingest_current
+    from tests.test_inseason import _FixtureFetcher
+    notes: list[str] = []
+    counts = ingest_current(str(tmp_path / "f.db"), season_id=20212022,
+                            schedule=False, rosters=False,
+                            fetcher=_FixtureFetcher(), as_of="2022-01-15",
+                            notes_out=notes)
+    assert counts["skater_current"] > 0 and "skater_recent" not in counts
+    assert len(notes) == 1 and notes[0].startswith("recent-games trend not updated")

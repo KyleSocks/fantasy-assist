@@ -96,7 +96,7 @@ def test_refresh_endpoint(monkeypatch, tmp_path):
     from tests.test_inseason import db as _db_fixture  # noqa: F401
 
     monkeypatch.setattr(api, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(ing, "ingest_current", lambda db: {"skater_current": 5,
+    monkeypatch.setattr(ing, "ingest_current", lambda db, **kw: {"skater_current": 5,
                                                             "goalie_current": 2})
     monkeypatch.setattr(yp, "fetch_lists", lambda *a, **k: (
         [YPlayer("Sam Bennett", "FLA", ("C",), "C")],
@@ -204,7 +204,7 @@ def _refresh_env(monkeypatch, tmp_path, fas, league_fails=False):
     import src.inseason.ingest as ing
     import src.inseason.yahoo_public as yp
     monkeypatch.setattr(api, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(ing, "ingest_current", lambda db: {})
+    monkeypatch.setattr(ing, "ingest_current", lambda db, **kw: {})
     monkeypatch.setattr(yp, "fetch_lists", lambda *a, **k: (
         [YPlayer("Sam Bennett", "FLA", ("C",), "C")], fas))
 
