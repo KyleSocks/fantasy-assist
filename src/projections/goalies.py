@@ -21,7 +21,14 @@ from __future__ import annotations
 import math
 import sqlite3
 
-from .common import Projection, _level_value, _season_weights, age_at
+from .common import (
+    Projection,
+    _level_value,
+    _season_weights,
+    age_at,
+    league_levels,
+    season_games,
+)
 from .goalie_allocation import (
     _allocate_goalie_starts,
     _apply_goalie_starts,
@@ -36,9 +43,34 @@ def _prior_goalie_seasons(conn: sqlite3.Connection, season_id: int) -> list[int]
         " ORDER BY season_id DESC LIMIT 3", (season_id,))]
 
 
+def start_share_model(model: dict, last: float, prev: float,
+                      age: float | None, sv_edge: float,
+                      has_history: bool) -> float:
+    """Expected share of his team's games a goalie starts, before the
+    team's starts are balanced (goalie_allocation):
+
+        base + last x (share he started last season)
+             + prev x (share the season before)
+             + age_over_30 x (years over 30)
+             + sv x (projected save % - league save %)
+             + no_history   (no NHL games yet)
+
+    Fitted on 2018-19 to 2025-26. Last season's share is by far the best
+    predictor; older seasons add almost nothing, which is why this replaced
+    the 5/3/2-weighted start count. Clamped to [0, 0.85]."""
+    share = (float(model.get("base", 0.0))
+             + float(model.get("last", 0.0)) * last
+             + float(model.get("prev", 0.0)) * prev
+             + float(model.get("age_over_30", 0.0)) * max((age or 0) - 30.0, 0.0)
+             + float(model.get("sv", 0.0)) * sv_edge
+             + (0.0 if has_history else float(model.get("no_history", 0.0))))
+    return max(0.0, min(share, 0.85))
+
+
 def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
                     cfg: dict, pos_means: dict,
-                    hist: dict | None = None) -> Projection | None:
+                    hist: dict | None = None,
+                    sv_levels: dict[int, float] | None = None) -> Projection | None:
     """Project one goalie's own skill terms (before team context).
 
     Starts regress toward 0 (no floor): n = total starts, k =
@@ -91,27 +123,50 @@ def _project_goalie(pid: int, season_id: int, conn: sqlite3.Connection,
 
     # Save %: weighted, regressed toward the pool mean in shots.
     total_sa = float(sum((s[5] or 0) for s in seasons))
-    weighted_sp = sum(weights[i] * ((s[4] or 0) / s[5] if s[5] else 0.920)
+    # era_adjust: league save % drifts (.910 in 2018-19, .896 in 2025-26),
+    # so each season counts as its distance from that season's league mark,
+    # restated at the most recent season's, which is also the pool mean.
+    pos_sp = pos_means.get("save_pct", 0.920)
+    shift: dict[int, float] = {}
+    if cfg.get("era_adjust", False):
+        if sv_levels is None:
+            sv_levels = {s: lv["sv_pct"] for s, lv in
+                         league_levels(conn, season_id).items() if "sv_pct" in lv}
+        if sv_levels:
+            pos_sp = sv_levels[max(sv_levels)]
+            shift = {s: pos_sp - v for s, v in sv_levels.items()}
+    weighted_sp = sum(weights[i] * ((s[4] or 0) / s[5] + shift.get(s[0], 0.0)
+                                    if s[5] else pos_sp)
                       for i, s in enumerate(seasons))
     k_sp = float(cfg.get("goalie_save_pct_k", 1000))
-    pos_sp = pos_means.get("save_pct", 0.920)
     regressed_sp = (weighted_sp * total_sa + pos_sp * k_sp) / (total_sa + k_sp)
     age_delta = 0.0
     curve = cfg.get("goalie_sv_age")
+    try:
+        row = conn.execute("SELECT birth_date FROM players"
+                           " WHERE player_id = ?", (pid,)).fetchone()
+    except sqlite3.OperationalError:       # players table without birth dates
+        row = None
+    bd = row[0] if row else None
+    age = age_at(bd, season_id)
     if curve:
-        try:
-            row = conn.execute("SELECT birth_date FROM players"
-                               " WHERE player_id = ?", (pid,)).fetchone()
-        except sqlite3.OperationalError:   # players table without birth dates
-            row = None
-        bd = row[0] if row else None
-        age = age_at(bd, season_id)
         if age is not None:
             obs_age = sum(weights[i] * age_at(bd, s[0])
                           for i, s in enumerate(seasons))
             c = {int(a): float(v) for a, v in curve.items()}
             age_delta = _level_value(c, age) - _level_value(c, obs_age)
     final_sp = regressed_sp + age_delta
+
+    model = cfg.get("goalie_start_model")
+    if model:
+        gs_by = {s[0]: (s[2] or 0) for s in seasons}
+        last, prev = season_id - 10001, season_id - 20002
+        share = start_share_model(
+            model,
+            last=gs_by.get(last, 0) / season_games(conn, last),
+            prev=gs_by.get(prev, 0) / season_games(conn, prev),
+            age=age, sv_edge=final_sp - pos_sp, has_history=True)
+        raw_starts = share * season_games(conn, season_id)
 
     own_so = (sum(weights[i] * (s[7] or 0) for i, s in enumerate(seasons))
               / w_starts if w_starts > 0 else 0.0)
@@ -225,11 +280,24 @@ def _project_goalies(season_id: int, conn: sqlite3.Connection,
     rostered = _rostered_goalies(conn, season_id, include_inactive)
     name_of = {pid: name for pid, name, _ in rostered}
     team_of = {pid: team for pid, _, team in rostered}
+    sv_levels = None
+    if cfg.get("era_adjust", False):
+        sv_levels = {s: lv["sv_pct"] for s, lv in
+                     league_levels(conn, season_id).items() if "sv_pct" in lv}
+        if sv_levels:                       # pool mean = latest league mark
+            pos_means = {**pos_means, "save_pct": sv_levels[max(sv_levels)]}
+    model = cfg.get("goalie_start_model")
     results: list[Projection] = []
     for pid, _name, _team in rostered:
-        proj = _project_goalie(pid, season_id, conn, cfg, pos_means, hist)
+        proj = _project_goalie(pid, season_id, conn, cfg, pos_means, hist,
+                               sv_levels)
         if proj is None:
             proj = _blank_goalie_projection(pid, season_id, pos_means)
+            if model:                       # a rookie still gets some starts
+                raw = (start_share_model(model, 0.0, 0.0, None, 0.0, False)
+                       * season_games(conn, season_id))
+                proj.terms["final"]["games_started"] = raw
+                proj.terms["raw_rates"]["starts_raw"] = raw
         results.append(proj)
     _allocate_goalie_starts(results, name_of, conn, season_id, cfg)
 
@@ -244,6 +312,8 @@ def _project_goalies(season_id: int, conn: sqlite3.Connection,
     ctx = project_teams(conn, sorted(hist), cfg, _team_goals(skaters), team_sv,
                         hist=hist)
     for p in results:
-        if p.terms.get("season_weights"):
+        # with the start model a goalie with no NHL history can be given
+        # starts, so he needs per-start rates too (league-average save %)
+        if p.terms.get("season_weights") or model:
             _finalize_goalie(p, team_lookup(ctx, team_of.get(p.player_id)), cfg)
     return results

@@ -227,17 +227,76 @@ def _toi_parts(ev, pp, sh) -> tuple[float, float, float]:
     return float(ev or 0), float(pp or 0), float(sh or 0)
 
 
+def league_levels(conn: sqlite3.Connection,
+                  before_season: int) -> dict[int, dict[str, float]]:
+    """{season: {stat: league rate}} for every season before
+    ``before_season``: skater stats per 60 of total TOI (pp_points per 60
+    of PP TOI), ``sh_pct`` (goals / shots), and goalie ``sv_pct``."""
+    out: dict[int, dict[str, float]] = {}
+    for r in conn.execute(
+            "SELECT season_id, SUM(goals), SUM(assists), SUM(shots), SUM(blocks),"
+            " SUM(hits), SUM(pp_points), SUM(sh_points),"
+            " SUM(COALESCE(toi_sec, 0) + COALESCE(pp_toi_sec, 0)"
+            "     + COALESCE(sh_toi_sec, 0)), SUM(COALESCE(pp_toi_sec, 0))"
+            " FROM skater_seasons WHERE season_id < ? AND gp > 0"
+            " GROUP BY season_id", (before_season,)):
+        toi, pp = float(r[8] or 0), float(r[9] or 0)
+        lv = {k: (3600.0 * float(v or 0) / toi if toi > 0 else 0.0)
+              for k, v in zip(("assists", "shots", "blocks", "hits"), r[2:6])}
+        lv["sh_points"] = 3600.0 * float(r[7] or 0) / toi if toi > 0 else 0.0
+        lv["pp_points"] = 3600.0 * float(r[6] or 0) / pp if pp > 0 else 0.0
+        lv["sh_pct"] = float(r[1] or 0) / r[3] if r[3] else 0.0
+        out[r[0]] = lv
+    try:
+        for sid, sv, sa in conn.execute(
+                "SELECT season_id, SUM(saves), SUM(shots_against)"
+                " FROM goalie_seasons WHERE season_id < ? GROUP BY season_id",
+                (before_season,)):
+            if sa:
+                out.setdefault(sid, {})["sv_pct"] = float(sv or 0) / sa
+    except sqlite3.OperationalError:
+        pass
+    return out
+
+
+def era_factors(conn: sqlite3.Connection, before_season: int,
+                cfg: dict) -> dict[int, dict[str, float]]:
+    """{season: {stat: multiplier}} that restates a past season's skater
+    rates at the scoring level of the most recent one.
+
+    League-wide levels drift (shots per game fell about 10% from 2022-23
+    to 2025-26; shooting % rose): a 3-season average lags that, and the
+    most recent season is the best guess for the next. Each season's rates
+    are scaled by (latest league rate / that season's league rate), so
+    what is projected is the player's rate RELATIVE to the league.
+    ``era_adjust: false`` returns {} (every factor 1)."""
+    if not cfg.get("era_adjust", False):
+        return {}
+    lv = league_levels(conn, before_season)
+    with_skaters = [s for s in lv if "shots" in lv[s]]
+    if not with_skaters:
+        return {}
+    ref = lv[max(with_skaters)]
+    return {s: {k: (ref[k] / v if v > 0 and ref.get(k, 0) > 0 else 1.0)
+                for k, v in lv[s].items() if k != "sv_pct"}
+            for s in with_skaters}
+
+
 def _compute_pos_rates(conn: sqlite3.Connection, season_ids: list[int],
-                       pos_group: str) -> dict:
+                       pos_group: str,
+                       era: dict[int, dict[str, float]] | None = None) -> dict:
     """Per-60 positional means, shooting % and mean TOI/GP by strength.
 
     Pooled (sum of stat / sum of TOI) over every player in the group across
-    the given seasons, so it is the league rate per minute played.
+    the given seasons, so it is the league rate per minute played. With
+    ``era`` (era_factors) each season's counts are first restated at the
+    latest season's league level.
     """
     positions = {"C": ("C",), "W": ("L", "R")}.get(pos_group, (pos_group,))
     rows = conn.execute(
         "SELECT s.gp, s.goals, s.assists, s.shots, s.blocks, s.hits,"
-        " s.pp_points, s.sh_points, s.toi_sec, s.pp_toi_sec, s.sh_toi_sec"
+        " s.pp_points, s.sh_points, s.toi_sec, s.pp_toi_sec, s.sh_toi_sec,"
+        " s.season_id"
         " FROM skater_seasons s JOIN players p ON s.player_id = p.player_id"
         " WHERE s.season_id IN ({}) AND s.gp > 0 AND p.position IN ({})".format(
             ",".join(str(s) for s in season_ids),
@@ -248,9 +307,13 @@ def _compute_pos_rates(conn: sqlite3.Connection, season_ids: list[int],
         ev, pp, sh = _toi_parts(r[8], r[9], r[10])
         if ev + pp + sh <= 0:
             continue
+        f = (era or {}).get(r[11], {})
         for i, k in enumerate(("gp", "goals", "assists", "shots", "blocks",
                                "hits", "pp_points", "sh_points")):
-            tot[k] += float(r[i] or 0)
+            # goals: shots factor x shooting-% factor
+            fk = (f.get("shots", 1.0) * f.get("sh_pct", 1.0) if k == "goals"
+                  else f.get(k, 1.0))
+            tot[k] += float(r[i] or 0) * fk
         tot["ev"] += ev
         tot["pp"] += pp
         tot["sh"] += sh
@@ -320,6 +383,15 @@ def _team_season_games(conn: sqlite3.Connection, season_id: int,
         for t in (h, a):
             counts[t] = counts.get(t, 0) + 1
     return max(counts.values()) if counts else 82
+
+
+def season_games(conn: sqlite3.Connection, season_id: int) -> int:
+    """Regular-season games per team in ``season_id``: the most any team
+    has on the schedule, 82 when the schedule isn't loaded. (84 from
+    2026-27; 56 and about 70 in the two shortened seasons.) A schedule
+    with under 40 games a team is only partly loaded: 82."""
+    n = _team_season_games(conn, season_id, None)
+    return n if n >= 40 else 82
 
 
 def projected_play_share(seasons: list[tuple[int, int, str | None]],

@@ -20,6 +20,8 @@ Usage:
 combination and prints one summary line each (lower MAE is better), so
 the parameters can be fitted instead of hand-set. Needs regular-season
 data (re-ingest after the gameTypeId=2 fix) and ideally 8+ seasons.
+Shortened seasons are handled: projected games follow each season's
+schedule length (common.season_games).
 """
 from __future__ import annotations
 
@@ -217,7 +219,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--db", default=DEFAULT_DB_ARG)
     ap.add_argument("--league", default=None, help="league yaml (default: yours)")
-    ap.add_argument("--seasons", type=int, default=5)
+    ap.add_argument("--seasons", type=int, default=8,
+                    help="target seasons to score (default 8)")
     ap.add_argument("--top", type=int, default=250, help="skaters scored")
     ap.add_argument("--top-goalies", type=int, default=64)
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")

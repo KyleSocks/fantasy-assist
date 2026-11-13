@@ -91,12 +91,16 @@ def _rostered_goalies(conn: sqlite3.Connection, season_id: int | None = None,
     return [(int(r[0]), None, r[1]) for r in rows]
 
 
-def _recent_games_started(conn: sqlite3.Connection, pid: int) -> int:
-    """Most recent season games_started from goalie_seasons (0 if none)."""
+def _recent_games_started(conn: sqlite3.Connection, pid: int,
+                          before_season: int | None = None) -> int:
+    """Games started in his most recent season before ``before_season``
+    (0 if none). The bound matters in a backtest: without it the "most
+    recent" season was the one being projected, or a later one."""
     row = conn.execute(
         "SELECT games_started FROM goalie_seasons"
-        " WHERE player_id = ? AND gp > 0 ORDER BY season_id DESC LIMIT 1",
-        (pid,)).fetchone()
+        " WHERE player_id = ? AND gp > 0 AND season_id < ?"
+        " ORDER BY season_id DESC LIMIT 1",
+        (pid, before_season if before_season is not None else 10 ** 9)).fetchone()
     if row and row[0]:
         return int(row[0])
     return 0
@@ -112,7 +116,9 @@ def _goalie_season_history(conn: sqlite3.Connection, pid: int) -> list[tuple]:
 
 def _cap_team_to_three(team: str, members: list[Projection],
                        name_of: dict[int, str],
-                       conn: sqlite3.Connection) -> list[Projection]:
+                       conn: sqlite3.Connection,
+                       season_id: int | None = None,
+                       size: int = 3) -> list[Projection]:
     """HARD INVARIANT: a team carries at most 3 goalies in the allocation.
 
     If the roster has more than 3, keep the 3 with the most recent-season
@@ -120,15 +126,15 @@ def _cap_team_to_three(team: str, members: list[Projection],
     printed by name with their season history and get 0 projected starts;
     this is a visible data-quality report, never a silent trim.
     """
-    if len(members) <= 3:
+    if len(members) <= size:
         return members
     scored = []
     for p in members:
-        recent = _recent_games_started(conn, p.player_id)
+        recent = _recent_games_started(conn, p.player_id, season_id)
         scored.append((recent, p.player_id, p))
     scored.sort(key=lambda x: (-x[0], x[1]))
-    kept = [item[2] for item in scored[:3]]
-    dropped = scored[3:]
+    kept = [item[2] for item in scored[:size]]
+    dropped = scored[size:]
     kept_names = ", ".join(name_of.get(p.player_id, str(p.player_id))
                            for p in kept)
     log.debug("[cap>3] %s: keeping %s, dropping %d rostered goalie(s)" % (
@@ -204,13 +210,17 @@ def _allocate_goalie_starts(projs: list[Projection],
         flag = "  <== FLAG >3" if count > 3 else ""
         log.debug("  %s %d%s" % (team, count, flag))
     for team in list(by_team.keys()):
-        by_team[team] = _cap_team_to_three(team, by_team[team], name_of, conn)
+        by_team[team] = _cap_team_to_three(
+            team, by_team[team], name_of, conn, season_id,
+            int(cfg.get("goalie_pool_size", 3)))
     log.debug("[per-team goalie allocation, post-cap]:")
     # Share of team starts kept back for goalies outside the pool (injury
     # call-ups, waiver claims): the pool's goalies split the rest.
     reserve = float(cfg.get("goalie_starts_reserve", 0.0))
     for team in sorted(by_team):
         members = by_team[team]
+        for p in members:
+            p.terms["season_games"] = team_games.get(team, 0) or 82
         total = team_games.get(team, 0) * (1.0 - reserve)
         if total <= 0:
             for p in members:
@@ -222,6 +232,13 @@ def _allocate_goalie_starts(projs: list[Projection],
             continue
         raw = [p.terms["final"]["games_started"] for p in members]
         raw_sum = sum(raw)
+        if cfg.get("goalie_start_model"):
+            # The start model already gives each goalie his expected share
+            # (it was fitted on single goalies, typical competition
+            # included), so starts are only scaled DOWN, when a crowded
+            # crease adds up to more games than the team plays. Whatever is
+            # left over belongs to goalies outside the pool.
+            total = min(float(team_games.get(team, 0)), raw_sum)
         if raw_sum > 0:
             starts = [r / raw_sum * total for r in raw]
         else:

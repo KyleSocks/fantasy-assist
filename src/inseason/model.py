@@ -218,8 +218,9 @@ def priors_from_projections(projs) -> dict[int, dict]:
             out[p.player_id] = {
                 "pg": {s: (getattr(p, s, 0.0) or 0.0) / p.gp for s in SKATER_STATS},
                 "toi_pg": p.toi_per_gp,
-                # projected gp = 82 x durability
-                "gp_share": min(p.gp / 82.0, 1.0)}
+                # projected gp = season games x share of them he plays
+                "gp_share": min(p.gp / float(
+                    (p.terms or {}).get("season_games") or 82), 1.0)}
     return out
 
 

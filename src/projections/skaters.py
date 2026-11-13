@@ -35,7 +35,9 @@ from .common import (
     _toi_parts,
     age_at,
     curve_for,
+    era_factors,
     projected_play_share,
+    season_games,
     season_team,
 )
 
@@ -83,7 +85,9 @@ def _rookie_weight(cfg: dict, career_gp: float) -> float:
 
 def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
                     cfg: dict, pos_means: dict, pos_median_toi: float,
-                    pos_rates: dict | None = None) -> Projection | None:
+                    pos_rates: dict | None = None,
+                    season_len: int | None = None,
+                    era: dict | None = None) -> Projection | None:
     """Project one skater. Returns None if excluded.
 
     ``pos_means`` (per-GP positional means) is kept for callers that pass
@@ -99,10 +103,12 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
         return None
     birth_date, pos = row
     pg = _pos_group(pos)
+    if era is None:
+        era = era_factors(conn, season_id, cfg)
     if pos_rates is None:
         pos_rates = _compute_pos_rates(
             conn, _prior_season_ids(conn, season_id),
-            pg if pg in ("C", "W") else "D")
+            pg if pg in ("C", "W") else "D", era)
     age = age_at(birth_date, season_id)
 
     # Every prior season (no look-ahead): career GP / shots / goals and GP.
@@ -118,6 +124,10 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
         return None
     career_gp = float(sum(s[1] for s in history))
     weights = _season_weights([s[1] for s in seasons])
+    sw = cfg.get("skater_season_weights")
+    if sw:                       # same form as 5/3/2: x min(gp / 50, 1)
+        raw_w = [float(w) * min(s[1] / 50.0, 1.0) for w, s in zip(sw, seasons)]
+        weights = [w / sum(raw_w) for w in raw_w]
 
     # ── ice time per game by strength ────────────────────────────────
     ev_pg = _weighted([s[9] / s[1] if s[9] is not None else None
@@ -135,6 +145,10 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
         # of the way toward the positional mean.
         b = float(cfg.get("team_change_pp_blend", 0.25))
         pp_pg = (1 - b) * pp_pg + b * pos_rates["pp_toi_pg"]
+        # ... and players who move tend to land smaller roles than the one
+        # they left (they are let go, or join a deeper lineup).
+        f = float(cfg.get("team_change_toi_factor", 1.0))
+        ev_pg, pp_pg, sh_pg = ev_pg * f, pp_pg * f, sh_pg * f
     toi = {"total": ev_pg + pp_pg + sh_pg, "pp": pp_pg}
 
     # ── per-60 rates, regressed ──────────────────────────────────────
@@ -150,7 +164,8 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
         for s in seasons:
             ev, pp, sh = _toi_parts(s[9], s[8], s[12])
             d = pp if denom == "pp" else ev + pp + sh
-            vals.append(3600.0 * (s[col[stat]] or 0) / d if d > 0 else None)
+            vals.append(3600.0 * (s[col[stat]] or 0) * era.get(s[0], {}).get(stat, 1.0)
+                        / d if d > 0 else None)
         raw = _weighted(vals, weights)
         n = _regression_n(seasons, stat)
         k = (float(cfg.get("sh_points", 600)) if stat == "sh_points"
@@ -162,8 +177,10 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
         n_totals[stat], k_vals[stat] = n, k
 
     # ── goals = shots x shooting % (career, regressed) ───────────────
+    # (era: each season's goals restated at the latest league shooting %)
     career_shots = float(sum((s[4] or 0) for s in history))
-    career_goals = float(sum((s[2] or 0) for s in history))
+    career_goals = float(sum((s[2] or 0) * era.get(s[0], {}).get("sh_pct", 1.0)
+                             for s in history))
     k_sh = _k_for(cfg, "goals")
     pm_sh = pos_rates["sh_pct"]
     sh_pct = (career_goals + pm_sh * k_sh) / (career_shots + k_sh)
@@ -201,7 +218,9 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
     # ── games played ─────────────────────────────────────────────────
     play = projected_play_share([(s[0], s[1], s[10]) for s in history],
                                 conn, cfg)
-    proj_gp = 82.0 * play["share"]
+    if season_len is None:
+        season_len = season_games(conn, season_id)
+    proj_gp = float(season_len) * play["share"]
 
     finals = {s: regressed[s] * age_by_stat[s] * proj_gp
               for s in (*SKATER_STATS, "sh_points")}
@@ -225,6 +244,7 @@ def _project_skater(pid: int, season_id: int, conn: sqlite3.Connection,
                    "pos_mean": pm_sh, "k": k_sh, "regressed": sh_pct},
         "rookie_weight": rw,
         "play_share": play,
+        "season_games": season_len,
         "proj_gp": proj_gp,
         "final": {s: finals[s] for s in SKATER_STATS},
         "sh_points": {"raw_rate": raw_pg["sh_points"],

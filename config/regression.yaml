@@ -10,12 +10,23 @@
 #   pp_points  n = total PP TOI-minutes -> k in equivalent PP TOI-minutes
 # Games played is never a denominator. Every stat needs its own entry: the
 # model raises if a stat is missing instead of falling back to a shared k.
-goals: 200
-assists: 300
-shots: 150
+# Values fitted 2026-11-13 on an 8-season walk-forward (2018-19 to 2025-26):
+# the old, larger k's regressed the best players too far toward average.
+goals: 100
+assists: 225
+shots: 60
 blocks: 250
 hits: 250
-pp_points: 120
+pp_points: 40
+# Season weights for skater rates and ice time, most recent first (each
+# x min(GP / 50, 1)). Was 5/3/2; the latest season deserves more.
+skater_season_weights: [5, 2, 1]
+# League scoring levels drift (shots per game fell ~10% from 2022-23 to
+# 2025-26, shooting % rose, save % fell). true: every past season is
+# restated at the most recent season's league level, so players, teams and
+# goalies are projected relative to the league, and the league baseline is
+# last season rather than a lagging 3-season average.
+era_adjust: true
 # Shorthanded points (league stat SHP): n = total TOI-minutes. Rare and
 # noisy, so a large k leans hard on the positional mean.
 sh_points: 600
@@ -26,7 +37,7 @@ sh_points: 600
 goalie_save_pct_k: 1000
 goalie_starts_k: 25
 # Wins per start regress toward .500 with this many starts of weight.
-goalie_win_rate_k: 40
+goalie_win_rate_k: 300
 # Wins per start = projected team win rate + the goalie's own edge over
 # his teams' win rates, regressed toward 0 with goalie_win_rate_k starts
 # (above). Clamped to these bounds.
@@ -34,54 +45,81 @@ goalie_win_rate_bounds: [0.15, 0.80]
 # Shutouts per start: Poisson P(0 GA) = exp(-GA per start) x shutout_scale,
 # blended with the goalie's own shutouts per start (this many starts of
 # weight on the Poisson side).
-shutout_scale: 1.0
+shutout_scale: 0.8
 # Shots faced per start = team shots against per game x the goalie's own
 # (SA / GS) / team SA per game, regressed toward 1 with this many starts.
 # Starters face a bit less than the team rate (pulled games), backups more.
-goalie_sa_ratio_k: 40
+goalie_sa_ratio_k: 120
 # Share of each team's starts kept back for goalies outside the projected
-# pool (call-ups, waiver claims); the pool splits the rest.
-goalie_starts_reserve: 0.09
-shutout_k_starts: 60
+# pool (call-ups, waiver claims); the pool splits the rest. Only used
+# without goalie_start_model, which leaves the remainder unassigned.
+goalie_starts_reserve: 0.06
+shutout_k_starts: 150
+# Expected share of team games a goalie starts (scaled down only if a
+# team's goalies add up to more than its games): see start_share_model in
+# src/projections/goalies.py. Fitted on 2018-19..2025-26 (803 goalie
+# seasons); checked by refitting without each season in turn. Last
+# season's share dominates; the 5/3/2 start count it replaces gave 75%+ of
+# a team's starts to goalies who went on to average 57%. Remove this block
+# to go back to the weighted start count (goalie_starts_k).
+goalie_start_model:
+  base: 0.176          # everyone starts somewhere
+  last: 0.585          # x share of team games started last season
+  prev: 0.05           # x share the season before
+  age_over_30: -0.013  # per year over 30
+  sv: 8.0              # x (projected save % - league save %)
+  no_history: -0.083   # no NHL games yet
 
 # Team context (src/projections/team_context.py). *_regress = share of a
 # team's per-game deviation from league average carried into next season.
-team_sa_regress: 0.6
+team_sa_regress: 0.8
 team_win_regress: 0.6
 team_gf_regress: 0.6
 # Team win rate = team_hist_weight x regressed history
 #               + (1 - team_hist_weight) x Pythagorean from the projected
 #                 roster (GF from projected skater goals, GA from team shots
 #                 against x (1 - projected goalie SV%)).
-team_hist_weight: 0.5
+# 1.0 = history only: in the backtest the roster-based Pythagorean added
+# nothing over the team's own regressed record.
+team_hist_weight: 1.0
 pythag_exponent: 2.0
 
 # Skaters: small-sample prior. Weight on the positional mean starts at
 # rookie_prior_weight with 0 career GP and falls linearly to 0 at
 # rookie_ramp_gp (was: 50/50 below 100 GP, nothing at 100+).
-rookie_prior_weight: 0.5
+rookie_prior_weight: 0.0   # 0 = off: in the backtest the extra rookie shrink only hurt
 rookie_ramp_gp: 200
 # A skater whose team changed: pull projected PP TOI/GP this far toward the
 # positional mean (new PP depth chart unknown).
-team_change_pp_blend: 0.25
+team_change_pp_blend: 0.15
+# ... and all of his ice time is scaled by this: players who move tend to
+# land a smaller role than the one they left (-4% in the backtest; -6% fit
+# best once the PP blend is applied).
+team_change_toi_factor: 0.94
 
-# Games played: share of team games, 5/3/2-weighted over the 3 most recent
-# seasons with at least gp_min_season_gp games (call-ups are not injury
-# evidence), regressed toward gp_prior_share with gp_prior_weight (5/3/2
-# units), clamped to [gp_share_floor, 1]. Projected GP = 82 x share.
+# Games played: share of team games x the season's length (84 games from
+# 2026-27; read from the schedule). The share is 5/3/2-weighted over the 3
+# most recent seasons with at least gp_min_season_gp games, regressed
+# toward gp_prior_share with gp_prior_weight (5/3/2 units), clamped to
+# [gp_share_floor, 1].
 #
-# Injuries are mostly unpredictable, so that history is only used for a
-# player with a long, consistent record of missed time: at least
-# gp_chronic_seasons of his last gp_chronic_lookback qualifying seasons
-# under gp_chronic_share of team games. Everyone else gets
-# gp_healthy_share. gp_chronic_seasons: 0 = use history for everyone.
+# gp_prior_weight 10 is deliberately heavy: one injury-shortened season
+# costs a healthy player about 5 projected games, and only a multi-year
+# pattern moves him much. Backtest (8 seasons, skater MAE in fantasy
+# points): weight 5 -> 62.2, weight 10 -> 62.5, no history at all -> 65.3.
+# History also carries role (part-time players), not just injuries.
+#
+# To ignore history except for long records of missed time, set
+# gp_chronic_seasons: 4. Then everyone gets gp_healthy_share unless at
+# least 4 of his last gp_chronic_lookback qualifying seasons were under
+# gp_chronic_share of team games. 0 = use history for everyone.
 gp_healthy_share: 0.88
-gp_chronic_seasons: 4
+gp_chronic_seasons: 0
 gp_chronic_lookback: 5
 gp_chronic_share: 0.75
 gp_min_season_gp: 10
-gp_prior_share: 0.80
-gp_prior_weight: 2.0
+gp_prior_share: 0.88
+gp_prior_weight: 10.0
 gp_share_floor: 0.40
 
 # Goalies projected below this many starts are excluded from the
@@ -92,13 +130,13 @@ min_startable_starts: 15
 # 82 games; a team's starts must sum to its game count, and any
 # remainder after capping is redistributed among the team's uncapped
 # goalies (see _allocate_goalie_starts in src/projections/goalie_allocation.py).
-max_goalie_starts: 68
+max_goalie_starts: 60
 
 # Level curves L(age), peak-normalized to 1.00. Age adjustment is the ratio
 # L(projected_age) / L(obs_age), where obs_age is the season-weighted mean
 # age across the observed seasons (same weights as the rate computation).
 # Forwards peak at 25-26; the defensemen curve is the same shape shifted
-# +2 years, peaking at 27-28. Ages below/above the table clamp to the
+# +1 year, peaking at 26-27 (+2 over-projected defensemen aged 24-30). Ages below/above the table clamp to the
 # nearest entry; fractional ages interpolate linearly. Goalies use flat
 # 1.00 (no goalie curve).
 #
@@ -130,27 +168,27 @@ level_curves:
     37: 0.62
     38: 0.57
   defensemen:
-    20: 0.78
-    21: 0.82
-    22: 0.86
-    23: 0.90
-    24: 0.94
-    25: 0.97
-    26: 0.99
+    19: 0.78
+    20: 0.82
+    21: 0.86
+    22: 0.90
+    23: 0.94
+    24: 0.97
+    25: 0.99
+    26: 1.00
     27: 1.00
-    28: 1.00
-    29: 0.99
-    30: 0.97
-    31: 0.95
-    32: 0.92
-    33: 0.89
-    34: 0.85
-    35: 0.81
-    36: 0.77
-    37: 0.72
-    38: 0.67
-    39: 0.62
-    40: 0.57
+    28: 0.99
+    29: 0.97
+    30: 0.95
+    31: 0.92
+    32: 0.89
+    33: 0.85
+    34: 0.81
+    35: 0.77
+    36: 0.72
+    37: 0.67
+    38: 0.62
+    39: 0.57
 
 # Fitted 2026-11-12 by src.projections.age_fit (era-adjusted, 2016-17 to
 # 2025-26, retired players included). Per-stat skater curves
