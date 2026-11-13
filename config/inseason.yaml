@@ -44,7 +44,7 @@ replacement_fa_rank:
   G: 2
 # hold check: ROS per-game value at least this fraction above replacement
 # is a HOLD regardless of the short window.
-hold_margin: 0.15
+hold_margin: 0.05   # was 0.15: lenient, so a HOLD turning BORDERLINE means a real slip
 # ... and a DROP CANDIDATE only when at least this fraction BELOW it; in
 # between is BORDERLINE. 0 = anything under the bar is a drop candidate,
 # which flips on a game or two of noise.
