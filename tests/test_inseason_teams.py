@@ -318,3 +318,22 @@ def test_market_points_signal_is_season_total_by_default(db):  # noqa: F811
     assert Market(ctx, rows, w).per_game(2) == pytest.approx(top)
     ctx.icfg["market_points"] = "per_game"
     assert Market(ctx, rows, w).per_game(1) == pytest.approx(top)
+
+
+def test_waiver_replacement_nth_best_free_agent(db):  # noqa: F811
+    """Forwards by per-game value: Ovechkin 2.825, Strong Center 2.445,
+    Depth Wing. With all three free agents and replacement_fa_rank F: 2 the
+    bar is the 2nd best (Strong Center), so the best free agent reads above
+    replacement. D has two free agents and rank 5 -> the last one (Dee Two,
+    1.495). An int applies to every group."""
+    from src.inseason.evaluate import apply_waiver_replacement, hold_check
+    ctx = _trade_ctx(db)
+    ctx.icfg["replacement_fa_rank"] = {"F": 2, "D": 5}
+    by = apply_waiver_replacement(ctx, {1, 2, 3, 4, 5})
+    assert by == {"F": "Strong Center", "D": "Dee Two"}
+    assert ctx.scorer.replacement["F"] == pytest.approx(2.445)
+    assert ctx.scorer.replacement["D"] == pytest.approx(1.495)
+    assert hold_check(ctx, 1, "2026-11-01", 4)["verdict"] == "HOLD"
+    ctx.icfg["replacement_fa_rank"] = 1
+    assert apply_waiver_replacement(ctx, {1, 2, 3})["F"] == "Alex Ovechkin"
+    assert ctx.scorer.replacement["F"] == pytest.approx(2.825)

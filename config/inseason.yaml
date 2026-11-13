@@ -34,6 +34,14 @@ off_night_max_games: 7
 # only stream a confirmed starter), but goalies who start fewer than this
 # share of their team's games (third-stringers, call-ups) aren't listed.
 stream_goalie_min_start_share: 0.15
+# Replacement level per group = the Nth best healthy free agent in your
+# league (data/fa.txt). 1 = the single best one: the hottest start on the
+# wire sets the bar, most of a roster reads DROP CANDIDATE and no free
+# agent can read HOLD. A few ranks down is a level you can reliably get.
+replacement_fa_rank:
+  F: 5
+  D: 3
+  G: 2
 # hold check: ROS per-game value at least this fraction above replacement
 # is a HOLD regardless of the short window.
 hold_margin: 0.15
