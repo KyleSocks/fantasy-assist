@@ -100,10 +100,58 @@ def _goalies(conn, fetcher, season_id: int, as_of: str) -> int:
     return n
 
 
+def _range_filter(start: str, end: str) -> str:
+    """Per-game reports summed over a date range (isAggregate=true), the
+    stats API's "game range" query. The season id is appended by
+    Fetcher.get_paged."""
+    return (f'?isAggregate=true&isGame=true&cayenneExp=gameTypeId=2'
+            f' and gameDate>="{start}" and gameDate<="{end} 23:59:59"'
+            f' and seasonId=')
+
+
+def _recent(conn, fetcher, season_id: int, as_of: str,
+            days: int) -> dict[str, int]:
+    """Totals over the last ``days`` days into skater_recent / goalie_recent
+    (replaced wholesale: a player who didn't play in the window has no row)."""
+    end = datetime.date.fromisoformat(as_of)
+    start = (end - datetime.timedelta(days=days - 1)).isoformat()
+    f = _range_filter(start, end.isoformat())
+    summary, _ = _combine_rows(
+        fetcher.get_paged(f"{_BASE}/skater/summary{f}", "recent_skater_summary",
+                          season_id),
+        SkaterSummary, ["gamesPlayed", "goals", "assists", "shots", "ppPoints",
+                        "shPoints"])
+    realtime, _ = _combine_rows(
+        fetcher.get_paged(f"{_BASE}/skater/realtime{f}", "recent_skater_realtime",
+                          season_id),
+        SkaterRealtime, ["hits", "blockedShots"])
+    goalies, _ = _combine_rows(
+        fetcher.get_paged(f"{_BASE}/goalie/summary{f}", "recent_goalie_summary",
+                          season_id),
+        GoalieSummary, ["gamesPlayed", "gamesStarted", "wins", "saves",
+                        "shotsAgainst", "goalsAgainst", "shutouts"])
+    conn.execute("DELETE FROM skater_recent")
+    conn.execute("DELETE FROM goalie_recent")
+    for pid, s in summary.items():
+        rt = realtime.get(pid)
+        conn.execute(
+            "INSERT INTO skater_recent VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (pid, s.gamesPlayed, s.goals, s.assists, s.shots,
+             rt.blockedShots if rt else None, rt.hits if rt else None,
+             s.ppPoints, s.shPoints, start, end.isoformat()))
+    for pid, g in goalies.items():
+        conn.execute(
+            "INSERT INTO goalie_recent VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (pid, g.gamesPlayed, g.gamesStarted, g.wins, g.saves,
+             g.shotsAgainst, g.goalsAgainst, g.shutouts, start, end.isoformat()))
+    return {"skater_recent": len(summary), "goalie_recent": len(goalies)}
+
+
 def ingest_current(db_path: str = DEFAULT_DB_ARG, season_id: int | None = None,
                    schedule: bool = True, rosters: bool = True,
                    fetcher=None, as_of: str | None = None,
-                   schedule_start: datetime.date | None = None) -> dict[str, int]:
+                   schedule_start: datetime.date | None = None,
+                   trend_days: int | None = None) -> dict[str, int]:
     """Ingest season-to-date stats (+ rosters, + schedule). Returns row counts."""
     season_id = season_id or current_season_id()
     as_of = as_of or datetime.date.today().isoformat()
@@ -117,6 +165,14 @@ def ingest_current(db_path: str = DEFAULT_DB_ARG, season_id: int | None = None,
             counts["skater_current"] = _skaters(conn, fetcher, season_id, as_of)
             counts["goalie_current"] = _goalies(conn, fetcher, season_id, as_of)
             notes: list[str] = []
+            if trend_days is None:
+                from .model import load_inseason_config
+                trend_days = int(load_inseason_config().get("trend_days", 21))
+            try:
+                counts.update(_recent(conn, fetcher, season_id, as_of,
+                                      trend_days))
+            except Exception as e:     # trend is optional: never block a refresh
+                notes.append(f"recent-games trend not updated: {e}")
             if rosters:
                 rc, rn = ingest_rosters(conn, fetcher)
                 counts.update(rc)

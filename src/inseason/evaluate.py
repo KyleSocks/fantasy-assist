@@ -17,6 +17,7 @@ from .model import (
     build_lines,
     load_current,
     load_inseason_config,
+    load_recent,
     opponent_factors,
     priors_from_projections,
     season_and_as_of,
@@ -148,6 +149,9 @@ def build_context(db_path: str, league: LeagueConfig,
             priors = priors_from_projections(
                 project_all_cached(season, db_path, include_inactive=True))
         lines = build_lines(conn, season, priors, icfg)
+        for pid, rec in load_recent(conn).items():
+            if pid in lines:
+                lines[pid].extra["recent"] = rec
         skaters, goalies = load_current(conn, season)
         factors = opponent_factors(skaters, goalies, team_games_played(skaters),
                                    icfg["opponent_k_games"])
