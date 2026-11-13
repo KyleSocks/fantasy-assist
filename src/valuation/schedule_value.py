@@ -164,12 +164,13 @@ def windowed_projection(p: Projection, window_games_count: int) -> Projection:
     """Derive a windowed Projection from a season Projection.
 
     Every count total scales by ``window_gp / gp`` (equivalently
-    ``window_games_count / 82``); rates (``save_pct``, ``toi_per_gp``) are
+    ``window_games_count / season games``: 82, or 84 from 2026-27); rates (``save_pct``, ``toi_per_gp``) are
     left untouched. A player projected to 0 season games scales to 0 in
     the window (gp and all counts 0, rates preserved).
     """
     if p.gp > 0:
-        window_gp = window_games_count * p.gp / 82.0
+        window_gp = window_games_count * p.gp / float(
+            (p.terms or {}).get("season_games") or 82)
         scale = window_gp / p.gp
     else:
         window_gp = 0.0

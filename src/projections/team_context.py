@@ -86,6 +86,29 @@ def _league(hist: dict[int, dict[str, dict]]) -> dict[str, float]:
             "ga_pg": num["ga"] / den, "win_pg": num["wins"] / den}
 
 
+def _season_league(hist: dict[int, dict[str, dict]], sid: int) -> dict[str, float]:
+    """One season's league per-game levels."""
+    games = sum(b["games"] for b in hist[sid].values())
+    if games <= 0:
+        return {"sa_pg": 0.0, "gf_pg": 0.0, "ga_pg": 0.0, "win_pg": 0.5}
+    tot = {m: sum(b[m] for b in hist[sid].values()) for m in ("sa", "gf", "ga", "wins")}
+    return {"sa_pg": tot["sa"] / games, "gf_pg": tot["gf"] / games,
+            "ga_pg": tot["ga"] / games, "win_pg": tot["wins"] / games}
+
+
+def _team_deviation(hist: dict[int, dict[str, dict]], team: str,
+                    metric: str, key: str) -> float | None:
+    """5/3/2 recency-weighted (team per game - that season's league per
+    game): how far the team sits from the league, free of league drift."""
+    num = den = 0.0
+    for w, sid in zip(WEIGHTS, sorted(hist, reverse=True)):
+        b = hist[sid].get(team)
+        if b and b["games"] > 0:
+            num += w * (b[metric] / b["games"] - _season_league(hist, sid)[key])
+            den += w
+    return num / den if den > 0 else None
+
+
 def _weighted_team(hist: dict[int, dict[str, dict]], team: str,
                    metric: str) -> float | None:
     """5/3/2 recency-weighted per-game metric for one team (None if the
@@ -124,7 +147,18 @@ def project_teams(conn: sqlite3.Connection, season_ids: list[int], cfg: dict,
     """
     if hist is None:
         hist = team_history(conn, season_ids)
-    lg = _league(hist)
+    era = bool(cfg.get("era_adjust", False)) and bool(hist)
+    # era_adjust: the league baseline is the most recent season (league
+    # shot volume and scoring drift; a 3-season mean lags them) and a team
+    # is its recency-weighted deviation from each season's own league mean.
+    lg = _season_league(hist, max(hist)) if era else _league(hist)
+
+    def level(team: str, metric: str, key: str, keep: float) -> float:
+        if era:
+            dev = _team_deviation(hist, team, metric, key)
+            return lg[key] + keep * (dev or 0.0)
+        return _regress(_weighted_team(hist, team, metric), lg[key], keep)
+
     keep_sa = float(cfg.get("team_sa_regress", 0.6))
     keep_win = float(cfg.get("team_win_regress", 0.6))
     keep_gf = float(cfg.get("team_gf_regress", 0.6))
@@ -139,18 +173,17 @@ def project_teams(conn: sqlite3.Connection, season_ids: list[int], cfg: dict,
     mean_goals = (sum(goals.values()) / len(goals)) if goals else 0.0
     out: dict[str, dict] = {}
     for t in sorted(tm for tm in teams if tm):
-        sa_pg = _regress(_weighted_team(hist, t, "sa"), lg["sa_pg"], keep_sa)
-        win_hist = _regress(_weighted_team(hist, t, "wins"), lg["win_pg"],
-                            keep_win)
+        sa_pg = level(t, "sa", "sa_pg", keep_sa)
+        win_hist = level(t, "wins", "win_pg", keep_win)
         if t in goals and mean_goals > 0:
             gf_pg = lg["gf_pg"] * goals[t] / mean_goals
         else:
-            gf_pg = _regress(_weighted_team(hist, t, "gf"), lg["gf_pg"], keep_gf)
+            gf_pg = level(t, "gf", "gf_pg", keep_gf)
         sv = (team_sv or {}).get(t)
         if sv is not None and sa_pg > 0:
             ga_pg = sa_pg * (1.0 - sv)
         else:
-            ga_pg = _regress(_weighted_team(hist, t, "ga"), lg["ga_pg"], keep_win)
+            ga_pg = level(t, "ga", "ga_pg", keep_win)
         win_roster = pythag(gf_pg, ga_pg, x)
         out[t] = {"sa_pg": sa_pg, "gf_pg": gf_pg, "ga_pg": ga_pg,
                   "win_hist": win_hist, "win_roster": win_roster,

@@ -460,3 +460,26 @@ def test_league_mean_is_recency_weighted():
     hist = {S1: {"AAA": {"games": 82, "wins": 41, "sa": 82 * 33, "ga": 0, "gf": 0}},
             S2: {"AAA": {"games": 82, "wins": 41, "sa": 82 * 30, "ga": 0, "gf": 0}}}
     assert _league(hist)["sa_pg"] == pytest.approx(31.125)
+
+
+def test_play_share_flat_unless_long_record_of_missed_time():
+    """82-game seasons. Healthy share .88 unless 4 of the last 5 qualifying
+    seasons are under 75% of team games.
+      A: 41, 82, 82 GP -> one low season: flat .88.
+      B: 50, 55, 40, 60, 82 -> four low (.61 .67 .49 .73): chronic, history
+         formula (5*50 + 3*55 + 2*40)/82 = 6.036585, + 3*.88 -> /13 = .667430
+      C: 5 GP call-ups are skipped, so 5, 5, 5, 5, 82 is not chronic."""
+    conn = _conn()
+    ids = [S3 - 10001 * i for i in range(5)]
+    for s in ids:
+        _schedule(conn, s, extra=False)
+    cfg = pinned_config(gp_chronic_seasons=4, gp_chronic_lookback=5,
+                        gp_chronic_share=0.75, gp_healthy_share=0.88)
+
+    def share(gps):
+        return projected_play_share([(s, g, "AAA") for s, g in zip(ids, gps)],
+                                    conn, cfg)
+    a, b, c = share([41, 82, 82]), share([50, 55, 40, 60, 82]), share([5, 5, 5, 5, 82])
+    assert (a["chronic"], a["share"]) == (False, 0.88)
+    assert b["chronic"] and b["share"] == pytest.approx(0.6674296435272045)
+    assert (c["chronic"], c["share"]) == (False, 0.88)

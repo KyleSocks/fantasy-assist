@@ -11,7 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from src.projections.common import Projection, _load_config
+from src.projections.common import Projection
+from tests.pinned import pinned_config
 from src.projections.goalie_allocation import _apply_goalie_starts
 from src.projections.goalies import _project_goalie
 from src.projections.skaters import _project_skater
@@ -58,7 +59,7 @@ def test_goalie_wins_are_per_start_not_per_team_game():
     conn = _conn()
     _schedule(conn, S2)
     _goalie(conn, 1, S2, 60, 33)
-    cfg = _load_config()
+    cfg = pinned_config()
     p = _project_goalie(1, S3, conn, cfg, {"save_pct": 0.905})
     assert p.terms["raw_rates"]["win_edge"] == pytest.approx(0.0885365853658536)
     assert p.terms["raw_rates"]["wins_pct"] == pytest.approx(0.4995121951219513)
@@ -76,7 +77,7 @@ def test_backup_moving_into_starter_role_keeps_per_start_rate():
     conn = _conn()
     _schedule(conn, S2)
     _goalie(conn, 2, S2, 25, 13)
-    p = _project_goalie(2, S3, conn, _load_config(), {"save_pct": 0.905})
+    p = _project_goalie(2, S3, conn, pinned_config(), {"save_pct": 0.905})
     _apply_goalie_starts(p, 50)
     assert p.wins == pytest.approx(50 * (0.3134146341463415 + 0.1390243902439024))
 
@@ -107,7 +108,7 @@ def _skater_db(future_gp: int | None) -> sqlite3.Connection:
 
 
 def test_projection_ignores_projected_and_later_seasons():
-    cfg = _load_config()
+    cfg = pinned_config()
     means = {c: 0.1 for c in ("goals", "assists", "shots", "blocks", "hits",
                               "pp_points", "sh_points")}
     out = []

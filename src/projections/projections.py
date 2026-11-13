@@ -17,6 +17,8 @@ import sqlite3
 from .common import (  # noqa: F401
     CONFIG_PATH,
     _compute_pos_rates,
+    era_factors,
+    season_games,
     REGRESSION_N,
     SKATER_CATEGORIES,
     SKATER_STATS,
@@ -97,7 +99,9 @@ def _project_skaters(conn: sqlite3.Connection, season_id: int, cfg: dict,
     groups = ("C", "W", "D")
     means = {g: _compute_pos_means(conn, prior_seasons, g) for g in groups}
     medians = {g: _compute_pos_median_toi(conn, prior_seasons, g) for g in groups}
-    rates = {g: _compute_pos_rates(conn, prior_seasons, g) for g in groups}
+    era = era_factors(conn, season_id, cfg)
+    rates = {g: _compute_pos_rates(conn, prior_seasons, g, era) for g in groups}
+    season_len = season_games(conn, season_id)
     # The draft board projects players on a roster; ex-NHL players
     # backfilled by src/ingest/bios.py (is_active = 0) are projected in a
     # backtest (the projected season's rows already exist) and for the
@@ -118,7 +122,7 @@ def _project_skaters(conn: sqlite3.Connection, season_id: int, cfg: dict,
             continue
         g = _group_key(row[0])
         proj = _project_skater(pid, season_id, conn, cfg, means[g], medians[g],
-                               rates[g])
+                               rates[g], season_len, era)
         if proj is not None:
             out.append(proj)
     return out
@@ -169,11 +173,12 @@ def explain(player_id: int, season_id: int, db_path: str) -> dict:
         proj = None
         if row and _pos_group(row[0]) != "G":
             g = _group_key(row[0])
+            era = era_factors(conn, season_id, cfg)
             proj = _project_skater(
                 player_id, season_id, conn, cfg,
                 _compute_pos_means(conn, prior_seasons, g),
                 _compute_pos_median_toi(conn, prior_seasons, g),
-                _compute_pos_rates(conn, prior_seasons, g))
+                _compute_pos_rates(conn, prior_seasons, g, era), era=era)
     finally:
         conn.close()
     if proj is None and not (row and _pos_group(row[0]) != "G"):

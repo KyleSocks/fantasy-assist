@@ -218,8 +218,9 @@ def priors_from_projections(projs) -> dict[int, dict]:
             out[p.player_id] = {
                 "pg": {s: (getattr(p, s, 0.0) or 0.0) / p.gp for s in SKATER_STATS},
                 "toi_pg": p.toi_per_gp,
-                # projected gp = 82 x durability
-                "gp_share": min(p.gp / 82.0, 1.0)}
+                # projected gp = season games x share of them he plays
+                "gp_share": min(p.gp / float(
+                    (p.terms or {}).get("season_games") or 82), 1.0)}
     return out
 
 
@@ -349,9 +350,14 @@ def build_lines(conn, season_id: int, priors: dict[int, dict], cfg: dict,
         tgp = team_gp.get(team or "", 0)
         gp_here = (gp * team_share(gp, tgp)
                    if (cur_s or {}).get("team_abbrev") == team else gp)
-        ps_prior = float((pr or {}).get("gp_share", 1.0))
+        ps_prior = float((pr or {}).get(
+            "gp_share", cfg.get("play_share_unprojected", 1.0)))
         ps_obs = min(gp_here / tgp, 1.0) if tgp else ps_prior
-        ps = min(blend(ps_prior, gp_here, tgp, cfg.get("play_share_k_games", 20)), 1.0)
+        # play_share_use_season false: games missed so far this season say
+        # little about games missed from here on, so keep the prior.
+        ps = (min(blend(ps_prior, gp_here, tgp,
+                        cfg.get("play_share_k_games", 20)), 1.0)
+              if cfg.get("play_share_use_season", True) else ps_prior)
         lines[pid] = Line(pid, name, pos, team, gp, dict(prior), obs, bl,
                           toi_pg_prior=(pr or {}).get("toi_pg"),
                           toi_pg_obs=toi_obs, has_projection=has_proj,

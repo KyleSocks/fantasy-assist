@@ -407,3 +407,17 @@ def test_drop_margin_makes_the_band_symmetric(db):
     ctx.icfg["drop_margin"] = 0.15
     assert hold_check(ctx, 1, "2026-11-01", 4)["verdict"] == "BORDERLINE"
     assert hold_check(ctx, 3, "2026-11-01", 4)["verdict"] == "DROP CANDIDATE"
+
+
+def test_play_share_ignores_this_seasons_missed_games_when_off(db):
+    """Default (on): the share blends in this season's games. Off: a
+    skater keeps his prior share; unprojected skaters get the configured
+    default; goalie start shares still use this season."""
+    on = build_context(db, POINTS, priors=PRIORS, icfg=dict(ICFG))
+    off = build_context(db, POINTS, priors=PRIORS, icfg=dict(
+        ICFG, play_share_use_season=False, play_share_unprojected=0.88))
+    for pid, ln in off.lines.items():
+        if not ln.is_goalie:
+            assert ln.play_share == ln.play_share_prior == 0.88
+        else:
+            assert ln.start_share == on.lines[pid].start_share
