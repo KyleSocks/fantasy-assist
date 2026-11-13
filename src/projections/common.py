@@ -329,16 +329,24 @@ def projected_play_share(seasons: list[tuple[int, int, str | None]],
     ``seasons``: (season_id, gp, team) for every prior season, any order.
     Seasons under ``gp_min_season_gp`` games are call-ups / cups of coffee,
     not evidence about health, and are skipped. The three most recent
-    remaining seasons are weighted 5/3/2 and regressed toward
-    ``gp_prior_share`` with ``gp_prior_weight`` (same units as the 5/3/2
-    weights), then clamped to [gp_share_floor, 1].
+    not evidence about health, and are skipped.
+
+    Missed games are mostly unpredictable, so by default every skater gets
+    the same ``gp_healthy_share``. Only a long, consistent record counts:
+    at least ``gp_chronic_seasons`` of his last ``gp_chronic_lookback``
+    qualifying seasons under ``gp_chronic_share`` of team games. Such a
+    player ("chronic") gets his own history: the three most recent seasons
+    weighted 5/3/2 and regressed toward ``gp_prior_share`` with
+    ``gp_prior_weight`` (5/3/2 units), clamped to [gp_share_floor, 1].
+    ``gp_chronic_seasons: 0`` uses that history formula for everyone.
     """
     min_gp = float(cfg.get("gp_min_season_gp", 10))
     prior = float(cfg.get("gp_prior_share", 0.88))
     k = float(cfg.get("gp_prior_weight", 3.0))
     floor = float(cfg.get("gp_share_floor", 0.40))
-    used = sorted((s for s in seasons if (s[1] or 0) >= min_gp),
-                  key=lambda s: -s[0])[:len(WEIGHTS)]
+    qualifying = sorted((s for s in seasons if (s[1] or 0) >= min_gp),
+                        key=lambda s: -s[0])
+    used = qualifying[:len(WEIGHTS)]
     num = den = 0.0
     shares = []
     for w, (sid, gp, team) in zip(WEIGHTS, used):
@@ -350,5 +358,16 @@ def projected_play_share(seasons: list[tuple[int, int, str | None]],
     raw = num / den if den else prior
     share = (num + k * prior) / (den + k)
     share = max(floor, min(share, 1.0))
+    need = int(cfg.get("gp_chronic_seasons", 0))
+    chronic = True
+    if need > 0:
+        cut = float(cfg.get("gp_chronic_share", 0.75))
+        low = 0
+        for sid, gp, team in qualifying[:int(cfg.get("gp_chronic_lookback", 5))]:
+            games = _team_season_games(conn, sid, team)
+            low += bool(games) and float(gp) / games < cut
+        chronic = low >= need
+        if not chronic:
+            share = float(cfg.get("gp_healthy_share", 0.88))
     return {"raw_share": raw, "season_shares": shares, "share": share,
-            "prior_share": prior, "prior_weight": k}
+            "prior_share": prior, "prior_weight": k, "chronic": chronic}

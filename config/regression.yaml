@@ -69,6 +69,16 @@ team_change_pp_blend: 0.25
 # seasons with at least gp_min_season_gp games (call-ups are not injury
 # evidence), regressed toward gp_prior_share with gp_prior_weight (5/3/2
 # units), clamped to [gp_share_floor, 1]. Projected GP = 82 x share.
+#
+# Injuries are mostly unpredictable, so that history is only used for a
+# player with a long, consistent record of missed time: at least
+# gp_chronic_seasons of his last gp_chronic_lookback qualifying seasons
+# under gp_chronic_share of team games. Everyone else gets
+# gp_healthy_share. gp_chronic_seasons: 0 = use history for everyone.
+gp_healthy_share: 0.88
+gp_chronic_seasons: 4
+gp_chronic_lookback: 5
+gp_chronic_share: 0.75
 gp_min_season_gp: 10
 gp_prior_share: 0.80
 gp_prior_weight: 2.0

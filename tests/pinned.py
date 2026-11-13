@@ -8,7 +8,8 @@ the live file.
 from src.projections.common import _load_config
 
 PINNED = {"gp_prior_share": 0.88, "gp_prior_weight": 3.0,
-          "goalie_starts_reserve": 0.0}
+          "goalie_starts_reserve": 0.0,
+          "gp_chronic_seasons": 0}        # history-based GP for everyone
 
 
 def pinned_config(**extra) -> dict:

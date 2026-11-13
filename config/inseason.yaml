@@ -91,3 +91,10 @@ playoff_game_weight: 2.0
 # Skaters: share of team games played (injuries, scratches) blends the
 # projection's durability with this season's games played / team games.
 play_share_k_games: 20
+# false: don't guess injuries from this season's missed games. A skater's
+# share is then his projection's: the same flat share for everyone except
+# players with a long record of missed time (config/regression.yaml gp_*).
+# Goalies' start share always uses this season (start_share_k_games).
+play_share_use_season: false
+# share for a skater with no projection (rookies); match gp_healthy_share
+play_share_unprojected: 0.88
