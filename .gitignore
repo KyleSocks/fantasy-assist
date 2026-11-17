@@ -40,3 +40,5 @@ verify_goalie_starts.py
 # league-specific inputs for `src.inseason plan` (roster / free agents)
 data/*.txt
 data/*.json
+# per-league mid-season files (leagues with their own yahoo: block)
+data/leagues/

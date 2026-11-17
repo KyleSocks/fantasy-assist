@@ -108,11 +108,36 @@ How the numbers are made (tunable in `config/inseason.yaml`):
 
 **GUI:** run the server (`uv run uvicorn src.api.main:app`, or `server-start.bat`) and open
 http://127.0.0.1:8000/inseason -- tabs for the roster audit, the streaming plan, free
-agents + tonight's streams, the schedule grid, and editing your roster / free-agent lists.
-The **Refresh data** button re-ingests this season's stats, rosters and schedule and
-rewrites `data/my_roster.txt` / `data/fa.txt` from your public Yahoo league
-(`yahoo.league_id` / `team_id` in `config/inseason.yaml`; top 100 free agents by Yahoo
-rank, IR and goalies excluded). Takes about a minute.
+agents + tonight's streams, the league (team strengths and trades), **Moves** (every
+team's adds, drops, trades and IR moves), the schedule grid, and editing your roster /
+free-agent lists. The **Refresh data** button re-ingests this season's stats, rosters and
+schedule and rewrites the selected league's roster, free-agent and league files from its
+public Yahoo league. Takes about a minute.
+
+**Roster moves:** every Refresh stores each team's roster; comparing it with the previous
+one gives the adds, drops, claims (dropped by one team, picked up by another), trades and
+IR moves in between, appended to `roster_moves.json`. Moves are only seen at refreshes,
+so a player added and dropped again between two of them won't show. Endpoint:
+`/api/inseason/moves?days=30&league=<config>`.
+
+**More than one league:** every config in `config/leagues/` shows up in the mid-season
+league picker. Give a config its own Yahoo league with a `yahoo:` block:
+
+```yaml
+# config/leagues/work_league.yaml
+yahoo:
+  league_id: 41234   # hockey.fantasysports.yahoo.com/hockey/<league_id>/<team_id>
+  team_id: 7
+  free_agent_pages: 0
+team_name: Office Grinders   # optional; default: your team's name on Yahoo
+```
+
+A league with its own block keeps its files in `data/leagues/<config name>/`
+(`my_roster.txt`, `fa.txt`, `league_rosters.json`, `market.json`,
+`roster_moves.json`). A league without one follows `yahoo:` in `config/inseason.yaml`
+and shares the files in `data/`. The Refresh button pulls the selected league; the
+twice-daily timer (no `league`) pulls the default league and every league with its own
+block.
 
 API (same data, for the UI): `/api/inseason/streams`, `/api/inseason/player/{id}`,
 `/api/inseason/schedule`.

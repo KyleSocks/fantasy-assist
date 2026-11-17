@@ -5,6 +5,7 @@
 (function () {
   "use strict";
   const { $, esc, num, signed, api, verdict, pct, md, params, cls, trendTxt } = window.insKit;
+  // the weekly chart re-reads its width when the theme or window changes
   const dlg = $("player-dlg");
   const LABELS = { goals: "G", assists: "A", pp_points: "PPP", sh_points: "SHP", shots: "SOG",
     hits: "HIT", blocks: "BLK", games_started: "GS", wins: "W", saves: "SV",
@@ -42,7 +43,7 @@
     const t = p.trend || {}, per = p.position === "G" ? "start" : "game";
     if (t.per_game == null) return [`Last ${p.trend_days} days`, "–", `${t.games || 0} ${per}s: too few to read`];
     return [`Last ${p.trend_days} days`, `${num(t.per_game)} <span class="${cls(t.diff)}">${trendTxt(t.pct, t.diff)}</span>`,
-      `${t.games} ${per}s · vs ${num(t.base)} blend`];
+      `${t.games} ${per}s, vs ${num(t.base)} blend`];
   }
 
   function summary(p) {
@@ -54,12 +55,12 @@
       ["Plays", f.avail == null ? "–" : `${Math.round(f.avail * 100)}%`, "of team games"],
       ["Value", num(f.team_game), `vs ${num(p.replacement_pg)} free-agent bar`],
       ["Rest of season", `<span class="${cls(p.ros_vs_replacement)}">${signed(p.ros_vs_replacement, 0)}</span>`,
-        `${u} vs a free agent · ${p.ros_games} games to ${md(p.ros_end)}`],
+        `${u} vs a free agent, ${p.ros_games} games to ${md(p.ros_end)}`],
       trendTile(p),
     ];
     const keys = Object.keys(p.blended).filter((k) => LABELS[k]);
-    return `<p class="pd-sub">${esc(p.team || "–")} · ${esc(p.position)} · ${p.gp} GP ${verdict(p.verdict)}
-        <span class="muted">stats as of ${esc(p.as_of)}</span></p>
+    return `<p class="pd-sub">${verdict(p.verdict)} <span>${esc(p.position)}, ${esc(p.team || "–")}, ${p.gp} games played</span>
+        <span class="muted">NHL stats through ${esc(p.as_of)}</span></p>
       <div class="pd-tiles">${tiles.map(([l, v, s]) =>
         `<div><span class="muted">${l}</span><b>${v}</b><span class="muted">${esc(s)}</span></div>`).join("")}</div>
       <h3>Per ${p.position === "G" ? "start" : "game"}</h3>
@@ -71,7 +72,7 @@
   // Weekly bars: one series (fantasy points per Mon-Sun week). Skaters also
   // get a tick per bar at preseason pace x games that week.
   function chart(g) {
-    const W = Math.max(330, Math.min(700, $("pd-body").clientWidth || 640)), H = 230, L = 30, R = 6, T = 18, B = 36;
+    const W = Math.max(300, Math.min(700, ($("pd-body").clientWidth || 640) - 36)), H = 230, L = 30, R = 6, T = 18, B = 36;
     const wk = g.weeks, pace = (w) => (g.goalie ? null : g.pre_per_game * w.games);
     const vals = wk.flatMap((w) => [w.value, pace(w) ?? 0]);
     const hi = Math.max(1, ...vals), lo = Math.min(0, ...vals);

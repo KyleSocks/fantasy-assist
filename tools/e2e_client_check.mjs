@@ -46,7 +46,7 @@ function makeContext(ls) {
   for (const id of ["status", "board-head", "board-body", "search", "chips", "reset", "league",
     "recs", "tab-recs", "tab-roster", "tab-drafted", "roster", "draft-log", "round",
     "paster", "paster-list", "paster-status", "player-panel", "panel-close", "panel-body",
-    "panel-name", "panel-meta", "uplot-host", "band-note"]) byId[id] = new FakeElement(id);
+    "panel-name", "panel-meta", "uplot-host", "band-note", "board-more", "board-sort"]) byId[id] = new FakeElement(id);
   const tabEls = ["recs", "roster", "drafted"].map((t) => { const e = new FakeElement("tab-" + t); e.dataset.tab = t; return e; });
   tabEls[0]._classes.add("active"); // matches static HTML
   const destEls = ["taken", "me"].map((d) => { const e = new FakeElement("dest-" + d); e.dataset.dest = d; return e; });

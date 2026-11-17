@@ -2,54 +2,82 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#13202f">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <title>Mid-season · Marshall &amp; Co.</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <title>Mid-season · Fantasy Assist</title>
+  <script src="/static/theme.js"></script>
+  <link rel="stylesheet" href="/static/ui.css">
+  <link rel="stylesheet" href="/static/tables.css">
   <link rel="stylesheet" href="/static/inseason.css">
 </head>
 <body class="ins">
-  <header class="bar">
+  <header class="boards">
     <h1 class="brand">
-      <img src="/static/brand.svg" alt="">
-      <span class="brand-text"><span class="brand-team">Marshall &amp; Co.</span><span class="brand-page">Mid-season</span></span>
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path class="stick" d="M13 6 L41 44 Q44 49 53 49" stroke-width="5"/>
+          <path class="stick" d="M51 6 L23 44 Q20 49 11 49" stroke-width="5"/>
+          <path class="tape-a" d="M13 6 L16.5 10.8" stroke-width="5.6"/>
+          <path class="tape-b" d="M51 6 L47.5 10.8" stroke-width="5.6"/>
+        </g>
+        <ellipse class="puck" cx="32" cy="57" rx="11" ry="4.5"/>
+      </svg>
+      <span class="brand-text"><span class="brand-team" id="brand-team">&nbsp;</span><span class="brand-page">Mid-season</span></span>
     </h1>
-    <a href="/" class="navlink">Draft board</a>
+    <nav class="pages" aria-label="Pages">
+      <a class="page" href="/">Draft</a><a class="page on" href="/inseason" aria-current="page">Mid-season</a>
+    </nav>
+    <button type="button" class="icon-btn theme-btn" aria-pressed="false" aria-label="Dark theme">
+      <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+    </button>
     <div class="controls">
-      <select id="league" aria-label="League"></select>
-      <label class="ctl">Start <input id="start" type="date"></label>
-      <label class="ctl">Days <input id="days" type="number" min="1" max="60" value="9" inputmode="numeric"></label>
-      <button id="refresh" type="button" class="primary" title="Re-ingest this season's stats and pull your roster + free agents from Yahoo">Refresh data</button>
+      <label class="ctl ctl-league"><span>League</span><select id="league"></select></label>
+      <label class="ctl"><span>From</span><input id="start" type="date"></label>
+      <label class="ctl ctl-days"><span>Days</span><input id="days" type="number" min="1" max="60" value="9" inputmode="numeric"></label>
+      <button id="refresh" type="button" class="primary" title="Re-ingest this season's stats, then pull this league's rosters and free agents from Yahoo">Refresh data</button>
       <span id="asof" class="muted asof"></span>
     </div>
   </header>
+
   <nav class="tabs ins-tabs" aria-label="Sections">
-    <button type="button" class="tab active" data-tab="roster">My roster</button>
+    <button type="button" class="tab active" data-tab="roster">Roster</button>
     <button type="button" class="tab" data-tab="plan">Plan</button>
     <button type="button" class="tab" data-tab="fa">Free agents</button>
     <button type="button" class="tab" data-tab="league">League</button>
+    <button type="button" class="tab" data-tab="moves">Moves</button>
     <button type="button" class="tab" data-tab="schedule">Schedule</button>
     <button type="button" class="tab" data-tab="lists">Lists</button>
   </nav>
+
   <main class="ins-main">
     <div id="status" class="status" role="status"></div>
 
     <section id="tab-roster" class="panel">
-      <p class="hint">Lowest blended value first. <b>Adds</b> = fantasy points he adds to your
-        best nightly lineup over the window (0 when he'd sit on the bench).</p>
-      <p class="hint" id="repl-note"></p>
+      <div class="lede">
+        <h2>Your roster</h2>
+        <p id="repl-note" class="muted"></p>
+      </div>
+      <details class="how"><summary>How to read this</summary>
+        <p>Weakest players first, by <b>Value</b> (fantasy points per team game: his blended per-game
+          rate times the share of games he plays). <b>Adds</b> = what he adds to your best nightly
+          lineup over the window, 0 when he'd sit on your bench. The verdict compares him with the best
+          free agent you could add at his position.</p>
+      </details>
       <div class="scroll"><table id="roster-table"></table></div>
       <h3>Nightly lineup</h3>
       <div class="scroll"><table id="nights-table"></table></div>
     </section>
 
     <section id="tab-plan" class="panel" hidden>
+      <div class="lede"><h2>Stream a roster spot</h2>
+        <p class="muted">Pick the player whose spot you'd rotate, and how many adds you have left.</p></div>
       <div class="form-row">
-        <label>Stream the spot of <select id="hold"></select></label>
-        <label>Adds left per week <input id="adds" value="1,4" size="6" inputmode="numeric"
+        <label class="field grow"><span>Stream the spot of</span><select id="hold"></select></label>
+        <label class="field"><span>Adds left per week</span><input id="adds" value="1,4" size="6"
           title="this week first, e.g. 1,4"></label>
-        <label>Locked today <input id="locked" placeholder="DET,STL" size="12"
+        <label class="field"><span>Started today</span><input id="locked" placeholder="DET,STL" size="10"
           title="NHL teams whose game today has already started"></label>
         <button id="run-plan" type="button" class="primary">Run plan</button>
       </div>
@@ -57,121 +85,165 @@
     </section>
 
     <section id="tab-fa" class="panel" hidden>
-      <p class="hint">Every player you can pick up: free agents, waiver players (addable once
-        they clear) and injured free agents (stash candidates for an IR slot), best blended
-        value first.</p>
+      <div class="lede"><h2>Free agents</h2>
+        <p class="muted">Everyone you can pick up, best value first: free agents, players on waivers
+          (addable once they clear) and injured free agents (IR stash candidates).</p></div>
       <div class="form-row">
-        <label>Search <input id="fa-search" type="search" placeholder="name or team" size="16"></label>
-        <label class="inline"><input id="fa-show-FA" type="checkbox" checked> free agents</label>
-        <label class="inline"><input id="fa-show-W" type="checkbox" checked> waivers</label>
-        <label class="inline"><input id="fa-show-OUT" type="checkbox" checked> injured</label>
-        <label>Position <select id="fa-pos"><option value="">all</option><option>C</option>
+        <label class="field grow"><span>Search</span><input id="fa-search" type="search" placeholder="Name or NHL team"></label>
+        <label class="field"><span>Position</span><select id="fa-pos"><option value="">All</option><option>C</option>
           <option>LW</option><option>RW</option><option>D</option><option>G</option></select></label>
-        <span id="fa-counts" class="muted"></span>
+        <fieldset class="checks"><legend>Show</legend>
+          <label><input id="fa-show-FA" type="checkbox" checked> Free agents</label>
+          <label><input id="fa-show-W" type="checkbox" checked> Waivers</label>
+          <label><input id="fa-show-OUT" type="checkbox" checked> Injured</label>
+        </fieldset>
       </div>
+      <p id="fa-counts" class="muted"></p>
       <div class="scroll"><table id="fa-table"></table></div>
-      <h3>Single-game streams <input id="stream-date" type="date">
-        <label class="inline"><input id="stream-all" type="checkbox"> include rostered pool</label></h3>
-      <p id="streams-note" class="hint"></p>
-      <h3>Skaters</h3>
+
+      <div class="section-head">
+        <h3>Single-game streams</h3>
+        <label class="field"><span>Night</span><input id="stream-date" type="date"></label>
+        <label class="inline"><input id="stream-all" type="checkbox"> Include rostered players</label>
+      </div>
+      <p id="streams-note" class="muted"></p>
+      <h4>Skaters</h4>
       <div class="scroll"><table id="streams-table"></table></div>
-      <h3>Goalies <span class="muted">valued as if he starts &middot; confirm the starter first</span></h3>
+      <h4>Goalies <span class="muted">valued as if he starts, so confirm the starter first</span></h4>
       <div class="scroll"><table id="gstreams-table"></table></div>
     </section>
 
     <section id="tab-league" class="panel" hidden>
+      <div class="lede"><h2>League</h2><p id="league-meta" class="muted"></p></div>
       <div class="form-row">
-        <label>Window <select id="league-days">
+        <label class="field"><span>Window</span><select id="league-days">
           <option value="14">2 weeks</option><option value="21" selected>3 weeks</option>
           <option value="28">4 weeks</option></select></label>
-        <span id="league-meta" class="muted"></span>
       </div>
-      <p class="hint">Each team's best nightly lineup over the window (from the Start date),
-        split by the slot each starter fills, shown vs the league average. <b>Bench</b> =
-        points from players who had to sit (surplus to trade from). Click a team for its roster.</p>
+      <details class="how"><summary>How to read this</summary>
+        <p>Each team's best nightly lineup over the window, split by the slot each starter fills and
+          shown against the league average. <b>Bench</b> = points from players who had to sit:
+          surplus to trade from. Tap a team to see its roster.</p>
+      </details>
       <div class="scroll"><table id="league-table"></table></div>
       <div id="team-detail"></div>
-      <h3>1-for-1 trades for your team
-        <label class="inline"><input id="tr-mutual" type="checkbox" checked> both teams gain</label>
-        <label class="inline"><input id="tr-pg" type="checkbox" checked> no per-game loss for me</label>
-        <label class="inline"><input id="tr-fair" type="checkbox" checked> realistic (they lose &le; 0.5/game)</label>
-      </h3>
-      <p class="hint"><b>Winner</b> = which team gains more over the window, and by how much.
-        <b>Me / Them</b> = change in each lineup's total over the window.
-        <b>Per-game</b> = blended value you gain or give up long term; a window gain with a
-        negative per-game is a schedule play that costs you later.</p>
+
+      <div class="section-head"><h3>1-for-1 trades for your team</h3></div>
+      <fieldset class="checks">
+        <legend>Only show</legend>
+        <label><input id="tr-mutual" type="checkbox" checked> Both teams gain</label>
+        <label><input id="tr-pg" type="checkbox" checked> No per-game loss for me</label>
+        <label><input id="tr-fair" type="checkbox" checked> Realistic (they lose &le; 0.5/game)</label>
+      </fieldset>
+      <details class="how"><summary>How to read this</summary>
+        <p><b>Winner</b> = which team gains more over the window, and by how much.
+          <b>Me / Them</b> = change in each lineup's total over the window.
+          <b>Per-game</b> = blended value you gain or give up long term; a window gain with a
+          negative per-game is a schedule play that costs you later.</p>
+      </details>
       <div class="scroll"><table id="trades-table"></table></div>
 
-      <h3>Shop a player</h3>
+      <div class="section-head"><h3>Shop a player</h3></div>
       <div class="form-row">
-        <label>Trade away <select id="shop-give"></select></label>
-        <label>Want <select id="shop-pos"><option value="">any position</option><option>C</option>
+        <label class="field grow"><span>Trade away</span><select id="shop-give"></select></label>
+        <label class="field"><span>Want</span><select id="shop-pos"><option value="">Any position</option><option>C</option>
           <option>LW</option><option>RW</option><option>D</option><option>G</option></select></label>
-        <label class="inline"><input id="shop-gain" type="checkbox"> only deals I win (my model)</label>
-        <button id="shop-run">Find deals</button>
+        <label class="inline"><input id="shop-gain" type="checkbox"> Only deals I win</label>
+        <button id="shop-run" type="button" class="primary">Find deals</button>
       </div>
-      <p class="hint">Every 1-for-1 for that player, ordered by how the deal looks to a
-        <b>typical manager</b> &mdash; % rostered across Yahoo, this season's Fan Pts and
-        name value (pre-season rank), weights in config/inseason.yaml: top = looks like you
-        win (harder sell), bottom = looks like they win. <b>Winner</b> = who really wins and
-        by how many points: your lineup simulated night by night through the end of your fantasy playoffs
-        (playoff games count extra, <code>playoff_game_weight</code> in inseason.yaml): a player who'd
-        sit on your bench adds nothing. <b>They'll see</b> = who a typical manager would think wins (a player below
-        replacement counts as 0: he'd just be dropped). <b>★</b> = you gain, but to them it looks even or in their favour &mdash;
-        the ones worth proposing. <b>Fit</b> = change in each lineup over the window
-        (positional need).</p>
+      <details class="how"><summary>How to read this</summary>
+        <p>Every 1-for-1 for that player, ordered by how the deal looks to a <b>typical manager</b>
+          (% rostered across Yahoo, this season's Fan Pts and pre-season rank; weights in
+          config/inseason.yaml): top = looks like you win (harder sell), bottom = looks like they win.</p>
+        <p><b>Winner</b> = who really wins and by how many points: your lineup simulated night by night
+          through the end of your fantasy playoffs (playoff games count extra,
+          <code>playoff_game_weight</code>). A player who'd sit on your bench adds nothing.
+          <b>They'll see</b> = who a typical manager would think wins. <b>★</b> = you gain, but to them it
+          looks even or in their favour: the ones worth proposing. <b>Fit</b> = change in each lineup over
+          the window (positional need).</p>
+      </details>
       <div id="shop-meta" class="muted"></div>
       <div class="scroll"><table id="shop-table"></table></div>
 
-      <h3>Trade with a team</h3>
+      <div class="section-head"><h3>Trade with a team</h3></div>
       <div class="form-row">
-        <label>Partner <select id="pt-team"></select></label>
-        <label>Deal size <select id="pt-size"><option value="2" selected>up to 2-for-2</option>
+        <label class="field grow"><span>Partner</span><select id="pt-team"></select></label>
+        <label class="field"><span>Deal size</span><select id="pt-size"><option value="2" selected>Up to 2-for-2</option>
           <option value="1">1-for-1 only</option></select></label>
-        <label class="inline"><input id="pt-sweet" type="checkbox" checked> only ones they'd likely take</label>
-        <button id="pt-run">Find deals</button>
+        <label class="inline"><input id="pt-sweet" type="checkbox" checked> Only ones they'd likely take</label>
+        <button id="pt-run" type="button" class="primary">Find deals</button>
       </div>
-      <p class="hint">Every 1-1, 2-1, 1-2 and 2-2 package with one team. <b>Winner</b> = which
-        team really wins and by how many points: your lineup simulated night by night through the end of your fantasy playoffs
-        (playoff games count extra, <code>playoff_game_weight</code> in inseason.yaml): a player who'd
-        sit on your bench adds nothing. Taking back more players
-        than you send means cutting the ones who add least (shown under the deal). <b>They'll see</b> = who a typical manager would think wins (Yahoo %
-        rostered / Fan Pts / name value). <b>★</b> = you win and they should see it as even or
-        a win for them. <b>Next N days</b> = whose lineup gains more over the window. A deal that opens a roster spot fills it with the best
-        free agent for your lineup. <b>Too close</b> = margin under 10% of the value changing
-        hands: inside projection error. Under each name: Yahoo injury tag, <b>plays</b> = share
-        of games he's played/started if under 85%, <b>PO</b> = games in your fantasy playoffs. <b>Tick players</b> (up to 2 a side) to see only deals that
-        include them, with the other spots filled in &mdash; wins and losses, best for you
-        first (untick "only ones they'd likely take" to see the losing ones too). Tick both
-        sides to also score that exact offer.</p>
+      <details class="how"><summary>How to read this</summary>
+        <p>Every 1-1, 2-1, 1-2 and 2-2 package with one team. <b>Winner</b> = which team really wins and by
+          how many points, simulated through the end of your fantasy playoffs. Taking back more players
+          than you send means cutting the ones who add least (shown under the deal); a deal that opens a
+          roster spot fills it with the best free agent for your lineup.</p>
+        <p><b>They'll see</b> = who a typical manager would think wins. <b>★</b> = you win and they should
+          see it as even or a win for them. <b>Next N days</b> = whose lineup gains more over the window.
+          <b>Too close</b> = margin under 10% of the value changing hands. Under each name: Yahoo injury
+          tag, <b>plays</b> = share of games played/started if under 85%, <b>PO</b> = games in your
+          fantasy playoffs.</p>
+        <p><b>Tick players</b> (up to 2 a side) to see only deals that include them, best for you first
+          (untick "only ones they'd likely take" to see the losing ones too). Tick both sides to also
+          score that exact offer.</p>
+      </details>
       <div id="pt-pick" class="pick"></div>
       <div id="pt-offer"></div>
       <div id="pt-meta" class="muted"></div>
       <div class="scroll"><table id="pt-table"></table></div>
     </section>
 
+    <section id="tab-moves" class="panel" hidden>
+      <div class="lede"><h2>Roster moves</h2><p id="moves-meta" class="muted"></p></div>
+      <div class="form-row">
+        <label class="field"><span>Over the last</span><select id="moves-days">
+          <option value="3">3 days</option><option value="7" selected>7 days</option>
+          <option value="14">2 weeks</option><option value="30">30 days</option>
+          <option value="400">Whole season</option></select></label>
+        <label class="field grow"><span>Team</span><select id="moves-team"></select></label>
+        <fieldset class="checks" id="moves-types"><legend>Show</legend>
+          <label><input type="checkbox" value="add" checked> Adds</label>
+          <label><input type="checkbox" value="drop" checked> Drops</label>
+          <label><input type="checkbox" value="trade" checked> Trades</label>
+          <label><input type="checkbox" value="ir" checked> IR</label>
+        </fieldset>
+      </div>
+      <div id="moves-teams" class="team-tally"></div>
+      <div id="moves-feed" class="feed"></div>
+    </section>
+
     <section id="tab-schedule" class="panel" hidden>
+      <div class="lede"><h2>NHL schedule</h2>
+        <p class="muted">Games per team over the window. Off-nights are light NHL nights, when your
+          lineup has open slots to stream into.</p></div>
       <div class="scroll"><table id="sched-table"></table></div>
     </section>
 
     <section id="tab-lists" class="panel" hidden>
-      <p class="hint">One player per line: <code>Name | TEAM | C,LW</code> (Yahoo positions).
-        Roster = everyone you'd keep, no IR. Saved to <code>data/my_roster.txt</code> and
-        <code>data/fa.txt</code>.</p>
+      <div class="lede"><h2>Roster and free-agent lists</h2>
+        <p class="muted">Refresh data rewrites these from Yahoo. Edit them by hand when Yahoo can't be read.
+          One player per line: <code>Name | TEAM | C,LW</code> (Yahoo positions). Saved in
+          <code id="lists-folder">data</code>.</p></div>
       <div class="lists">
-        <label>My roster<textarea id="roster-text" spellcheck="false"></textarea></label>
-        <label>Free agents<textarea id="fa-text" spellcheck="false"></textarea></label>
+        <label class="field"><span>My roster</span><textarea id="roster-text" spellcheck="false"></textarea></label>
+        <label class="field"><span>Free agents</span><textarea id="fa-text" spellcheck="false"></textarea></label>
       </div>
-      <button id="save-lists" type="button" class="primary">Save lists</button>
-      <span id="lists-msg" class="muted"></span>
+      <div class="form-row">
+        <button id="save-lists" type="button" class="primary">Save lists</button>
+        <span id="lists-msg" class="muted"></span>
+      </div>
     </section>
   </main>
-  <script src="/static/inseason.js"></script>
-  <script src="/static/inseason-partner.js"></script>
+
   <dialog id="player-dlg" aria-labelledby="pd-name">
-    <header><h2 id="pd-name"></h2><button type="button" id="pd-close" aria-label="Close">Close</button></header>
+    <header><h2 id="pd-name"></h2><button type="button" id="pd-close">Close</button></header>
     <div id="pd-body"></div>
   </dialog>
+
+  <script src="/static/tbl.js"></script>
+  <script src="/static/inseason.js"></script>
+  <script src="/static/inseason-partner.js"></script>
+  <script src="/static/inseason-moves.js"></script>
   <script src="/static/inseason-player.js"></script>
 </body>
 </html>

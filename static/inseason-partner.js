@@ -19,7 +19,7 @@
     const them = league().teams.find((t) => String(t.id) === $("pt-team").value);
     const side = (t, cls, title) => `<div><h4>${esc(title)}</h4>${(t ? t.players : []).map((p) =>
       `<label><input type="checkbox" class="${cls}" value="${p.id}">${esc(p.name)}${tag(p)}
-        <span class="muted">${esc(p.elig.join(","))} ${num(p.per_game)}${extras(p) ? ` · ${extras(p)}` : ""}</span></label>`).join("")}</div>`;
+        <span class="muted">${esc(p.elig.join(","))}, ${num(p.per_game)} per game${extras(p) ? `, ${extras(p)}` : ""}</span></label>`).join("")}</div>`;
     $("pt-pick").innerHTML = side(me, "pt-give", "You give (tick up to 2)") +
       side(them, "pt-get", `You get from ${them ? them.name : "?"} (up to 2)`);
     $("pt-offer").innerHTML = "";
@@ -38,16 +38,17 @@
     const fa = (ids) => ((ids || []).length ? `<span class="deal-cut muted">you add FA ${ids.map((i) => esc(P[i].name)).join(", ")}</span>` : "");
     const cut = (ids, who) => (ids.length ? `<span class="deal-cut muted">${who} cut ${ids.map((i) => esc(P[i].name)).join(", ")}</span>` : "");
     const cols = [
-      { key: "star", label: "★", sort: (x) => (x.sweet_spot ? 1 : 0), fmt: (x) => (x.sweet_spot ? "★" : "") },
+      { key: "star", label: "★", title: "you win and they should see it as even or better", sort: (x) => (x.sweet_spot ? 1 : 0),
+        fmt: (x) => (x.sweet_spot ? '<span title="worth proposing">★</span>' : '<span class="muted">–</span>') },
       { key: "give", label: "You give", left: true, stick: true, sort: (x) => P[x.give[0]].name,
         fmt: (x) => pl(x.give) + cut(x.their_cut, "they") },
       { key: "get", label: "You get", left: true, sort: (x) => P[x.get[0]].name,
         fmt: (x) => pl(x.get) + cut(x.my_cut, "you") + fa(x.my_adds) },
-      { key: "my_gain", label: "Winner", title: `your lineup, ${unit()}, through ${ptData.ros_end} (playoff games x${ptData.playoff_game_weight})`,
+      { key: "my_gain", label: "Winner", left: true, title: `your lineup, ${unit()}, through ${ptData.ros_end} (playoff games x${ptData.playoff_game_weight})`,
         fmt: (x) => winner(x.my_gain, them, 0, x.close) },
-      { key: "tilt", label: "They'll see", title: "how it looks to a typical manager (Yahoo % rostered / Fan Pts / rank)",
+      { key: "tilt", label: "They'll see", left: true, title: "how it looks to a typical manager (Yahoo % rostered / Fan Pts / rank)",
         sort: (x) => -x.their_view, fmt: (x) => lookCell(x, them) },
-      { key: "fit", label: `Next ${nd} days`, title: "change in each lineup's total", sort: (x) => x.my_fit - x.their_fit,
+      { key: "fit", label: `Next ${nd} days`, left: true, wide: true, title: "change in each lineup's total", sort: (x) => x.my_fit - x.their_fit,
         fmt: (x) => `${winner(x.my_fit - x.their_fit, them, 1)}<span class="deal-cut muted">you ${signed(x.my_fit)} · them ${signed(x.their_fit)}</span>` },
     ];
     const o = ptData.offer;
@@ -56,7 +57,7 @@
         : o.close ? `Too close to call <span class="muted">(${o.my_gain > 0 ? "you" : esc(them)} by ${num(Math.abs(o.my_gain), 0)} ${unit()})</span>`
         : o.my_gain > 0 ? `<span class="pos">You win by ${num(o.my_gain, 0)} ${unit()}</span>`
         : `<span class="neg">${esc(them)} wins by ${num(-o.my_gain, 0)} ${unit()}</span>`;
-      $("pt-offer").innerHTML = `<div class="team-card"><h4>${head}</h4>
+      $("pt-offer").innerHTML = `<div class="team-card offer"><h4>${head}</h4>
         <div class="muted">your best nightly lineup through ${esc(ptData.ros_end)}, playoff games x${num(ptData.playoff_game_weight, 1)}</div>
         <div>Give ${pl(o.give).replace(/<br>/g, " + ")} · get ${pl(o.get).replace(/<br>/g, " + ")}</div>
         <div>They'll probably see it as: <b>${sentence(-o.their_view, them)}</b></div>
@@ -78,8 +79,7 @@
       + ` · market data ${ptData.market_fetched || "none (press Refresh data)"}`;
     const el = $("pt-table");
     el._sort = {};
-    table(el, cols, rows);
-    if (!rows.length) el.innerHTML += '<tbody><tr><td class="l" colspan="6">No deals pass these filters.</td></tr></tbody>';
+    table(el, cols, rows, { page: 20, empty: "No deals pass these filters. Untick \"only ones they'd likely take\" to see more." });
   }
   $("pt-run").addEventListener("click", async () => {
     const give = ticked("pt-give"), get = ticked("pt-get");
@@ -96,7 +96,8 @@
       status("");
     } catch (e) { status(e.message, true); }
   });
-  $("pt-team").addEventListener("change", () => { ptData = null; drawPick(); $("pt-table").innerHTML = ""; $("pt-meta").textContent = ""; });
+  $("pt-team").addEventListener("change", () => { ptData = null; drawPick(); $("pt-table").innerHTML = ""; $("pt-meta").textContent = ""; clearSort("pt-table"); });
+  const clearSort = (id) => { const bar = $(id).closest(".scroll").previousElementSibling; if (bar && bar.classList.contains("tbl-sort")) bar.hidden = true; };
   $("pt-sweet").addEventListener("change", drawDeals);
 
   // ── shop a player: deals from "looks like I win" to "looks like they win"
@@ -128,7 +129,8 @@
     const el = $("shop-table");
     el._sort = {};   // default: market order, favours-you first
     table(el, [
-      { key: "star", label: "★", sort: (x) => (x.sweet_spot ? 1 : 0), fmt: (x) => (x.sweet_spot ? "★" : "") },
+      { key: "star", label: "★", title: "you gain, and to them it looks even or in their favour", sort: (x) => (x.sweet_spot ? 1 : 0),
+        fmt: (x) => (x.sweet_spot ? '<span title="worth proposing">★</span>' : '<span class="muted">–</span>') },
       { key: "partner", label: "With", left: true },
       { key: "get", label: "You get", left: true, stick: true, sort: (x) => x.get.name,
         fmt: (x) => `${esc(x.get.name)} <span class="muted">${esc(x.get.team)} ${esc(x.get.elig.join(","))}</span>` },
@@ -139,14 +141,13 @@
       { key: "pre_rank", label: "Pre", minor: true, title: "Yahoo pre-season rank (name value)",
         sort: (x) => (x.get.pre_rank == null ? null : -x.get.pre_rank),
         fmt: (x) => (x.get.pre_rank == null ? "–" : `#${num(x.get.pre_rank, 0)}`) },
-      { key: "market_edge", label: "They'll see", title: "how a typical manager sees it (tilt vs the value of your player)",
+      { key: "market_edge", label: "They'll see", left: true, title: "how a typical manager sees it (tilt vs the value of your player)",
         fmt: leanCell },
-      { key: "my_gain", label: "Winner", title: `your lineup, ${unit()}, through ${shopData.ros_end} (playoff games x${shopData.playoff_game_weight})`,
+      { key: "my_gain", label: "Winner", left: true, title: `your lineup, ${unit()}, through ${shopData.ros_end} (playoff games x${shopData.playoff_game_weight})`,
         fmt: (x) => winner(x.my_gain, x.partner, 0, x.close) },
       { key: "my_fit", label: "Fit me", fmt: (x) => `<span class="${cls(x.my_fit)}">${signed(x.my_fit)}</span>` },
       { key: "their_fit", label: "Fit them", minor: true, fmt: (x) => `<span class="${cls(x.their_fit)}">${signed(x.their_fit)}</span>` },
-    ], rows);
-    if (!rows.length) el.innerHTML += '<tbody><tr><td class="l" colspan="10">No deals pass these filters.</td></tr></tbody>';
+    ], rows, { page: 20, empty: "No deals pass these filters." });
   }
   $("shop-run").addEventListener("click", async () => {
     status("Valuing every player in the league for this trade…");
