@@ -201,3 +201,25 @@ def test_league_without_any_yahoo_link_says_how_to_add_one(world, monkeypatch):
     _fake_yahoo(monkeypatch, {})
     r = c.post("/api/inseason/refresh?league=main").json()
     assert "config/leagues/main.yaml" in r["yahoo_error"] and r["yahoo"] is None
+
+
+def test_roster_tab_can_show_any_team(world, monkeypatch):
+    """After a pull, ?team= shows another team's roster from the league
+    snapshot (IR slots kept as IR); no team / your id = your own list."""
+    c, data = world
+    _fake_yahoo(monkeypatch, {111: {
+        1: ("Main Squeeze", [OVI]),
+        2: ("Others", [SC, YPlayer("Dee Man", "BBB", ("D",), "IR+")])}})
+    c.post("/api/inseason/refresh?league=main")
+    q = "/api/inseason/audit?start=2026-11-01&days=4&league=main"
+    mine = c.get(q).json()
+    assert [p["name"] for p in mine["players"]] == ["Alex Ovechkin"]
+    assert mine["team"] == {"id": 1, "name": "Main Squeeze", "mine": True}
+    assert [t["name"] for t in mine["teams"]] == ["Main Squeeze", "Others"]   # yours first
+    assert c.get(q + "&team=1").json()["players"] == mine["players"]
+    other = c.get(q + "&team=2").json()
+    assert other["team"] == {"id": 2, "name": "Others", "mine": False}
+    by = {p["name"]: p for p in other["players"]}
+    assert set(by) == {"Strong Center", "Dee Man"}
+    assert by["Dee Man"]["verdict"].startswith("IR") or by["Dee Man"].get("inactive")
+    assert c.get(q + "&team=9").status_code == 404

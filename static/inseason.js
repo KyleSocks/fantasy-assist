@@ -6,7 +6,8 @@
   const $ = (id) => document.getElementById(id);
   const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
     .toISOString().slice(0, 10);
-  let rosterPlayers = [];
+  let rosterPlayers = [];       // YOUR roster (the Plan tab's picker)
+  let rosterTeam = "";          // Roster tab: "" = yours, else a Yahoo team id
   let unit = "fpts";
   let trendDays = 21;
 
@@ -139,11 +140,28 @@
   loaders.roster = async () => {
     status("Loading roster…");
     try {
-      const a = await api(`/api/inseason/audit?${params()}`);
+      const q = new URLSearchParams(params(rosterTeam ? { team: rosterTeam } : {}));
+      let a;
+      try {
+        a = await api(`/api/inseason/audit?${q}`);
+      } catch (e) {
+        if (!rosterTeam) throw e;
+        rosterTeam = "";         // that team is gone (league changed): back to yours
+        q.delete("team");
+        a = await api(`/api/inseason/audit?${q}`);
+      }
       unit = a.unit;
       trendDays = a.trend_days || trendDays;
       $("asof").textContent = `NHL stats through ${a.as_of}`;
-      rosterPlayers = a.players;
+      const mine = !a.team || a.team.mine;
+      if (mine) rosterPlayers = a.players;
+      const sel = $("roster-team");
+      sel.innerHTML = (a.teams || []).length
+        ? a.teams.map((t) => `<option value="${t.mine ? "" : t.id}">${esc(t.name)}${t.mine ? " (you)" : ""}</option>`).join("")
+        : '<option value="">Your team</option>';
+      sel.value = mine ? "" : String(a.team.id);
+      sel.closest(".form-row").hidden = (a.teams || []).length < 2;
+      $("roster-title").textContent = mine ? "Your roster" : a.team.name;
       $("repl-note").textContent = "The free agent each verdict measures against: "
         + Object.entries(a.replacement || {}).map(([g, v]) =>
           `${g} ${num(v)}${(a.replacement_from || {})[g] ? ` (${a.replacement_from[g]})` : ""}`).join(", ")
@@ -177,7 +195,14 @@
   }
 
   // ── plan ─────────────────────────────────────────────────────────────
-  loaders.plan = async () => { if (!rosterPlayers.length) await loaders.roster(); };
+  loaders.plan = async () => {
+    if (rosterPlayers.length) return;
+    const keep = rosterTeam;      // load YOUR roster for the picker, then restore the view
+    rosterTeam = "";
+    await loaders.roster();
+    rosterTeam = keep;
+  };
+  $("roster-team").addEventListener("change", () => { rosterTeam = $("roster-team").value; loaders.roster(); });
   async function runPlan(force) {
     status("Planning… (simulating every candidate in your nightly lineup)");
     try {
@@ -323,12 +348,17 @@
     if (!t) return;
     const strong = SLOTS.filter((s) => t.vs_avg[s] >= 10), weak = SLOTS.filter((s) => t.vs_avg[s] <= -10);
     $("team-detail").innerHTML = `<div class="team-card"><h4>${esc(t.name)}</h4>
+      <button type="button" class="open-roster" data-team="${t.mine ? "" : esc(t.id)}">Open full roster</button>
       <div class="muted">Strong at ${strong.join(", ") || "nothing"}. Weak at ${weak.join(", ") || "nothing"}.
         ${num(t.bench, 0)} ${esc(unit)} left on the bench. Dashed = sits some nights.</div>
       <div class="pills">${t.players.map((p) => `<span class="pill ${p.starts < p.games ? "sit" : ""}"
         title="${esc(p.elig.join(","))}, starts ${p.starts} of ${p.games} games">${esc(p.name)}
         <b>${num(p.per_game)}</b>${p.starts < p.games ? `, sits ${p.games - p.starts}` : ""}</span>`).join("")}</div></div>`;
     if (scroll) $("team-detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    $("team-detail").querySelector(".open-roster").onclick = (e) => {
+      rosterTeam = e.target.dataset.team;
+      showTab("roster");
+    };
   }
   function drawTrades(names) {
     if (!leagueData) return;
@@ -461,7 +491,7 @@
     u.searchParams.set("league", $("league").value);
     history.replaceState(null, "", u);
     showLeague();
-    rosterPlayers = []; leagueData = null; faData = null;
+    rosterPlayers = []; rosterTeam = ""; leagueData = null; faData = null;
     load();
   });
   leagues().then(() => showTab(location.hash.slice(1) || "roster", false))

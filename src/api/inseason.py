@@ -304,15 +304,39 @@ def _league_taken(ctx, include_inactive: bool = True) -> set[int] | None:
 
 @router.get("/audit")
 def get_audit(start: DateStr = None, days: Days = 9,
-              league: LeagueName = None) -> dict:
+              league: LeagueName = None,
+              team: Annotated[int | None, Query(ge=1, le=99)] = None) -> dict:
+    """Roster audit. ``team`` = a Yahoo team id from league_rosters.json to
+    see any team's roster the same way (verdicts against the same free
+    agents, its own nightly lineup); omitted or your id = your roster
+    (my_roster.txt). ``teams`` lists every team for the page's picker."""
     ctx = _ctx(league)
+    snap = store.read_json(_dir(ctx) / LEAGUE_FILE) or {}
+    mine = snap.get("my_team_id")
+    teams = [{"id": int(t), "name": v.get("name") or f"Team {t}", "mine": int(t) == mine}
+             for t, v in (snap.get("teams") or {}).items()]
     inactive: set[int] = set()
-    roster, _, missing = _lists(ctx, inactive)
-    if not roster:
-        raise HTTPException(400, f"no roster: press Refresh data, or add players "
-                                 f"to {_shown(_dir(ctx))}/{ROSTER_FILE} on the Lists tab")
+    if team is not None and team != mine:
+        entry = (snap.get("teams") or {}).get(str(team))
+        if entry is None:
+            raise HTTPException(404, f"no team {team} in this league's rosters: "
+                                     "press Refresh data")
+        text = "\n".join(f"{p['name']} | {p.get('team', '')} | {','.join(p.get('positions') or [])}"
+                         + (" | IR" if p.get("inactive") else "")
+                         for p in entry.get("players") or [])
+        roster, missing = parse_players(ctx, text, inactive)
+        shown = {"id": team, "name": entry.get("name") or f"Team {team}", "mine": False}
+        if not roster:
+            raise HTTPException(400, f"no players read for {shown['name']}: press Refresh data")
+    else:
+        roster, _, missing = _lists(ctx, inactive)
+        if not roster:
+            raise HTTPException(400, f"no roster: press Refresh data, or add players "
+                                     f"to {_shown(_dir(ctx))}/{ROSTER_FILE} on the Lists tab")
+        shown = next((t for t in teams if t["mine"]), {"id": mine, "name": None, "mine": True})
     out = audit(ctx, roster, _day(start), days, inactive)
-    out.update(trend_days=ctx.icfg.get("trend_days", 21))
+    out.update(trend_days=ctx.icfg.get("trend_days", 21), team=shown,
+               teams=sorted(teams, key=lambda t: (not t["mine"], t["name"].lower())))
     out.update(as_of=ctx.as_of, league=ctx.league.name, unmatched=missing,
                warning=ctx.schedule_warning(),
                unit="fpts" if ctx.scorer.points else "z")
