@@ -29,7 +29,24 @@ const state = {
   sortKey: "vorp",
   sortDir: "desc",
   recs: null,
+  limit: 0,       // phones (card layout): rows shown so far; 0 = all
 };
+const CARD_PAGE = 60;
+const narrowScreen = () => !!(window.matchMedia && window.matchMedia("(max-width: 900px)").matches);
+const boardWrap = () => (typeof document.querySelector === "function" ? document.querySelector(".board-wrap") : null);
+const cardMode = () => narrowScreen() || !!(boardWrap() && boardWrap().classList.contains("fold"));
+
+/* Cards when the screen is narrow or the full table doesn't fit its space
+   (board.css .fold); checked after every render and on resize. */
+function fitBoard() {
+  const wrap = boardWrap(), scroll = wrap && wrap.querySelector(".board-scroll");
+  if (!wrap || !wrap.classList || !scroll || !scroll.clientWidth) return;
+  const was = wrap.classList.contains("fold");
+  let fold = narrowScreen();
+  if (!fold) { wrap.classList.remove("fold"); fold = scroll.scrollWidth > scroll.clientWidth + 1; }
+  wrap.classList.toggle("fold", fold);
+  if (fold !== was) render();    // card mode pages its rows
+}
 let rankOf = new Map();    // renumbered rank of the available pool
 let pasterDest = "taken"; // name input commits to this destination
 let recToken = 0;          // guards stale recommendation responses
@@ -116,7 +133,7 @@ function draft(id, dest) {
    The banner is a live region, so screen readers announce it too. */
 let goalTimer = null;
 function goalLight(name) {
-  const bar = document.querySelector(".bar");
+  const bar = document.querySelector(".boards");
   let toast = $("goal-toast");
   if (!toast) {
     toast = document.createElement("div");
@@ -170,7 +187,7 @@ function computeRank() {
 }
 
 function cols() {
-  const c = [["rank", "Rank"], ["draft", "Draft"], ["name", "Player"], ["pos", "Pos"], ["team", "Team"], ["vorp", "VORP"], ["vorp_regular", "VORP RS"], ["vorp_playoff", "VORP PO"], ["dollars", "$"]];
+  const c = [["rank", "Rank"], ["draft", "Draft"], ["name", "Player"], ["pos", "Pos"], ["team", "Team"], ["vorp", "VORP"], ["dollars", "$"], ["vorp_regular", "VORP RS"], ["vorp_playoff", "VORP PO"]];
   for (const k of state.meta.categories) c.push([k, k]);
   if (state.meta.has_adp) c.push(["adp", "ADP"], ["delta", "+/-"]);
   return c;
@@ -179,15 +196,18 @@ function cols() {
 function headerHtml() {
   return cols().map(([k, label]) => {
     if (k === "draft") return `<th class="draft">Draft</th>`;
-    return `<th data-key="${k}" class="${k === "name" ? "name" : ""}">${esc(label)}${state.sortKey === k ? `<span class="caret ${state.sortDir === "asc" ? "up" : "down"}"></span>` : ""}</th>`;
+    const sorted = state.sortKey === k;
+    return `<th data-key="${k}" class="k-${k}${k === "name" ? " name" : ""}" scope="col" aria-sort="${sorted ? (state.sortDir === "asc" ? "ascending" : "descending") : "none"}">${esc(label)}${sorted ? `<span class="caret ${state.sortDir === "asc" ? "up" : "down"}"></span>` : ""}</th>`;
   }).join("");
 }
 
+const LABELS = { rank: "Rank", pos: "Pos", team: "Team", vorp: "VORP", vorp_regular: "VORP RS", vorp_playoff: "VORP PO", dollars: "$", adp: "ADP", delta: "+/-" };
+
 function cellHtml(p, k) {
   if (k === "draft") {
-    return `<td class="draft-cell"><button type="button" class="draft-btn" data-dest="me" data-id="${p.id}">Me</button> <button type="button" class="draft-btn" data-dest="taken" data-id="${p.id}">Taken</button></td>`;
+    return `<td class="draft-cell"><button type="button" class="draft-btn me" data-dest="me" data-id="${p.id}">Me</button> <button type="button" class="draft-btn" data-dest="taken" data-id="${p.id}">Taken</button></td>`;
   }
-  if (k === "name") return `<td class="name">${esc(p.name)}</td>`;
+  if (k === "name") return `<td class="name"><span class="pname">${esc(p.name)}</span><span class="pmeta">${esc(p.pos)}, ${esc(p.team)}</span></td>`;
   let v, cls = "";
   if (k === "rank") v = rankOf.get(p.id);
   else if (k === "pos") v = p.pos;
@@ -199,7 +219,7 @@ function cellHtml(p, k) {
   else if (k === "adp") v = p.adp == null ? "—" : p.adp.toFixed(1);
   else if (k === "delta") { v = p.delta == null ? "—" : (p.delta > 0 ? "+" : "") + p.delta; cls = p.delta > 0 ? " pos" : p.delta < 0 ? " neg" : ""; }
   else v = p.stats[k].toFixed(1);
-  return `<td class="${cls}">${v}</td>`;
+  return `<td class="k-${k}${cls}" data-label="${esc(LABELS[k] || k)}">${v}</td>`;
 }
 
 function rowHtml(p) { return `<tr data-id="${p.id}">${cols().map(([k]) => cellHtml(p, k)).join("")}</tr>`; }
@@ -231,15 +251,39 @@ function render() {
   const t0 = performance.now();
   computeRank();
   $("board-head").querySelector("tr").innerHTML = headerHtml();
-  $("board-body").innerHTML = visiblePlayers().map(rowHtml).join("");
+  const list = visiblePlayers();
+  const shown = state.limit && cardMode() ? list.slice(0, state.limit) : list;
+  $("board-body").innerHTML = shown.length ? shown.map(rowHtml).join("")
+    : `<tr class="empty"><td colspan="${cols().length}">No available players match. Clear the search or position filter.</td></tr>`;
+  $("board-more").hidden = shown.length >= list.length;
+  $("board-more").textContent = `Show more players (${(list.length - shown.length).toLocaleString()} left)`;
+  renderSortPicker();
+  if (!render.fitting) { render.fitting = true; fitBoard(); render.fitting = false; }
   renderRoster();
   renderDrafted();
   renderTabCounts();
   const round = currentRound();
   $("round").textContent = `Round ${round}`;
   $("status").textContent =
-    `${(state.players.length - state.drafted_all.length).toLocaleString()} available · season ${state.meta.season} · ${state.drafted_all.length} drafted · Round ${round}`;
+    `${(state.players.length - state.drafted_all.length).toLocaleString()} available, ${state.drafted_all.length} drafted. Projections for ${seasonLabel(state.meta.season)}.`;
   window.__lastSortMs = performance.now() - t0;
+}
+
+function seasonLabel(id) { const y = String(id); return `${y.slice(0, 4)}–${y.slice(6, 8)}`; }
+
+/* Sort picker: on phones the table headers are hidden (card layout). */
+function renderSortPicker() {
+  const sel = $("board-sort");
+  const opts = cols().filter(([k]) => k !== "draft").map(([k, label]) => {
+    const text = k === "name" || k === "pos" || k === "team" ? [`${label}, A to Z`, "asc"] : [`${label}, high to low`, "desc"];
+    return `<option value="${k}:${text[1]}">${esc(text[0])}</option>`;
+  });
+  sel.innerHTML = opts.join("");
+  sel.value = `${state.sortKey}:${state.sortDir}`;
+  if (sel.value !== `${state.sortKey}:${state.sortDir}`) {
+    sel.insertAdjacentHTML("afterbegin", `<option value="${state.sortKey}:${state.sortDir}">${esc(state.sortKey)}, ${state.sortDir === "asc" ? "low to high" : "high to low"}</option>`);
+    sel.value = `${state.sortKey}:${state.sortDir}`;
+  }
 }
 
 /* MY ROSTER tab: slots from the league config, filled and empty.
@@ -264,7 +308,7 @@ function renderRoster() {
     for (let i = 0; i < limits[slot]; i++) {
       const id = ids[i];
       const p = id != null ? state.byId.get(id) : null;
-      rows += p ? `<div class="slot-player"><span>${esc(p.name)}</span><span class="slot-pos">${esc(p.pos)}</span></div>` : `<div class="slot-player empty">empty</div>`;
+      rows += p ? `<div class="slot-player"><span>${esc(p.name)}</span><span class="slot-pos">${esc(p.pos)}</span></div>` : `<div class="slot-player empty">Open</div>`;
     }
     html += `<div class="slot"><div class="slot-head"><span>${esc(slot)}</span><span>${ids.length}/${limits[slot]}</span></div>${rows}</div>`;
   }
@@ -289,8 +333,8 @@ function renderTabCounts() {
   const total = totalSlots();
   const tabs = document.querySelectorAll(".tab");
   for (const b of tabs) {
-    if (b.dataset.tab === "roster") b.textContent = `My Roster (${state.drafted_by_me.length}/${total})`;
-    else if (b.dataset.tab === "drafted") b.textContent = `Drafted (${state.log.length})`;
+    if (b.dataset.tab === "roster") b.textContent = `My roster ${state.drafted_by_me.length}/${total}`;
+    else if (b.dataset.tab === "drafted") b.textContent = `Drafted ${state.log.length}`;
   }
   // phone view switcher: short labels
   for (const b of document.querySelectorAll(".mtab")) {
@@ -310,8 +354,8 @@ function setMobileView(view) {
 /* The drill-down panel sits just under the header, whose height changes
    when the controls wrap. */
 function trackHeaderHeight() {
-  const bar = document.querySelector(".bar");
-  const set = () => document.documentElement.style.setProperty("--bar-h", bar.offsetHeight + "px");
+  const bar = document.querySelector(".boards");
+  const set = () => document.documentElement.style.setProperty("--head-h", bar.offsetHeight + "px");
   set();
   if (window.ResizeObserver) new ResizeObserver(set).observe(bar);
 }
@@ -452,8 +496,10 @@ function updateSuggestions() {
 
 function buildControls() {
   $("league").innerHTML = state.meta.leagues.map((n) => `<option value="${esc(n)}"${n === state.meta.league ? " selected" : ""}>${esc(n)}</option>`).join("");
-  const positions = [...new Set(state.players.map((p) => p.pos))].sort();
-  $("chips").innerHTML = positions.map((pos) => `<button type="button" class="chip" data-pos="${esc(pos)}">${esc(pos)}</button>`).join("");
+  const order = ["C", "L", "R", "D", "G"];
+  const positions = [...new Set(state.players.map((p) => p.pos))].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  const names = { L: "LW", R: "RW" };
+  $("chips").innerHTML = positions.map((pos) => `<button type="button" class="chip" data-pos="${esc(pos)}" aria-pressed="false">${esc(names[pos] || pos)}</button>`).join("");
 }
 
 function setPasterDest(dest) {
@@ -482,9 +528,15 @@ function wireEvents() {
     else { state.sortKey = k; state.sortDir = k === "name" || k === "pos" || k === "team" ? "asc" : "desc"; }
     render();
   });
+  $("board-sort").addEventListener("change", () => {
+    const [k, dir] = $("board-sort").value.split(":");
+    state.sortKey = k; state.sortDir = dir; state.limit = CARD_PAGE;
+    render();
+  });
+  $("board-more").addEventListener("click", () => { state.limit += CARD_PAGE; render(); });
   let searchTimer = null;
-  $("search").addEventListener("input", () => { if (searchTimer) clearTimeout(searchTimer); searchTimer = setTimeout(() => { state.search = $("search").value.trim(); render(); }, 100); });
-  $("chips").addEventListener("click", (e) => { const chip = e.target.closest(".chip"); if (!chip) return; const pos = chip.dataset.pos; if (state.posFilter.has(pos)) state.posFilter.delete(pos); else state.posFilter.add(pos); chip.classList.toggle("active", state.posFilter.has(pos)); render(); });
+  $("search").addEventListener("input", () => { if (searchTimer) clearTimeout(searchTimer); searchTimer = setTimeout(() => { state.search = $("search").value.trim(); state.limit = CARD_PAGE; render(); }, 100); });
+  $("chips").addEventListener("click", (e) => { const chip = e.target.closest(".chip"); if (!chip) return; const pos = chip.dataset.pos; if (state.posFilter.has(pos)) state.posFilter.delete(pos); else state.posFilter.add(pos); chip.classList.toggle("active", state.posFilter.has(pos)); chip.setAttribute("aria-pressed", String(state.posFilter.has(pos))); state.limit = CARD_PAGE; render(); });
   $("reset").addEventListener("click", resetDraft);
   $("league").addEventListener("change", () => { const v = $("league").value; if (v && v !== state.meta.league) window.location.search = "?league=" + encodeURIComponent(v); });
 
@@ -522,6 +574,8 @@ function wireEvents() {
 
   for (const b of document.querySelectorAll(".mtab")) b.addEventListener("click", () => setMobileView(b.dataset.view));
   trackHeaderHeight();
+  let fitTimer = null;
+  window.addEventListener("resize", () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitBoard, 120); });
 
   /* Ctrl+Z undoes the most recent draft action. */
   document.addEventListener("keydown", (e) => {
@@ -540,6 +594,7 @@ async function init() {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
     const payload = await res.json();
     state.meta = payload;
+    state.limit = CARD_PAGE;
     state.players = payload.players;
     for (const p of payload.players) state.byId.set(p.id, p);
     restoreState();

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from src.paths import DEFAULT_LEAGUE_PATH
 from src.projections.projections import Projection
@@ -48,6 +48,18 @@ ROSTER_SLOTS: dict[str, int] = {
 
 
 
+class YahooLink(BaseModel):
+    """The public Yahoo league this config follows in-season. Both ids are in
+    the team page URL: hockey.fantasysports.yahoo.com/hockey/<league_id>/<team_id>
+    """
+
+    league_id: int = Field(gt=0)
+    team_id: int = Field(gt=0)
+    # 0 = every available player; N = top N pages (25 each) by current rank
+    # plus top N by preseason rank (faster)
+    free_agent_pages: int = Field(default=0, ge=0)
+
+
 class LeagueConfig(BaseModel):
     """Validated league configuration loaded from YAML."""
 
@@ -62,6 +74,14 @@ class LeagueConfig(BaseModel):
     regular_window: tuple[str, str] | None = None
     playoff_window: tuple[str, str] | None = None
     playoff_weight: float = 0.0
+    # ── Mid-season (optional) ──
+    # A league with its own ``yahoo`` block keeps its own roster, free-agent,
+    # league and roster-move files under data/leagues/<file stem>/. Without
+    # one it follows the default Yahoo league (config/inseason.yaml) and the
+    # shared files in data/. See src/inseason/leagues.py.
+    yahoo: YahooLink | None = None
+    # Shown in the page header; default: your team's name on Yahoo.
+    team_name: str | None = None
 
     @model_validator(mode="after")
     def _validate(self) -> LeagueConfig:

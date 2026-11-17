@@ -75,6 +75,8 @@ market_points: total
 # only this many games of preseason prior (the model above uses 10-60).
 market_k_games: 5
 # Refresh button / src.inseason.yahoo_public: your public Yahoo league.
+# This is the default; a league config with its own yahoo: block (see the
+# README, "More than one league") follows that league instead.
 # league_id and team_id are in the team page URL:
 #   hockey.fantasysports.yahoo.com/hockey/<league_id>/<team_id>
 yahoo:

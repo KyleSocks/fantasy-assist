@@ -57,38 +57,8 @@
     return body;
   }
 
-  // Sortable table: cols = [{key, label, fmt(row) -> html, sort(row) -> value,
-  // left, minor, stick}]. The stick column (default: the first left-aligned
-  // one) stays put while the table scrolls sideways; minor columns hide on
-  // phones.
-  function table(el, cols, rows, state = el._sort || {}) {
-    const stick = (cols.find((c) => c.stick) || cols.find((c) => c.left) || {}).key;
-    const cl = (c) => [c.left ? "l" : "", c.key === stick ? "stick" : "", c.minor ? "minor" : ""]
-      .filter(Boolean).join(" ");
-    el._sort = state;
-    const sorted = rows.slice();
-    if (state.key) {
-      const col = cols.find((c) => c.key === state.key);
-      const val = col.sort || ((r) => r[col.key]);
-      sorted.sort((a, b) => {
-        const x = val(a), y = val(b);
-        if (x == null) return 1;
-        if (y == null) return -1;
-        return (x < y ? -1 : x > y ? 1 : 0) * state.dir;
-      });
-    }
-    el.innerHTML =
-      "<thead><tr>" + cols.map((c) =>
-        `<th class="${cl(c)}" data-key="${c.key}" title="${esc(c.title || "")}">${esc(c.label)}${
-          state.key === c.key ? `<span class="caret ${state.dir > 0 ? "up" : "down"}"></span>` : ""}</th>`).join("") +
-      "</tr></thead><tbody>" + sorted.map((r) => "<tr>" + cols.map((c) =>
-        `<td class="${cl(c)}">${c.fmt ? c.fmt(r) : esc(r[c.key])}</td>`).join("") +
-      "</tr>").join("") + "</tbody>";
-    el.querySelectorAll("th").forEach((th) => th.addEventListener("click", () => {
-      const k = th.dataset.key;
-      table(el, cols, rows, { key: k, dir: state.key === k ? -state.dir : -1 });
-    }));
-  }
+  // Sortable table that turns into cards on phones (static/tbl.js)
+  const table = (el, cols, rows, opts) => window.Tbl.table(el, cols, rows, opts);
 
   const verdict = (v) => `<span class="verdict ${esc(v.split(" ")[0])}">${esc(v)}</span>`;
   const flags = (r) => (r.flags || []).filter((f) => !/^(hold|borderline|drop)/.test(f))
@@ -121,17 +91,17 @@
     return [
       { key: "name", label: "Player", left: true,
         fmt: (r) => `<button type="button" class="plink" data-pid="${r.id}">${esc(r.name)}</button>${flags(r)}` },
-      { key: "team", label: "Tm", left: true, minor: true },
+      { key: "team", label: "NHL team", left: true, minor: true },
       { key: "elig", label: "Pos", left: true, fmt: (r) => esc(r.elig.join(",")), sort: posSort },
       { key: "gp", label: "GP", minor: true },
-      { key: "prior", label: "Pre", minor: true, title: `preseason ${unit}/game`, fmt: (r) => num(r.prior) },
+      { key: "prior", label: "Preseason", minor: true, title: `preseason ${unit}/game`, fmt: (r) => num(r.prior) },
       { key: "now", label: "Now", title: `this season ${unit}/game`, fmt: (r) => num(r.now) },
-      { key: "vs_prior_pct", label: "vs pre", fmt: (r) => `<span class="${cls(r.vs_prior_pct)}">${pct(r.vs_prior_pct)}</span>` },
+      { key: "vs_prior_pct", label: "vs pre", minor: true, fmt: (r) => `<span class="${cls(r.vs_prior_pct)}">${pct(r.vs_prior_pct)}</span>` },
       { key: "trend", label: "Trend", sort: (r) => (r.trend_pct ?? r.trend_diff),
         title: `last ${trendDays} days, per game (per start for goalies), vs his blend`,
         fmt: (r) => (r.trend == null ? `<span class="muted" title="${r.trend_games || 0} games in the window">–</span>`
           : `${num(r.trend)} <span class="${cls(r.trend_diff)}">${trendTxt(r.trend_pct, r.trend_diff)}</span>`) },
-      { key: "blended", label: "Blend", title: "blended value per game played", fmt: (r) => num(r.blended) },
+      { key: "blended", label: "Blend", minor: true, title: "blended value per game played", fmt: (r) => num(r.blended) },
       { key: "avail", label: "Plays", minor: true, title: "share of team games he plays / starts (injuries, scratches)",
         fmt: (r) => (r.avail == null ? "–" : `<span class="${r.avail < 0.85 ? "neg" : ""}">${Math.round(r.avail * 100)}%</span>`) },
       { key: "team_game", label: "Value", title: "value per team game (blend x plays): what every decision uses",
@@ -144,20 +114,25 @@
           return `<span class="${d != null && d <= -90 ? "neg" : ""}">${mmss(r.toi_now)}</span>`; } },
       { key: "rank", label: "Rank", minor: true, title: "rank in F / D by blended value", fmt: (r) => `${r.rank}/${r.pool}` },
       ...extra,
-      { key: "verdict", label: "Verdict", left: true, fmt: (r) => verdict(r.verdict) },
+      { key: "verdict", label: "Verdict", left: true, wide: true, fmt: (r) => verdict(r.verdict) },
     ];
   }
 
   // ── tabs ─────────────────────────────────────────────────────────────
   const loaders = {};
   let current = "roster";
-  document.querySelectorAll(".ins-tabs .tab").forEach((b) => b.addEventListener("click", () => {
-    document.querySelectorAll(".ins-tabs .tab").forEach((x) => x.classList.toggle("active", x === b));
-    current = b.dataset.tab;
-    b.scrollIntoView({ block: "nearest", inline: "nearest" });   // phones: tab row scrolls
+  function showTab(name, push = true) {
+    if (!document.getElementById(`tab-${name}`)) name = "roster";
+    document.querySelectorAll(".ins-tabs .tab").forEach((x) => {
+      x.classList.toggle("active", x.dataset.tab === name);
+      x.setAttribute("aria-current", x.dataset.tab === name ? "page" : "false");
+    });
+    current = name;
     document.querySelectorAll(".panel").forEach((p) => { p.hidden = p.id !== `tab-${current}`; });
-    load();
-  }));
+    if (push) history.replaceState(null, "", `#${name}`);
+    load().then(() => document.querySelectorAll(".panel:not([hidden]) table.tbl.cards").forEach(window.Tbl.fit));
+  }
+  document.querySelectorAll(".ins-tabs .tab").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
   function load() { status(""); return Promise.resolve((loaders[current] || (() => {}))()); }
 
   // ── roster ───────────────────────────────────────────────────────────
@@ -167,26 +142,27 @@
       const a = await api(`/api/inseason/audit?${params()}`);
       unit = a.unit;
       trendDays = a.trend_days || trendDays;
-      $("asof").textContent = `stats as of ${a.as_of}`;
+      $("asof").textContent = `NHL stats through ${a.as_of}`;
       rosterPlayers = a.players;
-      $("repl-note").textContent = "Verdicts compare each player with a free agent you could add: "
+      $("repl-note").textContent = "The free agent each verdict measures against: "
         + Object.entries(a.replacement || {}).map(([g, v]) =>
           `${g} ${num(v)}${(a.replacement_from || {})[g] ? ` (${a.replacement_from[g]})` : ""}`).join(", ")
-        + " per team game.";
+        + ` ${unit} per team game.`;
       table($("roster-table"), playerCols([
         { key: "window_games", label: "Games", title: "team games in the window" },
         { key: "starts", label: "Starts", title: "games he'd actually start in your best lineup" },
         { key: "lineup_adds", label: "Adds", title: `${unit} he adds to your nightly lineup over the window`,
           fmt: (r) => `<b>${num(r.lineup_adds, 1)}</b>` },
-      ]), a.players);
+      ]), a.players, { empty: "No roster yet. Press Refresh data, or paste your roster on the Lists tab." });
       table($("nights-table"), [
-        { key: "date", label: "Night", left: true, fmt: (n) => `${dow(n.date)} ${md(n.date)}` },
+        { key: "date", label: "Night", left: true, fmt: (n) => `<b>${dow(n.date)} ${md(n.date)}</b>` },
         { key: "playing", label: "Playing" },
         { key: "lineup", label: "Lineup", fmt: (n) => num(n.lineup, 1) },
-        { key: "open", label: "Can add tonight", left: true,
+        { key: "open", label: "Can add tonight", left: true, wide: true,
           title: "players you could still start after re-arranging multi-position starters",
           sort: (n) => Object.values(n.open).reduce((a, b) => a + b, 0), fmt: fitText },
-        { key: "benched", label: "Benched", left: true, fmt: (n) => esc(n.benched.join(", ")) },
+        { key: "benched", label: "Benched", left: true, wide: true,
+          fmt: (n) => esc(n.benched.join(", ")) || '<span class="muted">nobody</span>' },
       ], a.nights);
       fillHold();
       status(a.warning || "", !!a.warning);
@@ -211,8 +187,8 @@
       const max = Math.max(1e-9, ...r.nightly.map((n) => n.value));
       $("plan-out").innerHTML = `
         <div class="summary">
-          <div class="stat"><b>+${num(r.keep_value, 1)}</b><span>keep ${esc(r.hold.name)}</span></div>
-          <div class="stat"><b class="pos">+${num(r.plan_value, 1)}</b><span>best plan</span></div>
+          <div class="stat"><b>+${num(r.keep_value, 1)}</b><span>${esc(unit)} if you keep ${esc(r.hold.name)}</span></div>
+          <div class="stat best"><b class="pos">+${num(r.plan_value, 1)}</b><span>${esc(unit)} with the best plan</span></div>
           <div class="stat"><b>${r.steps.length}</b><span>adds used (${Object.entries(r.budget)
             .map(([w, n]) => `wk of ${md(w)}: ${n} left`).join(", ")})</span></div>
         </div>
@@ -226,20 +202,21 @@
         <h3>Who holds the spot each night</h3>
         <div class="strip">${r.nightly.map((n) => `
           <div class="night ${n.value > 0 ? "" : "zero"}">
-            <div>${dow(n.date)} ${md(n.date)}</div>
-            <div class="bar" style="width:${Math.max(4, 100 * n.value / max)}%"></div>
-            <div>${esc(n.holder.name.split(" ").slice(-1)[0])} <b>${num(n.value, 1)}</b></div>
+            <div><b>${dow(n.date)}</b> ${md(n.date)}</div>
+            <div class="nbar" style="width:${Math.max(4, 100 * n.value / max)}%"></div>
+            <div class="who" title="${esc(n.holder.name)}">${esc(n.holder.name.split(" ").slice(-1)[0])} <b>${num(n.value, 1)}</b></div>
           </div>`).join("")}</div>
         <h3>Best single adds for this spot</h3>
         <div class="scroll"><table id="singles-table"></table></div>`;
       table($("singles-table"), [
-        { key: "name", label: "Player", left: true },
-        { key: "team", label: "Tm", left: true },
+        { key: "name", label: "Player", left: true,
+          fmt: (c) => (c.id != null ? `<button type="button" class="plink" data-pid="${c.id}">${esc(c.name)}</button>` : esc(c.name)) },
+        { key: "team", label: "NHL team", left: true },
         { key: "elig", label: "Pos", left: true, fmt: (c) => esc(c.elig.join(",")), sort: (c) => c.elig.join(",") },
         { key: "adds", label: "Adds", title: `${unit} added to your lineup over the window`, fmt: (c) => `<b>${num(c.adds, 1)}</b>` },
-        { key: "nights", label: "Nights that count", left: true, sort: (c) => c.nights.length,
+        { key: "nights", label: "Nights that count", left: true, wide: true, sort: (c) => c.nights.length,
           fmt: (c) => c.nights.map((d) => `${dow(d)} ${md(d)}`).join(", ") },
-      ], r.singles);
+      ], r.singles, { empty: "No free agent adds anything in this spot." });
       const f = $("plan-force");
       if (f) f.addEventListener("click", (e) => { e.preventDefault(); runPlan(true); });
       status("");
@@ -270,12 +247,12 @@
       && (!q || `${r.name} ${r.team}`.toLowerCase().includes(q))
       && (!pos || r.elig.includes(pos)));
     const c = faData.counts;
-    $("fa-counts").textContent = `${rows.length} shown · ${c.FA} free agents, ${c.W} on waivers, ${c.OUT} injured`;
+    $("fa-counts").textContent = `${rows.length} match: ${c.FA} free agents, ${c.W} on waivers, ${c.OUT} injured in all.`;
     table($("fa-table"), playerCols([
-      { key: "window_games", label: "Games" },
+      { key: "window_games", label: "Games", title: "team games in the window" },
       { key: "status", label: "Status", left: true, title: "FA = add now; W = on waivers until the date; OUT = injured",
         fmt: statusCell },
-    ]), rows);
+    ]), rows, { page: 50, empty: "No players match. Clear the search or tick more boxes." });
   }
   ["fa-search", "fa-pos", "fa-show-FA", "fa-show-W", "fa-show-OUT"].forEach((id) =>
     $(id).addEventListener(id === "fa-search" ? "input" : "change", drawFreeAgents));
@@ -285,10 +262,10 @@
       top: 25, group })}`);
     const [sk, gl] = await Promise.all([q("S"), q("G")]);
     const cols = (goalie) => [
-      { key: "name", label: "Player", left: true },
+      { key: "name", label: "Player", left: true,
+        fmt: (r) => ((r.id ?? r.player_id) != null ? `<button type="button" class="plink" data-pid="${r.id ?? r.player_id}">${esc(r.name)}</button>` : esc(r.name)) },
       { key: "pos", label: "Pos", left: true, fmt: (r) => esc((r.elig || [r.pos]).join(",")) },
-      { key: "team", label: "Tm", left: true },
-      { key: "opp", label: "Opp", left: true },
+      { key: "team", label: "Team", left: true, fmt: (r) => `${esc(r.team)} <span class="muted">vs</span> ${esc(r.opp)}`, sort: (r) => r.team },
       { key: "value", label: "Tonight", title: goalie ? "opponent-adjusted, if he starts" : "opponent-adjusted",
         fmt: (r) => `<b>${num(r.value)}</b>` },
       { key: "adds", label: "Adds to you", title: "what he adds to YOUR lineup tonight, after re-arranging multi-position starters (0 = no slot for him)",
@@ -301,9 +278,9 @@
         : { key: "vs_prior_pct", label: "vs pre",
             fmt: (r) => `<span class="${cls(r.vs_prior_pct)}">${pct(r.vs_prior_pct)}</span>` },
     ];
-    table($("streams-table"), cols(false), sk.players);
-    table($("gstreams-table"), cols(true), gl.players);
-    $("streams-note").textContent = `${sk.nhl_games} NHL games · showing ${sk.availability}`;
+    table($("streams-table"), cols(false), sk.players, { empty: "No skaters play that night." });
+    table($("gstreams-table"), cols(true), gl.players, { empty: "No goalies play that night." });
+    $("streams-note").textContent = `${sk.nhl_games} NHL games that night. Showing ${sk.availability}.`;
   }
   $("stream-date").addEventListener("change", () => loadStreams().catch((e) => status(e.message, true)));
   $("stream-all").addEventListener("change", () => loadStreams().catch((e) => status(e.message, true)));
@@ -321,46 +298,37 @@
       const L = await api(`/api/inseason/league?${new URLSearchParams({
         league: $("league").value, start: $("start").value, days: $("league-days").value })}`);
       leagueData = L;
-      $("league-meta").textContent = `${md(L.dates[0])}–${md(L.dates[L.dates.length - 1])}` +
-        ` · rosters from Yahoo ${L.fetched || "?"} · stats ${L.as_of}`;
+      $("league-meta").textContent = `Lineups ${md(L.dates[0])} to ${md(L.dates[L.dates.length - 1])}.`
+        + ` Rosters read from Yahoo ${L.fetched ? L.fetched.replace("T", " at ") : "(never)"}, NHL stats through ${L.as_of}.`;
       const names = Object.fromEntries(L.teams.map((t) => [t.id, t.name]));
       const el = $("league-table");
       table(el, [
-        { key: "rank", label: "#", sort: (t) => t.rank },
-        { key: "name", label: "Team", left: true, fmt: (t) => `${t.mine ? "★ " : ""}${esc(t.name)}` },
+        { key: "rank", label: "Rank", sort: (t) => t.rank },
+        { key: "name", label: "Team", left: true, stick: true, fmt: (t) => `${esc(t.name)}${t.mine ? ' <span class="flag ok">you</span>' : ""}` },
         { key: "total", label: `Lineup ${unit}`, fmt: (t) => `<b>${num(t.total, 0)}</b>` },
         ...SLOTS.map((s) => ({ key: s, label: s, title: `${s} starters vs league avg (${num(L.league_avg[s], 0)})`,
           sort: (t) => t.vs_avg[s], fmt: (t) => heat(t.vs_avg[s]) })),
         { key: "bench", label: "Bench", title: "points from players who had to sit", fmt: (t) => num(t.bench, 0) },
-      ], L.teams.map((t, i) => ({ ...t, rank: i + 1 })));
-      decorateLeague(el, L);
+      ], L.teams.map((t, i) => ({ ...t, rank: i + 1 })), {
+        rowClass: (t) => `click${t.mine ? " mine" : ""}`,
+        onRow: (t, tr) => { tr.onclick = () => showTeam(t, true); },
+      });
       showTeam(L.teams.find((t) => t.mine));
       drawTrades(names);
       if (window.insPartner) window.insPartner.fill(L);
       status("");
     } catch (e) { status(e.message, true); }
   };
-  function decorateLeague(el, L) {
-    el.querySelectorAll("tbody tr").forEach((tr) => {
-      const name = tr.children[1].textContent.replace(/^★ /, "");
-      const t = L.teams.find((x) => x.name === name);
-      if (!t) return;
-      tr.classList.add("click");
-      tr.classList.toggle("mine", t.mine);
-      tr.onclick = () => showTeam(t);
-    });
-    el.querySelectorAll("th").forEach((th) => th.addEventListener("click", () =>
-      setTimeout(() => decorateLeague(el, L), 0)));
-  }
-  function showTeam(t) {
+  function showTeam(t, scroll = false) {
     if (!t) return;
     const strong = SLOTS.filter((s) => t.vs_avg[s] >= 10), weak = SLOTS.filter((s) => t.vs_avg[s] <= -10);
-    $("team-detail").innerHTML = `<div class="team-card"><h4>${t.mine ? "★ " : ""}${esc(t.name)}</h4>
-      <div class="muted">Strong: ${strong.join(", ") || "–"} · Weak: ${weak.join(", ") || "–"}
-        · bench overflow ${num(t.bench, 0)}</div>
-      <div>${t.players.map((p) => `<span class="pill ${p.starts < p.games ? "sit" : ""}"
-        title="${esc(p.elig.join(","))} · starts ${p.starts}/${p.games} games">${esc(p.name)}
-        <b>${num(p.per_game)}</b>${p.starts < p.games ? ` · sits ${p.games - p.starts}` : ""}</span>`).join("")}</div></div>`;
+    $("team-detail").innerHTML = `<div class="team-card"><h4>${esc(t.name)}</h4>
+      <div class="muted">Strong at ${strong.join(", ") || "nothing"}. Weak at ${weak.join(", ") || "nothing"}.
+        ${num(t.bench, 0)} ${esc(unit)} left on the bench. Dashed = sits some nights.</div>
+      <div class="pills">${t.players.map((p) => `<span class="pill ${p.starts < p.games ? "sit" : ""}"
+        title="${esc(p.elig.join(","))}, starts ${p.starts} of ${p.games} games">${esc(p.name)}
+        <b>${num(p.per_game)}</b>${p.starts < p.games ? `, sits ${p.games - p.starts}` : ""}</span>`).join("")}</div></div>`;
+    if (scroll) $("team-detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
   function drawTrades(names) {
     if (!leagueData) return;
@@ -369,16 +337,15 @@
       (!$("tr-fair").checked || x.pg_delta <= 0.5));
     const pl = (p) => `${esc(p.name)} <span class="muted">${esc(p.team)} ${esc(p.elig.join(","))} ${num(p.per_game)}</span>`;
     table($("trades-table"), [
-      { key: "partner", label: "With", left: true, sort: (x) => names[x.partner_id], fmt: (x) => esc(names[x.partner_id]) },
+      { key: "partner", label: "With", left: true, wide: true, sort: (x) => names[x.partner_id], fmt: (x) => `<b>${esc(names[x.partner_id])}</b>` },
       { key: "give", label: "You give", left: true, sort: (x) => x.give.name, fmt: (x) => pl(x.give) },
       { key: "get", label: "You get", left: true, sort: (x) => x.get.name, fmt: (x) => pl(x.get) },
-      { key: "win", label: "Winner", title: "who gains more over the window, and by how much",
+      { key: "win", label: "Winner", left: true, title: "who gains more over the window, and by how much",
         sort: (x) => x.my_gain - x.their_gain, fmt: (x) => winner(x.my_gain - x.their_gain, names[x.partner_id], 1) },
       { key: "my_gain", label: "Me", fmt: (x) => `<span class="${cls(x.my_gain)}">${signed(x.my_gain)}</span>` },
       { key: "their_gain", label: "Them", fmt: (x) => `<span class="${cls(x.their_gain)}">${signed(x.their_gain)}</span>` },
       { key: "pg_delta", label: "Per-game", fmt: (x) => `<span class="${cls(x.pg_delta)}">${signed(x.pg_delta, 2)}</span>` },
-    ], rows);
-    if (!rows.length) $("trades-table").innerHTML += '<tbody><tr><td class="l" colspan="7">No trades pass these filters.</td></tr></tbody>';
+    ], rows, { page: 15, empty: "No trades pass these filters. Untick one to see more." });
   }
 
   ["tr-mutual", "tr-pg", "tr-fair"].forEach((id) => $(id).addEventListener("change", () =>
@@ -387,7 +354,7 @@
 
   // shared with static/inseason-partner.js (trade with a team)
   window.insKit = { $, esc, num, signed, cls, winner, tag, extras, table, api, status, verdict, pct, md, params, trendTxt,
-    unit: () => unit, league: () => leagueData };
+    dow, loaders, unit: () => unit, league: () => leagueData };
 
   // ── schedule ─────────────────────────────────────────────────────────
   loaders.schedule = async () => {
@@ -400,7 +367,7 @@
         { key: "off_nights", label: "Off-nights", title: "games on light NHL nights" },
         { key: "opp_ga_factor", label: "Opp GA ×", title: ">1 = weaker defensive opponents",
           fmt: (r) => `<span class="${cls(r.opp_ga_factor == null ? null : r.opp_ga_factor - 1)}">${num(r.opp_ga_factor)}</span>` },
-        { key: "opponents", label: "Opponents", left: true, sort: (r) => r.opponents.join(" "),
+        { key: "opponents", label: "Opponents", left: true, wide: true, sort: (r) => r.opponents.join(" "),
           fmt: (r) => esc(r.opponents.join(" ")) },
       ], s.teams);
       status("");
@@ -410,9 +377,10 @@
   // ── lists ────────────────────────────────────────────────────────────
   loaders.lists = async () => {
     try {
-      const l = await api("/api/inseason/lists");
+      const l = await api(`/api/inseason/lists?league=${encodeURIComponent($("league").value)}`);
       $("roster-text").value = l.roster;
       $("fa-text").value = l.free_agents;
+      $("lists-folder").textContent = `${l.folder}/my_roster.txt and ${l.folder}/fa.txt`;
     } catch (e) { status(e.message, true); }
   };
   $("save-lists").addEventListener("click", async () => {
@@ -441,8 +409,10 @@
       const msg = `Updated in ${r.seconds}s: ${r.ingest.skater_current} skaters, ` +
         `${r.ingest.goalie_current} goalies` +
         (r.ingest.skater_recent != null ? `, trend for ${r.ingest.skater_recent} skaters` : "") +
-        (y ? `; Yahoo roster ${y.roster}, free agents ${y.free_agents}, ${y.teams} team rosters` : "") +
+        (y ? `; from Yahoo your ${y.roster} players, ${y.free_agents} free agents, ${y.teams} team rosters` : "") +
+        (r.moves != null ? `, ${r.moves} roster move${r.moves === 1 ? "" : "s"} since the last refresh` : "") +
         (r.market != null ? `; market data for ${r.market} rostered players` : "");
+      leagues().catch(() => {});
       await load();
       const err = [...(r.ingest_notes || []), r.yahoo_error, r.market_error].filter(Boolean).join(". ");
       status(err ? `${msg}. ${err}` : msg, !!err);
@@ -454,12 +424,46 @@
   // ── boot ─────────────────────────────────────────────────────────────
   $("start").value = today;
   $("stream-date").value = today;
-  ["league", "start", "days"].forEach((id) => $(id).addEventListener("change", () => {
+  ["start", "days"].forEach((id) => $(id).addEventListener("change", () => {
     rosterPlayers = []; load();
   }));
-  api("/api/inseason/leagues").then((l) => {
+  // League picker: every config in config/leagues. Each one shows your team
+  // name in that Yahoo league; the choice is kept (and in the URL).
+  let leagueInfo = {};
+  const LKEY = "fa-inseason-league";
+  function leagueLabel(n) {
+    const i = leagueInfo[n] || {};
+    if (i.error) return `${n} (config error)`;
+    const team = i.team_name ? `${i.team_name}, ` : "";
+    const how = i.scoring_type === "points" ? "points" : "categories";
+    return `${team}${n.replace(/_/g, " ")}, ${how}`;
+  }
+  function showLeague() {
+    const n = $("league").value, i = leagueInfo[n] || {};
+    $("brand-team").textContent = i.team_name || "Your team";
+    const y = i.yahoo;
+    $("refresh").title = y ? `Re-ingest NHL stats, then read Yahoo league ${y.league_id} (your team ${y.team_id})`
+      : "Re-ingest NHL stats. No Yahoo league is set for this league: add a yahoo: block to its config.";
+  }
+  async function leagues() {
+    const l = await api("/api/inseason/leagues");
+    leagueInfo = l.info || {};
+    const want = new URLSearchParams(location.search).get("league")
+      || (() => { try { return localStorage.getItem(LKEY); } catch { return null; } })();
+    const cur = $("league").value || (l.leagues.includes(want) ? want : l.default);
     $("league").innerHTML = l.leagues.map((n) =>
-      `<option ${n === l.default ? "selected" : ""}>${esc(n)}</option>`).join("");
+      `<option value="${esc(n)}" ${n === cur ? "selected" : ""}>${esc(leagueLabel(n))}</option>`).join("");
+    showLeague();
+  }
+  $("league").addEventListener("change", () => {
+    try { localStorage.setItem(LKEY, $("league").value); } catch { /* session only */ }
+    const u = new URL(location.href);
+    u.searchParams.set("league", $("league").value);
+    history.replaceState(null, "", u);
+    showLeague();
+    rosterPlayers = []; leagueData = null; faData = null;
     load();
-  }).catch((e) => status(e.message, true));
+  });
+  leagues().then(() => showTab(location.hash.slice(1) || "roster", false))
+    .catch((e) => status(e.message, true));
 })();

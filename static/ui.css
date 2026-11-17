@@ -1,0 +1,264 @@
+/* Fantasy Assist: shared look for the draft board and the mid-season page.
+
+   "The game sheet on fresh ice". Colours come from the rink itself:
+     ice / sheet   page and surfaces
+     blue line     anything you can press, the active tab
+     crease        selected rows, your team
+     red line      losses, drops, the goal light
+     kickplate     the yellow strip at the foot of the boards: the header's
+                   base, and "borderline" calls
+   Light ("ice") is the default; dark ("lights out") follows the system
+   setting or the header toggle (html[data-theme], set by theme.js).
+
+   Type: Big Shoulders Display (titles, big numbers) + IBM Plex Sans
+   (everything else, tabular figures), self-hosted in vendor/fonts (OFL).
+   Sizes: 12 / 13 / 14 / 16 / 20 / 28 / 40. Form fields are 16px on phones
+   (smaller makes iOS zoom the page).
+
+   Every colour is a token below -- no hex values in the other stylesheets. */
+
+@font-face { font-family: "Plex"; font-weight: 400; font-display: swap;
+  src: url("/static/vendor/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Plex"; font-weight: 500; font-display: swap;
+  src: url("/static/vendor/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Plex"; font-weight: 600 700; font-display: swap;
+  src: url("/static/vendor/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Shoulders"; font-weight: 700; font-display: swap;
+  src: url("/static/vendor/fonts/big-shoulders-display-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Shoulders"; font-weight: 800; font-display: swap;
+  src: url("/static/vendor/fonts/big-shoulders-display-latin-800-normal.woff2") format("woff2"); }
+
+:root {
+  color-scheme: light;
+  --ice: #edf2f6;        /* page */
+  --sheet: #ffffff;      /* surfaces: header, tables, cards */
+  --raised: #f4f7fa;     /* table heads, inset areas */
+  --line: #d3dce6;
+  --ink: #0f1c2b;
+  --muted: #55657a;
+  --blue: #1648c4;       /* blue line */
+  --on-blue: #ffffff;
+  --crease: #dbe9f9;
+  --red: #c81e3a;        /* red line */
+  --kick: #f2be22;       /* kickplate */
+  --pos: #0a7a4e;
+  --neg: #c81e3a;
+  --ok-bg: #dff3e8;   --ok-fg: #075c3a;
+  --warn-bg: #fdf0c4; --warn-fg: #6b4e00;
+  --bad-bg: #fbe1e5;  --bad-fg: #9c1530;
+  --info-bg: #dbe9f9; --info-fg: #0f3a9e;
+  --mute-bg: #e6ebf0; --mute-fg: #55657a;
+  --shade: rgba(15, 28, 43, .45);
+  --body: "Plex", system-ui, "Segoe UI", Roboto, sans-serif;
+  --display: "Shoulders", "Arial Narrow", "Plex", system-ui, sans-serif;
+  --r: 10px;             /* containers: rink corners */
+  --r-sm: 6px;           /* controls, chips */
+  --pad: 24px;           /* page gutter */
+  --head-h: 68px;        /* header height; board.js keeps it exact */
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --ice: #0a121c;
+  --sheet: #111c2a;
+  --raised: #17263a;
+  --line: #24364b;
+  --ink: #e9f1f7;
+  --muted: #92a3b7;
+  --blue: #7aa5ff;
+  --on-blue: #071226;
+  --crease: #183354;
+  --red: #ff6878;
+  --pos: #46cf90;
+  --neg: #ff6878;
+  --ok-bg: #12382a;   --ok-fg: #7fe3b3;
+  --warn-bg: #40340e; --warn-fg: #f6d56b;
+  --bad-bg: #47161f;  --bad-fg: #ffa3ae;
+  --info-bg: #183354; --info-fg: #a9c6ff;
+  --mute-bg: #1d2b3c; --mute-fg: #92a3b7;
+  --shade: rgba(2, 6, 12, .7);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  background: var(--ice);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+}
+body { min-width: 320px; overflow-wrap: break-word; }
+h1, h2, h3, h4, p { margin: 0; }
+b, strong { font-weight: 600; }
+a { color: var(--blue); }
+code { font-size: 12px; background: var(--mute-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+
+/* ── controls ─────────────────────────────────────────────── */
+
+select, input, button, textarea {
+  font: inherit;
+  color: var(--ink);
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+  min-height: 34px;
+  max-width: 100%;
+}
+select { padding-right: 6px; }
+input[type="checkbox"] { min-height: 0; padding: 0; width: 18px; height: 18px; accent-color: var(--blue); flex: none; }
+input::placeholder { color: var(--muted); }
+button { cursor: pointer; font-weight: 500; }
+button:hover, select:hover, input:hover { border-color: var(--blue); }
+button:disabled { opacity: .55; cursor: default; }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+button.primary { background: var(--blue); border-color: var(--blue); color: var(--on-blue); font-weight: 600; padding-inline: 16px; }
+button.primary:hover { filter: brightness(1.08); }
+button.quiet { background: transparent; }
+
+/* round icon button (theme switch) */
+.icon-btn { width: 34px; padding: 0; display: inline-grid; place-items: center; background: transparent; }
+.icon-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.icon-btn .moon { display: none; }
+html[data-theme="dark"] .icon-btn .sun { display: none; }
+html[data-theme="dark"] .icon-btn .moon { display: block; }
+
+/* on/off chips (position filters, chart stat picker, Me / Taken) */
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { min-width: 38px; padding: 4px 10px; font-size: 13px; background: var(--raised); color: var(--muted); }
+.chip.active { background: var(--blue); border-color: var(--blue); color: var(--on-blue); }
+
+.muted { color: var(--muted); font-size: 12px; }
+.pos { color: var(--pos); }
+.neg { color: var(--neg); }
+
+/* ── header: the boards (blue cap rail on top, yellow kickplate below) ── */
+
+.boards {
+  position: relative;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-height: 68px;
+  padding: 10px var(--pad) 14px;
+  background: var(--sheet);
+  border-top: 3px solid var(--blue);
+  transition: background-color .25s;
+}
+.boards::after { content: ""; position: absolute; inset: auto 0 0; height: 5px; background: var(--kick); }
+
+.brand { display: flex; align-items: center; gap: 10px; white-space: nowrap; min-width: 0; }
+.brand .mark { width: 40px; height: 40px; flex: none; }
+.mark .stick { stroke: var(--ink); }
+.mark .tape-a { stroke: var(--red); }
+.mark .tape-b { stroke: var(--blue); }
+.mark .puck { fill: var(--ink); }
+.brand-text { display: flex; flex-direction: column; line-height: 1; min-width: 0; }
+.brand-team { font-size: 12px; font-weight: 500; color: var(--muted); overflow: hidden; text-overflow: ellipsis; max-width: 16rem; }
+.brand-page { font-family: var(--display); font-weight: 800; font-size: 28px; letter-spacing: .01em; margin-top: 2px; }
+
+/* Draft board | Mid-season */
+.pages { display: flex; padding: 3px; background: var(--raised); border: 1px solid var(--line); border-radius: 999px; }
+.page { padding: 4px 14px; border-radius: 999px; color: var(--muted); text-decoration: none; font-weight: 500; white-space: nowrap; }
+.page:hover { color: var(--ink); }
+.page.on { background: var(--ink); color: var(--sheet); }
+
+.controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
+.controls .grow { flex: 1; }
+#league { max-width: 15rem; }
+
+/* goal light: drafting a player to your team */
+.boards.goal { background: var(--bad-bg); }
+.goal-toast {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--head-h) + 12px);
+  z-index: 40;
+  max-width: calc(100% - 24px);
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  background: var(--red);
+  color: #fff;
+  border-radius: 999px;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  animation: goal-in .25s ease-out;
+}
+html[data-theme="dark"] .goal-toast { color: #1a0509; }
+@keyframes goal-in { from { opacity: 0; transform: translate(-50%, -8px); } }
+@media (prefers-reduced-motion: reduce) {
+  .boards { transition: none; }
+  .boards.goal { background: var(--sheet); }
+  .goal-toast { animation: none; }
+}
+
+/* ── tabs: the active one sits on the blue line ───────────── */
+
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); }
+.tab {
+  flex: 1 0 auto;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: .02em;
+  min-height: 44px;
+  padding: 6px 14px 4px;
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.tab:hover { color: var(--ink); border-bottom-color: var(--line); }
+.tab.active { color: var(--ink); border-bottom-color: var(--blue); }
+
+/* status line under the header / tabs */
+.status { font-size: 13px; color: var(--muted); }
+.status.err { color: var(--bad-fg); background: var(--bad-bg); padding: 8px 12px; border-radius: var(--r-sm); }
+
+/* sort caret (CSS triangle) */
+.caret { display: inline-block; width: 0; height: 0; margin-left: 4px; vertical-align: middle; border-left: 4px solid transparent; border-right: 4px solid transparent; }
+.caret.down { border-top: 5px solid currentColor; }
+.caret.up { border-bottom: 5px solid currentColor; }
+
+/* ── phones and small tablets ─────────────────────────────── */
+
+@media (pointer: coarse) {
+  select, input:not([type="checkbox"]), button { min-height: 40px; }
+  .icon-btn { width: 40px; }
+}
+
+@media (max-width: 900px) {
+  :root { --pad: 16px; }
+}
+
+@media (max-width: 760px) {
+  :root { --pad: 12px; }
+  select, input:not([type="checkbox"]), textarea { font-size: 16px; }
+  .boards { gap: 8px 10px; padding-top: 8px; }
+  .brand .mark { width: 34px; height: 34px; }
+  .brand-page { font-size: 24px; }
+  .brand-team { max-width: 9.5rem; }
+  .brand { flex: 1; }
+  .page { padding: 6px 12px; }
+  .controls { order: 5; flex-basis: 100%; }
+}
+/* very narrow phones: the page switch drops under the title */
+@media (max-width: 430px) {
+  .pages { order: 4; flex: 1; }
+  .page { flex: 1; text-align: center; }
+}

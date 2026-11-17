@@ -206,7 +206,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 2
     unit = "fpts" if ctx.scorer.points else "z"
-    fa_path = DATA_DIR / "fa.txt"
+    from src.inseason import leagues as store
+    fa_path = store.data_dir(DATA_DIR, args.league, cfg) / store.FA_FILE
     if fa_path.exists():          # replacement = best free agent you can add
         from src.inseason.evaluate import apply_waiver_replacement
         from src.inseason.roster import parse_list

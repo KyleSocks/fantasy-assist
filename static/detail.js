@@ -58,11 +58,21 @@ function updateBandNote() {
 
 function mountChart() {
   const host = $("uplot-host");
-  const ACCENT = "#2f7cf6";                  // --accent (rink blue)
-  const BAND = "rgba(47,124,246,0.22)";
-  const BAND_EDGE = "rgba(47,124,246,0.45)";
-  const AXIS = { stroke: "#8a9bb0", grid: { stroke: "#22344a", width: 1 },
-                 ticks: { stroke: "#22344a", width: 1 } };   // --muted / --line
+  // colours from the theme tokens (ui.css), re-read on every mount
+  const css = getComputedStyle(document.documentElement);
+  const tok = (n) => css.getPropertyValue(n).trim();
+  const alpha = (hex, a) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+    if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+  };
+  const ACCENT = tok("--blue") || "#1648c4";
+  const BAND = alpha(ACCENT, 0.18);
+  const BAND_EDGE = alpha(ACCENT, 0.45);
+  const font = `12px ${tok("--body") || "sans-serif"}`;
+  const AXIS = { stroke: tok("--muted"), font, grid: { stroke: tok("--line"), width: 1 },
+                 ticks: { stroke: tok("--line"), width: 1 } };
   const label = (i) => (Number.isInteger(i) ? detail.labels[i] ?? "" : "");
   uplot = new uPlot({
     width: host.clientWidth || 340,
@@ -127,12 +137,12 @@ function renderPanel() {
       .join("");
     scheduleHtml = `
       <section class="sched">
-        <h3>Schedule — ${esc(s.team)} (${s.total} games)</h3>
+        <h3>${esc(s.team)} schedule: ${s.total} games</h3>
         ${rows}
-        <div class="sched-note">Heaviest ${esc(s.heaviest_month)} (${s.heaviest_games}) · Lightest ${esc(s.lightest_month)} (${s.lightest_games})</div>
+        <div class="sched-note">Busiest month ${esc(s.heaviest_month)} (${s.heaviest_games}), lightest ${esc(s.lightest_month)} (${s.lightest_games})</div>
       </section>`;
   } else {
-    scheduleHtml = `<section class="sched"><h3>Schedule — ${esc(detail.team)}</h3><div class="sched-note">No schedule data for the upcoming season.</div></section>`;
+    scheduleHtml = `<section class="sched"><h3>${esc(detail.team)} schedule</h3><div class="sched-note">No schedule data for the upcoming season.</div></section>`;
   }
 
   $("panel-body").innerHTML = `
@@ -154,8 +164,8 @@ function openPanel(id) {
     $("panel-name").textContent = p.name;
     const bits = [p.pos, p.team];
     const rank = rankOf.get(id);
-    if (rank != null) bits.push(`#${rank}`, `${p.vorp} VORP`, `$${p.dollars}`);
-    $("panel-meta").textContent = bits.join(" · ");
+    if (rank != null) bits.push(`#${rank} available`, `${p.vorp} VORP`, `$${p.dollars}`);
+    $("panel-meta").textContent = bits.join(", ");
   }
   $("player-panel").hidden = false;
   $("panel-body").innerHTML = `<div class="panel-loading">Loading…</div>`;
@@ -205,6 +215,10 @@ function initDetail() {
     if (tr) openPanel(Number(tr.dataset.id));
   });
   $("panel-close").addEventListener("click", closePanel);
+  // theme switched with the chart open: redraw it in the new colours
+  document.addEventListener("themechange", () => {
+    if (uplot && detail) { destroyChart(); mountChart(); }
+  });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !$("player-panel").hidden) closePanel();
   });

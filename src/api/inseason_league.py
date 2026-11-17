@@ -28,13 +28,13 @@ _LEAGUE_CACHE: dict[tuple, dict] = {}
 def get_league(start: DateStr = None, days: Days = 21,
                league: LeagueName = None) -> dict:
     """Every team's lineup strength by position + your 1-for-1 trades.
-    Needs data/league_rosters.json (written by Refresh data)."""
+    Needs league_rosters.json (written by Refresh data)."""
     from src.inseason.teams import analyze
 
-    path = ins.DATA_DIR / ins.LEAGUE_FILE
+    ctx = ins._ctx(league)
+    path = ins._dir(ctx) / ins.LEAGUE_FILE
     if not path.exists():
         raise HTTPException(400, "no league rosters yet: press Refresh data")
-    ctx = ins._ctx(league)
     data = json.loads(path.read_text(encoding="utf-8"))
     s = ins._day(start)
     key = (ctx.league.name, s, days, os.path.getmtime(path), ins._gen(ctx))
@@ -54,14 +54,14 @@ def get_trade_options(give: int, start: DateStr = None, days: Days = 21,
     favouring you to ones favouring the other side (teams.trade_options)."""
     from src.inseason.teams import Market, trade_options
 
-    path = ins.DATA_DIR / ins.LEAGUE_FILE
+    ctx = ins._ctx(league)
+    path = ins._dir(ctx) / ins.LEAGUE_FILE
     if not path.exists():
         raise HTTPException(400, "no league rosters yet: press Refresh data")
-    ctx = ins._ctx(league)
     if give not in ctx.lines:
         raise HTTPException(404, f"Unknown player id {give}")
     data = json.loads(path.read_text(encoding="utf-8"))
-    mpath = ins.DATA_DIR / ins.MARKET_FILE
+    mpath = ins._dir(ctx) / ins.MARKET_FILE
     mdata = json.loads(mpath.read_text(encoding="utf-8")) if mpath.exists() else None
     market = Market(ctx, mdata["players"]) if mdata else None
     try:
@@ -92,12 +92,12 @@ def get_partner_trades(partner: int, give: IdList = "", get: IdList = "",
     from src.inseason.partner import partner_trades
     from src.inseason.teams import Market
 
-    path = ins.DATA_DIR / ins.LEAGUE_FILE
+    ctx = ins._ctx(league)
+    path = ins._dir(ctx) / ins.LEAGUE_FILE
     if not path.exists():
         raise HTTPException(400, "no league rosters yet: press Refresh data")
-    ctx = ins._ctx(league)
     data = json.loads(path.read_text(encoding="utf-8"))
-    mpath = ins.DATA_DIR / ins.MARKET_FILE
+    mpath = ins._dir(ctx) / ins.MARKET_FILE
     mdata = json.loads(mpath.read_text(encoding="utf-8")) if mpath.exists() else None
     market = Market(ctx, mdata["players"]) if mdata else None
     # ticked players: every deal listed includes them; with both sides
@@ -108,7 +108,7 @@ def get_partner_trades(partner: int, give: IdList = "", get: IdList = "",
         out = partner_trades(ctx, data, int(data["my_team_id"]), partner,
                              ins._day(start), days, market=market, max_size=size,
                              offer=offer, require=req,
-                             free_agents=parse_list(ctx, ins._read(ins.FA_FILE)).active)
+                             free_agents=parse_list(ctx, ins._read(ins.FA_FILE, ctx)).active)
     except ValueError as e:
         raise HTTPException(400, str(e))
     out.update(as_of=ctx.as_of, unit="fpts" if ctx.scorer.points else "z",

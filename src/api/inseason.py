@@ -3,13 +3,19 @@
 GET /api/inseason/streams?date=YYYY-MM-DD&league=&group=F|D|G&top=25&all=false
 GET /api/inseason/player/{player_id}?league=&start=&days=10
 GET /api/inseason/schedule?start=&days=10&league=
-GET/PUT /api/inseason/lists          your roster + free-agent list text
+GET/PUT /api/inseason/lists?league=  your roster + free-agent list text
 GET /api/inseason/audit?start=&days=9&league=
 GET /api/inseason/free-agents?start=&days=9&league=
 GET /api/inseason/plan?hold=<id>&adds=1,4&start=&days=9&locked=DET,STL
 POST /api/inseason/refresh            re-ingest stats + pull roster/FA/league from Yahoo
 GET /api/inseason/league?start=&days=21   team strengths + 1-for-1 trades
 GET /api/inseason/partner-trades?partner=<team id>&give=ids&get=ids   package deals with one team
+GET /api/inseason/moves?days=30&league=   roster changes for every team (inseason_moves.py)
+GET /api/inseason/leagues             league configs + the Yahoo league each follows
+
+Every endpoint takes ?league=<config stem>. A league with its own ``yahoo:``
+block reads and writes its files under data/leagues/<stem>/; the others share
+data/ (src/inseason/leagues.py).
 
 The context (projection + blend + scorer) is cached per league and is
 rebuilt when data/hockey.db changes on disk.
@@ -43,8 +49,10 @@ from src.inseason.roster import (
     parse_players,
     roster_plan,
 )
+from src.inseason import leagues as store
+from src.inseason.leagues import FA_FILE, LEAGUE_FILE, MARKET_FILE, MOVES_FILE, ROSTER_FILE  # noqa: F401
 from src.paths import DATA_DIR, DB_PATH, DEFAULT_LEAGUE_PATH, LEAGUE_DIR
-from src.valuation.league import load_league
+from src.valuation.league import LeagueConfig, load_league
 
 router = APIRouter(prefix="/api/inseason")
 _CACHE: dict[str, tuple[tuple, Context]] = {}
@@ -77,18 +85,36 @@ def _ctx(league: str | None) -> Context:
     except ValueError as e:
         raise HTTPException(500, str(e))
     _gen(ctx)
+    ctx.__dict__["_key"] = name       # config stem: picks the data folder
     _CACHE[name] = (stamp, ctx)
     return _with_waivers(ctx)
 
 
+def _league_cfg(name: str | None) -> tuple[str, LeagueConfig | None]:
+    """(config stem, parsed config or None if the file is missing/invalid)
+    without building a context -- for endpoints that only need file paths."""
+    key = name or DEFAULT_LEAGUE_PATH.stem
+    path = LEAGUE_DIR / f"{key}.yaml"
+    try:
+        return key, load_league(str(path))
+    except (OSError, ValueError):
+        return key, None
+
+
+def _dir(ctx=None):
+    """Folder with this league's roster / free-agent / league files."""
+    key = getattr(ctx, "__dict__", {}).get("_key")
+    return store.data_dir(DATA_DIR, key, getattr(ctx, "league", None))
+
+
 def _with_waivers(ctx: Context) -> Context:
-    """Replacement level from your league's real free agents (data/fa.txt,
+    """Replacement level from your league's real free agents (fa.txt,
     written by Refresh), re-applied whenever that file changes."""
-    path = DATA_DIR / FA_FILE
+    path = _dir(ctx) / FA_FILE
     mtime = os.path.getmtime(path) if path.exists() else None
     if ctx.__dict__.get("_fa_mtime", "unset") != mtime:
         from src.inseason.evaluate import apply_waiver_replacement
-        active = parse_list(ctx, _read(FA_FILE)).active if mtime else ()
+        active = parse_list(ctx, _read(FA_FILE, ctx)).active if mtime else ()
         apply_waiver_replacement(ctx, active)
         ctx.__dict__["_fa_mtime"] = mtime
     return ctx
@@ -137,7 +163,7 @@ def get_streams(date: DateStr = None, league: LeagueName = None,
             "unit": "fpts" if ctx.scorer.points else "z",
             "players": rows,
             "availability": ("all players" if all else
-                             "not rostered in your league" if (DATA_DIR / LEAGUE_FILE).exists()
+                             "not rostered in your league" if (_dir(ctx) / LEAGUE_FILE).exists()
                              else "outside the rosterable pool (estimate)")}
 
 
@@ -205,16 +231,11 @@ def get_schedule(start: DateStr = None, days: Days = 10,
     return {"start": s, "days": days, "teams": schedule_grid(ctx, s, days)}
 
 
-# ── Roster / free-agent lists (data/my_roster.txt, data/fa.txt) ─────────
-
-ROSTER_FILE = "my_roster.txt"
-FA_FILE = "fa.txt"
-LEAGUE_FILE = "league_rosters.json"
-MARKET_FILE = "market.json"
+# ── Roster / free-agent lists (my_roster.txt, fa.txt in the league's folder) ──
 
 
-def _read(name: str) -> str:
-    path = DATA_DIR / name
+def _read(name: str, ctx=None) -> str:
+    path = _dir(ctx) / name
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
@@ -224,16 +245,31 @@ class Lists(BaseModel):
 
 
 @router.get("/lists")
-def get_lists() -> dict:
-    return {"roster": _read(ROSTER_FILE), "free_agents": _read(FA_FILE)}
+def get_lists(league: LeagueName = None) -> dict:
+    key, cfg = _league_cfg(league)
+    folder = store.data_dir(DATA_DIR, key, cfg)
+
+    def text(name: str) -> str:
+        return (folder / name).read_text(encoding="utf-8") if (folder / name).exists() else ""
+    return {"roster": text(ROSTER_FILE), "free_agents": text(FA_FILE),
+            "folder": _shown(folder)}
+
+
+def _shown(folder) -> str:
+    """The folder as the page names it: data or data/leagues/<key>."""
+    try:
+        return "data" + "".join(f"/{p}" for p in folder.relative_to(DATA_DIR).parts)
+    except ValueError:
+        return str(folder)
 
 
 @router.put("/lists")
 def put_lists(body: Lists, league: LeagueName = None) -> dict:
     ctx = _ctx(league)              # unknown league: 404 before writing
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    _write_atomic({DATA_DIR / ROSTER_FILE: body.roster,
-                   DATA_DIR / FA_FILE: body.free_agents})
+    folder = _dir(ctx)
+    folder.mkdir(parents=True, exist_ok=True)
+    _write_atomic({folder / ROSTER_FILE: body.roster,
+                   folder / FA_FILE: body.free_agents})
     _, miss_r = parse_players(ctx, body.roster)
     _, miss_f = parse_players(ctx, body.free_agents)
     return {"saved": True, "unmatched": miss_r + miss_f}
@@ -242,21 +278,21 @@ def put_lists(body: Lists, league: LeagueName = None) -> dict:
 def _lists(ctx, inactive: set[int] | None = None,
            available_from: dict[int, str] | None = None,
            fa_out: set[int] | None = None):
-    roster, miss_r = parse_players(ctx, _read(ROSTER_FILE), inactive)
-    fas, miss_f = parse_players(ctx, _read(FA_FILE), fa_out, available_from)
+    roster, miss_r = parse_players(ctx, _read(ROSTER_FILE, ctx), inactive)
+    fas, miss_f = parse_players(ctx, _read(FA_FILE, ctx), fa_out, available_from)
     return roster, fas, miss_r + miss_f
 
 
 def _unavailable_on(ctx, date: str) -> set[int]:
     """Free-agent-file players who can't be streamed on ``date``: injured
     (OUT) or still on waivers."""
-    pl = parse_list(ctx, _read(FA_FILE))
+    pl = parse_list(ctx, _read(FA_FILE, ctx))
     return set(pl.inactive) | {p for p, d in pl.available_from.items() if d > date}
 
 
 def _league_taken(ctx, include_inactive: bool = True) -> set[int] | None:
     """Every player rostered in your league (IR included), if pulled."""
-    path = DATA_DIR / LEAGUE_FILE
+    path = _dir(ctx) / LEAGUE_FILE
     if not path.exists():
         return None
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -273,7 +309,8 @@ def get_audit(start: DateStr = None, days: Days = 9,
     inactive: set[int] = set()
     roster, _, missing = _lists(ctx, inactive)
     if not roster:
-        raise HTTPException(400, f"no roster: add players to data/{ROSTER_FILE}")
+        raise HTTPException(400, f"no roster: press Refresh data, or add players "
+                                 f"to {_shown(_dir(ctx))}/{ROSTER_FILE} on the Lists tab")
     out = audit(ctx, roster, _day(start), days, inactive)
     out.update(trend_days=ctx.icfg.get("trend_days", 21))
     out.update(as_of=ctx.as_of, league=ctx.league.name, unmatched=missing,
@@ -289,12 +326,12 @@ _FA_CACHE: dict = {}
 def get_free_agents(start: DateStr = None, days: Days = 9,
                     league: LeagueName = None) -> dict:
     ctx = _ctx(league)
-    fa_path = DATA_DIR / FA_FILE
+    fa_path = _dir(ctx) / FA_FILE
     key = (_gen(ctx), _day(start), days,
            os.path.getmtime(fa_path) if fa_path.exists() else 0)
     if _FA_CACHE.get("key") == key:
         return _FA_CACHE["value"]
-    pl = parse_list(ctx, _read(FA_FILE))
+    pl = parse_list(ctx, _read(FA_FILE, ctx))
     # safety net: never list someone rostered in your league (a name clash
     # in the free-agent file must not surface a rostered player)
     taken = _league_taken(ctx, include_inactive=True) or set()
@@ -334,8 +371,21 @@ def get_plan(hold: int, adds: Annotated[str, Query(max_length=40)] = "1,4", star
 
 @router.get("/leagues")
 def get_leagues() -> dict:
-    return {"leagues": sorted(p.stem for p in LEAGUE_DIR.glob("*.yaml")),
-            "default": DEFAULT_LEAGUE_PATH.stem}
+    """Every league config, plus what the picker needs to know about each:
+    scoring, the Yahoo league it follows (its own or the default) and your
+    team's name there. A config that doesn't parse is listed with ``error``."""
+    from src.inseason.model import load_inseason_config
+
+    icfg = load_inseason_config() or {}
+    names = sorted(p.stem for p in LEAGUE_DIR.glob("*.yaml"))
+    info: dict[str, dict] = {}
+    for name in names:
+        try:
+            cfg = load_league(str(LEAGUE_DIR / f"{name}.yaml"))
+            info[name] = store.describe(name, cfg, icfg, DATA_DIR)
+        except (OSError, ValueError) as e:
+            info[name] = {"error": str(e).splitlines()[0][:200]}
+    return {"leagues": names, "default": DEFAULT_LEAGUE_PATH.stem, "info": info}
 
 
 # Refuse a Yahoo refresh whose free-agent list shrank below this share of the
@@ -375,8 +425,12 @@ _REFRESH_LOCK = threading.Lock()
 def refresh(league: LeagueName = None, force: bool = False,
             strict: bool = False):
     """Re-ingest season-to-date stats (+ rosters, schedule), then rewrite
-    data/my_roster.txt, data/fa.txt and data/league_rosters.json from the
-    public Yahoo league pages.
+    my_roster.txt, fa.txt and league_rosters.json from the public Yahoo
+    league pages, and log what changed on every team (roster_moves.json).
+
+    ``league`` given (the page's button): that league's Yahoo league only.
+    Omitted (the timer): the default league and every league config with
+    its own ``yahoo:`` block. See src/api/inseason_refresh.py.
 
     Every Yahoo page is fetched before anything is written, and the three
     files are replaced together. A Yahoo failure -- including a free-agent
@@ -403,79 +457,11 @@ def refresh(league: LeagueName = None, force: bool = False,
 
 
 def _refresh(league: str | None, force: bool) -> dict:
-    import time
-
-    from src.inseason.ingest import ingest_current
-    from src.inseason.model import load_inseason_config
-    from src.inseason.yahoo_public import (
-        fetch_league,
-        fetch_lists,
-        fetch_market,
-        render,
-    )
-
-    t0 = time.monotonic()
-    try:
-        notes: list[str] = []
-        counts = ingest_current(str(DB_PATH), notes_out=notes)
-    except Exception as e:  # network / API errors surface to the page
-        raise HTTPException(502, f"stats ingest failed: {e}")
-    _CACHE.clear()
-    out = {"ingest": counts, "yahoo": None, "yahoo_error": None,
-           "ingest_notes": notes}
-    y = (load_inseason_config() or {}).get("yahoo") or {}
-    if not y.get("league_id") or not y.get("team_id"):
-        out["yahoo_error"] = "set yahoo.league_id / team_id in config/inseason.yaml"
-    else:
-        try:
-            stats: dict = {}
-            roster, fas = fetch_lists(int(y["league_id"]), int(y["team_id"]),
-                                      int(y.get("free_agent_pages", 0)),
-                                      stats=stats)
-            teams = fetch_league(int(y["league_id"]))
-            old = _list_count(DATA_DIR / FA_FILE)
-            if (not force and old >= FA_SHRINK_MIN_OLD
-                    and len(fas) < FA_SHRINK_FLOOR * old):
-                raise ValueError(
-                    f"free-agent list shrank from {old} to {len(fas)} players"
-                    " -- likely a partial Yahoo page; kept the old lists "
-                    "(refresh with force=true to accept it)")
-            roster_text = render(roster, "My roster")
-            fa_text = render(fas, "Free agents")
-            league_text = json.dumps({
-                "league_id": int(y["league_id"]), "my_team_id": int(y["team_id"]),
-                "fetched": datetime.datetime.now().isoformat(timespec="minutes"),
-                "teams": {str(tid): {"name": t["name"], "players": [
-                    {"name": p.name, "team": p.team, "positions": list(p.positions),
-                     "inactive": p.inactive, "injury": p.injury}
-                    for p in t["players"]]} for tid, t in teams.items()},
-            }, ensure_ascii=False, indent=1)
-            DATA_DIR.mkdir(parents=True, exist_ok=True)
-            _write_atomic({DATA_DIR / ROSTER_FILE: roster_text,
-                           DATA_DIR / FA_FILE: fa_text,
-                           DATA_DIR / LEAGUE_FILE: league_text})
-            ctx = _ctx(league)
-            _, miss_r = parse_players(ctx, roster_text)
-            _, miss_f = parse_players(ctx, fa_text)
-            out["yahoo"] = {"roster": len(roster), "free_agents": len(fas),
-                            "teams": len(teams), "unmatched": miss_r + miss_f,
-                            "unparsed_rows": stats.get("unparsed", 0)}
-        except Exception as e:
-            out["yahoo_error"] = f"Yahoo lists not updated: {e}"
-        # trade-market data (% rostered, Fan Pts, ranks): optional extra
-        try:
-            rows = fetch_market(int(y["league_id"]))
-            if rows:
-                _write_atomic({DATA_DIR / MARKET_FILE: json.dumps({
-                    "fetched": datetime.datetime.now().isoformat(timespec="minutes"),
-                    "players": rows}, ensure_ascii=False)})
-            out["market"] = len(rows)
-        except Exception as e:
-            out["market_error"] = f"market data not updated: {e}"
-    out["seconds"] = round(time.monotonic() - t0, 1)
-    return out
+    from src.api import inseason_refresh
+    return inseason_refresh.run(league, force)
 
 
 # league tab endpoints register on this router
 from src.api import inseason_league  # noqa: E402,F401
 from src.api import inseason_player  # noqa: E402,F401
+from src.api import inseason_moves  # noqa: E402,F401

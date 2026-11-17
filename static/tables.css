@@ -1,0 +1,99 @@
+/* Data tables (tbl.js draws them; the draft board's own table is in
+   board.css). Wide screens: a real table, every column, the name column
+   pinned while the rest scrolls sideways if it must. At 900px and below,
+   tables marked .cards reflow: one card per row, label over value, nothing
+   scrolls sideways and nothing is dropped -- secondary ("minor") columns
+   sit behind each card's "More" button. A Sort picker replaces the
+   clickable headers. */
+
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; background: var(--sheet); border: 1px solid var(--line); border-radius: var(--r); }
+
+.tbl { border-collapse: separate; border-spacing: 0; width: 100%; font-variant-numeric: tabular-nums; }
+.tbl th, .tbl td { padding: 7px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); background: var(--sheet); }
+.tbl tbody tr:last-child td { border-bottom: 0; }
+.tbl th { color: var(--muted); font-size: 12px; font-weight: 600; background: var(--raised); cursor: pointer; user-select: none; }
+.tbl th:hover { color: var(--ink); }
+.tbl th.l, .tbl td.l { text-align: left; }
+.tbl td.wrap { white-space: normal; min-width: 14rem; }
+/* in the full table, a name's flags go under it rather than widening the column */
+.tbl:not(.fold) td.stick .flag { display: table; margin: 2px 0 0; }
+.tbl tbody tr:hover td { background: var(--raised); }
+.tbl tr.mine td { background: var(--crease); }
+.tbl tr.click { cursor: pointer; }
+.tbl th.stick, .tbl td.stick { position: sticky; left: 0; z-index: 1; border-right: 1px solid var(--line); }
+.tbl td.stick { font-weight: 500; }
+.tbl .more-cell { display: none; }
+.tbl-sort { display: flex; }
+.tbl td.empty { text-align: left; color: var(--muted); padding: 16px 12px; white-space: normal; }
+.tbl-page { align-self: flex-start; margin-top: 2px; }
+
+/* a player's name opens his page */
+.plink { all: unset; cursor: pointer; color: inherit; font-weight: 500; text-decoration: underline; text-decoration-color: var(--line); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.plink:hover { color: var(--blue); text-decoration-color: var(--blue); }
+.plink:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 2px; }
+
+/* small labels */
+.flag, .verdict, .pill, .heat { display: inline-block; border-radius: var(--r-sm); font-size: 12px; white-space: nowrap; }
+.flag { padding: 0 6px; margin-left: 6px; background: var(--bad-bg); color: var(--bad-fg); }
+.flag.ok { background: var(--info-bg); color: var(--info-fg); }
+.verdict { padding: 1px 8px; font-weight: 600; background: var(--mute-bg); color: var(--mute-fg); }
+.verdict.HOLD { background: var(--ok-bg); color: var(--ok-fg); }
+.verdict.BORDERLINE { background: var(--warn-bg); color: var(--warn-fg); }
+.verdict.DROP { background: var(--bad-bg); color: var(--bad-fg); }
+.verdict.IR { background: var(--info-bg); color: var(--info-fg); }
+.heat { padding: 1px 7px; min-width: 3.2em; text-align: center; }
+.heat.p2 { background: var(--ok-bg); color: var(--ok-fg); font-weight: 600; }
+.heat.p1 { color: var(--pos); }
+.heat.n1 { color: var(--neg); }
+.heat.n2 { background: var(--bad-bg); color: var(--bad-fg); font-weight: 600; }
+
+@media (max-width: 1280px) {
+  .tbl th, .tbl td { padding: 6px 8px; }
+}
+
+/* ── cards ────────────────────────────────────────────────
+   tbl.js adds .fold when the screen is 900px or narrower, or when the
+   table wouldn't fit its space without sideways scrolling. */
+
+.scroll:has(> .tbl.fold) { overflow: visible; background: none; border: 0; border-radius: 0; }
+.tbl.fold, .tbl.fold tbody { display: block; }
+.tbl.fold thead { display: none; }
+.tbl.fold tbody { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 8px; }
+.tbl.fold tr {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 10px;
+  align-content: start;
+  padding: 12px;
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.tbl.fold tr.mine { background: var(--crease); border-color: var(--blue); }
+.tbl.fold td, .tbl.fold tbody tr:hover td, .tbl.fold tr.mine td {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  white-space: normal;
+  position: static;
+}
+.tbl.fold td::before { content: attr(data-label); font-size: 12px; color: var(--muted); font-weight: 400; }
+.tbl.fold td.stick, .tbl.fold td.stick.l { grid-column: 1 / -1; font-size: 16px; font-weight: 600; display: block; }
+.tbl.fold td.stick::before, .tbl.fold td.empty::before, .tbl.fold td.more-cell::before { content: none; }
+.tbl.fold td.l { grid-column: span 2; }
+.tbl.fold td.wide, .tbl.fold td.wide.l, .tbl.fold td.empty { grid-column: 1 / -1; }
+.tbl.fold td.wrap { min-width: 0; }
+.tbl.fold td.minor { display: none; }
+.tbl.fold tr.open td.minor { display: flex; }
+.tbl.fold td.more-cell { display: block; grid-column: 1 / -1; }
+.tbl.fold .more-btn { min-height: 30px; padding: 2px 12px; font-size: 13px; color: var(--blue); background: transparent; border-style: dashed; }
+.tbl.fold td .flag { margin-left: 0; margin-right: 6px; }
+.tbl.fold td.stick .flag { margin-left: 6px; margin-right: 0; }
+
+.tbl-sort { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+.tbl-sort select { flex: 1; min-width: 0; max-width: 16rem; }
