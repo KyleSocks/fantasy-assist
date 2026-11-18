@@ -193,6 +193,7 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
                 "ros_value": ros_over_replacement(ctx, p, start),
                 "lineup_value": lineup, "market_value": market_value(p),
                 "injury": tags.get(p), "playoff_games": ctx.playoff_games(ln.team),
+                "luck": (ctx.luck.get(p) or {}).get("status"),
                 "avail": ln.start_share if ln.is_goalie else ln.play_share, **card(p)}
 
     return {

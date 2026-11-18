@@ -181,3 +181,27 @@ dialog#player-dlg::backdrop { background: var(--shade); }
   .pd-stats th, .pd-stats td { padding: 4px 4px; font-size: 13px; }
 }
 .team-card .open-roster { justify-self: start; }
+
+.flag.good { background: var(--ok-bg); color: var(--ok-fg); }
+.pd-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+
+/* ── matchup ──────────────────────────────────────────────── */
+
+.mu-board { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr); gap: 12px; align-items: center;
+  padding: 16px; background: var(--sheet); border: 1px solid var(--line); border-radius: var(--r); }
+.mu-side { display: grid; gap: 2px; min-width: 0; }
+.mu-side:last-child { text-align: right; }
+.mu-name { font-weight: 600; font-size: 16px; overflow-wrap: anywhere; }
+.mu-final { font-family: var(--display); font-weight: 800; font-size: 56px; line-height: 1; font-variant-numeric: tabular-nums; }
+.mu-side.ahead .mu-final { color: var(--blue); }
+.mu-win { font-size: 14px; }
+.mu-win b { font-family: var(--display); font-size: 24px; }
+.mu-mid { display: grid; gap: 8px; text-align: center; }
+.mu-bar { height: 12px; border-radius: 6px; background: var(--red); overflow: hidden; }
+.mu-bar span { display: block; height: 100%; background: var(--blue); }
+
+@media (max-width: 760px) {
+  .mu-board { grid-template-columns: 1fr 1fr; }
+  .mu-mid { grid-column: 1 / -1; grid-row: 2; }
+  .mu-final { font-size: 44px; }
+}

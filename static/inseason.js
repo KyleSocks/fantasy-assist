@@ -31,7 +31,10 @@
     : close ? `<span class="muted" title="margin is inside projection error">Too close (${g > 0 ? "you" : esc(them)} by ${num(Math.abs(g), d)})</span>`
     : g > 0 ? `<b class="pos">You by ${num(g, d)}</b>` : `<b class="neg">${esc(them)} by ${num(-g, d)}</b>`);
   // Yahoo injury tag, share of games played, fantasy-playoff games
-  const tag = (p) => (p.injury ? `<span class="flag">${esc(p.injury)}</span>` : "");
+  // injury tag, plus shooting / save luck (hot = sell-high, cold = buy-low)
+  const tag = (p) => (p.injury ? `<span class="flag">${esc(p.injury)}</span>` : "")
+    + (p.luck === "hot" ? '<span class="flag" title="shooting or saving well above his usual: expect it to cool off">running hot</span>'
+      : p.luck === "cold" ? '<span class="flag good" title="shooting or saving well below his usual: expect it to come back">due to bounce back</span>' : "");
   const extras = (p) => [p.avail != null && p.avail < 0.85 ? `plays ${Math.round(p.avail * 100)}%` : "",
     p.playoff_games != null ? `PO ${p.playoff_games}g` : ""].filter(Boolean).join(" · ");
   const mmss = (s) => (s == null ? "–" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
@@ -63,7 +66,14 @@
 
   const verdict = (v) => `<span class="verdict ${esc(v.split(" ")[0])}">${esc(v)}</span>`;
   const flags = (r) => (r.flags || []).filter((f) => !/^(hold|borderline|drop)/.test(f))
-    .map((f) => `<span class="flag ${/^(small|injured)/.test(f) ? "ok" : ""}">${esc(f)}</span>`).join("");
+    .map((f) => `<span class="flag ${/^(small|injured)/.test(f) ? "ok" : /^(promoted|shooting cold|saving cold)/.test(f) ? "good" : ""}">${esc(f)}</span>`).join("");
+  // deployment: "F2, PP1" with an arrow when it's a change from usual
+  const ROLE_RANK = { F1: 1, F2: 2, F3: 3, F4: 4, D1: 1, D2: 2, D3: 3 };
+  const roleSort = (r) => (r.role && (r.role.line || r.role.pp)
+    ? (r.role.pp === "PP1" ? 0 : r.role.pp === "PP2" ? 10 : 20) + (ROLE_RANK[r.role.line] || 5) : null);
+  const roleCell = (r) => (r.role && r.role.label
+    ? `${esc(r.role.label)}${r.role.change ? ` <span class="${r.role.change === "up" ? "pos" : "neg"}" title="${r.role.change === "up" ? "promoted" : "demoted"} from ${esc([r.role.usual_line, r.role.usual_pp || "no PP"].filter(Boolean).join(", "))}">${r.role.change === "up" ? "▲" : "▼"}</span>` : ""}`
+    : '<span class="muted">–</span>');
 
   // "Can add tonight": forwards as one count with the positions that work
   // (a LW/RW starter can slide to free the other wing), then D and G.
@@ -94,6 +104,8 @@
         fmt: (r) => `<button type="button" class="plink" data-pid="${r.id}">${esc(r.name)}</button>${flags(r)}` },
       { key: "team", label: "NHL team", left: true, minor: true },
       { key: "elig", label: "Pos", left: true, fmt: (r) => esc(r.elig.join(",")), sort: posSort },
+      { key: "role", label: "Role", left: true, sort: roleSort, title: "line and power-play unit in his last game (from NHL shift data); ▲▼ = changed from usual",
+        fmt: roleCell },
       { key: "gp", label: "GP", minor: true },
       { key: "prior", label: "Preseason", minor: true, title: `preseason ${unit}/game`, fmt: (r) => num(r.prior) },
       { key: "now", label: "Now", title: `this season ${unit}/game`, fmt: (r) => num(r.now) },
@@ -268,9 +280,12 @@
   function drawFreeAgents() {
     if (!faData) return;
     const q = $("fa-search").value.trim().toLowerCase(), pos = $("fa-pos").value;
+    const role = $("fa-role").value;
     const rows = faData.players.filter((r) => $(`fa-show-${r.status}`).checked
       && (!q || `${r.name} ${r.team}`.toLowerCase().includes(q))
-      && (!pos || r.elig.includes(pos)));
+      && (!pos || r.elig.includes(pos))
+      && (!role || (role === "up" ? r.role?.change === "up" : role === "pp1" ? r.role?.pp === "PP1"
+        : role === "cold" ? r.luck?.status === "cold" : true)));
     const c = faData.counts;
     $("fa-counts").textContent = `${rows.length} match: ${c.FA} free agents, ${c.W} on waivers, ${c.OUT} injured in all.`;
     table($("fa-table"), playerCols([
@@ -279,7 +294,7 @@
         fmt: statusCell },
     ]), rows, { page: 50, empty: "No players match. Clear the search or tick more boxes." });
   }
-  ["fa-search", "fa-pos", "fa-show-FA", "fa-show-W", "fa-show-OUT"].forEach((id) =>
+  ["fa-search", "fa-pos", "fa-role", "fa-show-FA", "fa-show-W", "fa-show-OUT"].forEach((id) =>
     $(id).addEventListener(id === "fa-search" ? "input" : "change", drawFreeAgents));
   async function loadStreams() {
     const q = (group) => api(`/api/inseason/streams?${new URLSearchParams({

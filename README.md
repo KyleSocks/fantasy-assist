@@ -114,6 +114,18 @@ free-agent lists. The **Refresh data** button re-ingests this season's stats, ro
 schedule and rewrites the selected league's roster, free-agent and league files from its
 public Yahoo league. Takes about a minute.
 
+**Matchup tab (points leagues):** this week's head-to-head from the scores Yahoo showed at the
+last Refresh plus each team's best nightly lineup for the days left: projected finals, win
+chance, night by night, every matchup in the league, and "swing adds" (free agents who'd
+raise your total most, replacing your weakest non-HOLD player). Model: `src/inseason/matchup.py`.
+
+**Lines, PP units and luck:** Refresh also reads NHL shift charts for each team's last five
+games to place every skater on a line (F1-F4 / D1-D3) and PP unit, plus his ice time over
+the last week vs the three before (`src/inseason/lines.py`); promotions and demotions are
+flagged in every table (Role column, "Just promoted" filter on Free agents). Shooting and
+save % far from a player's usual are flagged as running hot / due to bounce back
+(`src/inseason/luck.py`); a cold player is never marked a drop candidate.
+
 **Roster moves:** every Refresh stores each team's roster; comparing it with the previous
 one gives the adds, drops, claims (dropped by one team, picked up by another), trades and
 IR moves in between, appended to `roster_moves.json`. Moves are only seen at refreshes,

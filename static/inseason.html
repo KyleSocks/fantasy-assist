@@ -43,6 +43,7 @@
 
   <nav class="tabs ins-tabs" aria-label="Sections">
     <button type="button" class="tab active" data-tab="roster">Roster</button>
+    <button type="button" class="tab" data-tab="matchup">Matchup</button>
     <button type="button" class="tab" data-tab="plan">Plan</button>
     <button type="button" class="tab" data-tab="fa">Free agents</button>
     <button type="button" class="tab" data-tab="league">League</button>
@@ -74,6 +75,32 @@
       <div class="scroll"><table id="nights-table"></table></div>
     </section>
 
+    <section id="tab-matchup" class="panel" hidden>
+      <div class="lede"><h2 id="mu-title">This week</h2><p id="mu-meta" class="muted"></p></div>
+      <div class="form-row">
+        <label class="field"><span>Still to play from</span><select id="mu-start">
+          <option value="">Auto</option><option value="today">Today</option><option value="tomorrow">Tomorrow</option></select></label>
+      </div>
+      <details class="how"><summary>How to read this</summary>
+        <p><b>Now</b> = the score Yahoo showed at your last Refresh. <b>Projected</b> = that plus each
+          team's best nightly lineup for the days still to play (same values as the rest of the app).
+          <b>Win chance</b> allows for the game-to-game swings in fantasy points. "Still to play from"
+          Auto starts tomorrow when the scores were read after 7 pm, since tonight's games are then
+          mostly in them.</p>
+        <p><b>Swing adds</b>: free agents who'd raise your projected total most for the rest of the week,
+          each replacing your weakest player who isn't a HOLD (stars aren't dropped for one week).
+          Check you have an add left first.</p>
+      </details>
+      <div id="mu-board" class="mu-board"></div>
+      <h3>Night by night</h3>
+      <div class="scroll"><table id="mu-nights"></table></div>
+      <h3>Swing adds</h3>
+      <p id="mu-adds-note" class="muted"></p>
+      <div class="scroll"><table id="mu-adds"></table></div>
+      <h3>Every matchup</h3>
+      <div class="scroll"><table id="mu-league"></table></div>
+    </section>
+
     <section id="tab-plan" class="panel" hidden>
       <div class="lede"><h2>Stream a roster spot</h2>
         <p class="muted">Pick the player whose spot you'd rotate, and how many adds you have left.</p></div>
@@ -96,6 +123,9 @@
         <label class="field grow"><span>Search</span><input id="fa-search" type="search" placeholder="Name or NHL team"></label>
         <label class="field"><span>Position</span><select id="fa-pos"><option value="">All</option><option>C</option>
           <option>LW</option><option>RW</option><option>D</option><option>G</option></select></label>
+        <label class="field"><span>Only</span><select id="fa-role"><option value="">Everyone</option>
+          <option value="up">Just promoted (line or PP)</option><option value="pp1">On PP1</option>
+          <option value="cold">Unlucky (due to bounce back)</option></select></label>
         <fieldset class="checks"><legend>Show</legend>
           <label><input id="fa-show-FA" type="checkbox" checked> Free agents</label>
           <label><input id="fa-show-W" type="checkbox" checked> Waivers</label>
@@ -248,6 +278,7 @@
   <script src="/static/inseason.js"></script>
   <script src="/static/inseason-partner.js"></script>
   <script src="/static/inseason-moves.js"></script>
+  <script src="/static/inseason-matchup.js"></script>
   <script src="/static/inseason-player.js"></script>
 </body>
 </html>

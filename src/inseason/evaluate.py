@@ -6,7 +6,7 @@ import datetime
 import sqlite3
 import unicodedata
 from bisect import bisect_left, bisect_right
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from src.cache import project_all_cached
 from src.valuation.league import LeagueConfig
@@ -36,6 +36,10 @@ class Context:
     factors: dict[str, dict[str, float]]
     scorer: GameScorer
     games: list[tuple[str, str, str]]   # (date, home, away), regular season
+    # shooting / save luck per player (src/inseason/luck.py)
+    luck: dict[int, dict] = field(default_factory=dict)
+    # deployment: line, PP unit and TOI windows (src/inseason/lines.py)
+    roles: dict[int, dict] = field(default_factory=dict)
 
     def _index(self) -> "_ScheduleIndex":
         """Per-date counts and per-team game lists, built once per
@@ -155,6 +159,10 @@ def build_context(db_path: str, league: LeagueConfig,
         skaters, goalies = load_current(conn, season)
         factors = opponent_factors(skaters, goalies, team_games_played(skaters),
                                    icfg["opponent_k_games"])
+        from .luck import load_luck
+        from .lines import load_roles
+        luck = load_luck(conn, season)
+        roles = load_roles(conn, as_of)
         games = [tuple(r) for r in conn.execute(
             "SELECT game_date, home_abbrev, away_abbrev FROM schedule"
             " WHERE season_id=? AND game_type=2 ORDER BY game_date, game_id",
@@ -163,7 +171,8 @@ def build_context(db_path: str, league: LeagueConfig,
         conn.close()
     scorer = GameScorer(league, {pid: (ln.position, expected_line(ln, None))
                                  for pid, ln in lines.items()})
-    return Context(league, icfg, season, as_of, lines, factors, scorer, games)
+    return Context(league, icfg, season, as_of, lines, factors, scorer, games,
+                   luck, roles)
 
 
 def expected_line(line: Line, opp: dict[str, float] | None,
@@ -408,6 +417,10 @@ def hold_check(ctx: Context, pid: int, start: str, days: int) -> dict:
         verdict = "DROP CANDIDATE"
     else:
         verdict = "BORDERLINE"
+    # cold shooting / saving: his numbers should come back, so not a drop
+    lk = ctx.luck.get(pid)
+    if verdict == "DROP CANDIDATE" and lk and lk.get("status") == "cold":
+        verdict = "BORDERLINE"
     return {
         "player_id": pid, "name": line.name, "pos": line.position,
         "team": line.team, "gp": line.gp, "line": line,
@@ -419,7 +432,7 @@ def hold_check(ctx: Context, pid: int, start: str, days: int) -> dict:
         # weighted (playoff games count extra), to the fantasy end
         "ros_vs_replacement": ros_over_replacement(ctx, pid, start),
         "ros_end": ctx.fantasy_end(),
-        "verdict": verdict}
+        "luck": lk, "verdict": verdict}
 
 
 def schedule_grid(ctx: Context, start: str, days: int) -> list[dict]:

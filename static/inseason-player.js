@@ -63,10 +63,50 @@
         <span class="muted">NHL stats through ${esc(p.as_of)}</span></p>
       <div class="pd-tiles">${tiles.map(([l, v, s]) =>
         `<div><span class="muted">${l}</span><b>${v}</b><span class="muted">${esc(s)}</span></div>`).join("")}</div>
+      ${deployment(p)}${luckBlock(p)}
       <h3>Per ${p.position === "G" ? "start" : "game"}</h3>
       <div class="scroll"><table class="pd-stats"><thead><tr><th class="l"></th>${keys.map((k) => `<th>${LABELS[k]}</th>`).join("")}</tr></thead>
         <tbody>${[["Preseason", p.prior], ["This season", p.observed], ["Blend", p.blended]].map(([l, d]) =>
           `<tr><td class="l">${l}</td>${keys.map((k) => `<td>${stat(k, (d || {})[k])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  }
+
+  // Line, PP unit and linemates from the last games' shift charts, and
+  // ice time over the last week vs the three weeks before (lines.py)
+  function deployment(p) {
+    const r = p.role;
+    if (!r || p.position === "G") return "";
+    const mmss = (s) => (s == null ? "–" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
+    const usual = [r.usual_line, r.usual_pp || (r.games > 1 ? "no PP" : null)].filter(Boolean).join(", ");
+    const move = r.change ? ` <span class="flag ${r.change === "up" ? "good" : ""}">${r.change === "up" ? "promoted" : "demoted"}</span>` : "";
+    const rows = [];
+    if (r.label || r.line || r.pp) rows.push(`<b>${esc(r.label || "Depth role")}</b> in his last game${r.date ? ` (${md(r.date)})` : ""}${move}`
+      + (usual && r.change ? `<br><span class="muted">Before that, usually ${esc(usual)}</span>` : ""));
+    if (r.mates && r.mates.length) rows.push(`Linemates at 5-on-5: ${r.mates.map((m) =>
+      `<button type="button" class="plink" data-pid="${m.id}">${esc(m.name)}</button>`).join(", ")}`);
+    if (r.recent_pp_toi != null || r.prior_pp_toi != null) {
+      const d = (r.recent_pp_toi ?? 0) - (r.prior_pp_toi ?? 0);
+      rows.push(`Power-play time per game: <b>${mmss(r.recent_pp_toi)}</b> last 7 days, ${mmss(r.prior_pp_toi)} the 3 weeks before`
+        + (Math.abs(d) >= 30 ? ` <span class="${d > 0 ? "pos" : "neg"}">(${d > 0 ? "+" : "−"}${mmss(Math.abs(d))})</span>` : ""));
+    }
+    if (r.recent_toi != null) rows.push(`Ice time per game: <b>${mmss(r.recent_toi)}</b> last 7 days, ${mmss(r.prior_toi)} before`);
+    return rows.length ? `<h3>Deployment</h3><ul class="pd-list">${rows.map((x) => `<li>${x}</li>`).join("")}</ul>` : "";
+  }
+
+  // Shooting / save luck (luck.py)
+  function luckBlock(p) {
+    const l = p.luck;
+    if (!l) return "";
+    const g = p.position === "G";
+    const pctTxt = (x) => (g ? `.${String(Math.round(x * 1000)).padStart(3, "0")}` : `${(x * 100).toFixed(1)}%`);
+    const goals = Math.abs(l.luck).toFixed(1);
+    const say = g
+      ? (l.luck >= 0 ? `${goals} fewer goals against than his usual save % would give` : `${goals} more goals against than his usual save % would give`)
+      : (l.luck >= 0 ? `${goals} more goals than his shots usually produce` : `${goals} fewer goals than his shots usually produce`);
+    const pts = l.points != null && Math.abs(l.points) >= 1 ? `, about ${signed(l.points, 0)} ${p.unit}` : "";
+    const verdictTxt = l.status === "hot" ? "Expect this to cool off: a sell-high, not one to pay for."
+      : l.status === "cold" ? "Expect this to come back: a buy-low, not one to drop." : "Within normal luck.";
+    return `<h3>Luck</h3><ul class="pd-list"><li>${g ? "Save %" : "Shooting %"} <b>${pctTxt(l.pct)}</b> this season,
+      ${pctTxt(l.usual_pct)} usual: ${say}${pts}.</li><li>${verdictTxt}</li></ul>`;
   }
 
   // Weekly bars: one series (fantasy points per Mon-Sun week). Skaters also

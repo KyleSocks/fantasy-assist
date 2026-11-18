@@ -163,6 +163,7 @@ def analyze(ctx: Context, league: dict, my_team_id: int, start: str,
             "elig": sorted(e), "per_game": ctx.scorer.per_game[p],
             "games": len(sim.games(p)), "starts": rep["starts"].get(p, 0),
             "injury": tags.get(p), "playoff_games": ctx.playoff_games(ctx.lines[p].team),
+            "luck": (ctx.luck.get(p) or {}).get("status"),
             "avail": (ctx.lines[p].start_share if ctx.lines[p].is_goalie
                       else ctx.lines[p].play_share)}
             for p, e in roster.items()), key=lambda x: -x["per_game"])

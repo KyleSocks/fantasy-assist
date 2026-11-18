@@ -6,6 +6,7 @@ trades move players to their new team) and re-ingests the current season's
 schedule from today forward.
 
     uv run python -m src.inseason.ingest            # stats + rosters + schedule
+                                                    # + lines / PP units (lines.py)
     uv run python -m src.inseason.ingest --no-schedule
 """
 from __future__ import annotations
@@ -185,10 +186,19 @@ def ingest_current(db_path: str = DEFAULT_DB_ARG, season_id: int | None = None,
                                          step_days=7)
                 counts.update(sc)
                 notes += sn
+            # deployment (lines, PP units, ice-time windows): optional
+            from .lines import ingest_deployment, ingest_toi_windows
+            for step, what in ((ingest_toi_windows, "ice-time windows"),
+                               (ingest_deployment, "lines and PP units")):
+                try:
+                    counts.update(step(conn, fetcher, season_id, as_of))
+                except Exception as e:
+                    notes.append(f"{what} not updated: {e}")
             log_ingest(conn, "inseason", season_id, sum(counts.values()),
                        notes=notes)
             if notes_out is not None:
-                notes_out.extend(n for n in notes if n.startswith("recent-games"))
+                notes_out.extend(n for n in notes if n.startswith(
+                    ("recent-games", "ice-time", "lines and")))
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")
