@@ -63,7 +63,7 @@
         <span class="muted">NHL stats through ${esc(p.as_of)}</span></p>
       <div class="pd-tiles">${tiles.map(([l, v, s]) =>
         `<div><span class="muted">${l}</span><b>${v}</b><span class="muted">${esc(s)}</span></div>`).join("")}</div>
-      ${deployment(p)}${luckBlock(p)}
+      ${deployment(p)}${luckBlock(p)}${inputs(p)}
       <h3>Per ${p.position === "G" ? "start" : "game"}</h3>
       <div class="scroll"><table class="pd-stats"><thead><tr><th class="l"></th>${keys.map((k) => `<th>${LABELS[k]}</th>`).join("")}</tr></thead>
         <tbody>${[["Preseason", p.prior], ["This season", p.observed], ["Blend", p.blended]].map(([l, d]) =>
@@ -107,6 +107,32 @@
       : l.status === "cold" ? "Expect this to come back: a buy-low, not one to drop." : "Within normal luck.";
     return `<h3>Luck</h3><ul class="pd-list"><li>${g ? "Save %" : "Shooting %"} <b>${pctTxt(l.pct)}</b> this season,
       ${pctTxt(l.usual_pct)} usual: ${say}${pts}.</li><li>${verdictTxt}</li></ul>`;
+  }
+
+  // What the projection uses beyond the season blend (deploy.py, model.py)
+  function inputs(p) {
+    const i = p.inputs || {};
+    const rows = [];
+    const pc = (x) => `${(x * 100).toFixed(1)}%`;
+    if (i.sh_pct && i.sh_pct.season != null) {
+      rows.push(`Goals = shots x shooting %. Shooting % used: <b>${pc(i.sh_pct.blended)}</b>
+        (${pc(i.sh_pct.season)} this season, ${pc(i.sh_pct.prior)} projected), so a hot or cold
+        finishing run counts for little until it lasts.`);
+    }
+    const d = i.deploy;
+    if (d) {
+      const f = (x) => `${x >= 1 ? "+" : "−"}${Math.round(Math.abs(x - 1) * 100)}%`;
+      const mm = (x) => `${Math.floor(x / 60)}:${String(Math.round(x % 60)).padStart(2, "0")}`;
+      const big = Math.abs(d.pp - 1) >= 0.05 || Math.abs(d.ev - 1) >= 0.05;
+      rows.push(`Ice time from here: PP <b>${mm(d.exp_pp)}</b> a game (season ${mm(d.season_pp)}, ${f(d.pp)}),
+        even strength <b>${mm(d.exp_ev)}</b> (season ${mm(d.season_ev)}, ${f(d.ev)}).`
+        + (big ? ` That moves his projection <span class="${cls(d.value_delta)}">${signed(d.value_delta, 2)}</span> ${esc(p.unit)} a game.` : ""));
+    }
+    if (i.b2b && i.b2b.length) {
+      rows.push(`Back-to-backs in the next two weeks change his start chance: ${i.b2b.map((b) =>
+        `${md(b.date)} ${Math.round(b.share * 100)}%`).join(", ")} (usually ${Math.round(p.start_share * 100)}%).`);
+    }
+    return rows.length ? `<h3>What the projection uses</h3><ul class="pd-list">${rows.map((x) => `<li>${x}</li>`).join("")}</ul>` : "";
   }
 
   // Weekly bars: one series (fantasy points per Mon-Sun week). Skaters also

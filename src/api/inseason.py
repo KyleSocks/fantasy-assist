@@ -205,6 +205,24 @@ def _add_lineup_fit(ctx, rows: list[dict], date: str) -> None:
         r["adds"] = max(with_him - total, 0.0)
 
 
+def _projection_inputs(ctx, pid: int, start: str) -> dict:
+    """What the projection uses beyond the season blend: goals from
+    shooting %, deployment factors, back-to-back nights (goalies)."""
+    from src.inseason.evaluate import goalie_share
+    ln = ctx.lines[pid]
+    out: dict = {"sh_pct": ln.extra.get("sh_pct"), "deploy": None, "b2b": []}
+    dep = ln.extra.get("deploy")
+    if dep:
+        val = lambda st: ctx.scorer.value_stats(pid, ln.position, st)  # noqa: E731
+        out["deploy"] = {**dep, "value_delta": val(dep["delta"]) - val({})}
+    if ln.is_goalie and ln.start_share > 0:
+        end = (datetime.date.fromisoformat(start) + datetime.timedelta(days=13)).isoformat()
+        out["b2b"] = [{"date": d, "share": goalie_share(ctx, ln, d)}
+                      for d, _ in ctx.team_games(ln.team, start, end)
+                      if abs(goalie_share(ctx, ln, d) - ln.start_share) > 1e-9]
+    return out
+
+
 @router.get("/player/{player_id}")
 def get_player(player_id: int, league: LeagueName = None,
                start: DateStr = None, days: Days = 10) -> dict:
@@ -222,7 +240,8 @@ def get_player(player_id: int, league: LeagueName = None,
              as_of=ctx.as_of, league=ctx.league.name,
              unit="fpts" if ctx.scorer.points else "z")
     from src.inseason.roster import luck_json, role_json
-    h.update(luck=luck_json(ctx, player_id), role=role_json(ctx, player_id))
+    h.update(luck=luck_json(ctx, player_id), role=role_json(ctx, player_id),
+             inputs=_projection_inputs(ctx, player_id, _day(start)))
     return h
 
 
