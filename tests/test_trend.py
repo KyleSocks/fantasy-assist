@@ -103,4 +103,6 @@ def test_failed_trend_fetch_is_reported_not_fatal(tmp_path):
                             fetcher=_FixtureFetcher(), as_of="2022-01-15",
                             notes_out=notes)
     assert counts["skater_current"] > 0 and "skater_recent" not in counts
-    assert len(notes) == 1 and notes[0].startswith("recent-games trend not updated")
+    # the fixture has no window reports either: both failures are reported
+    assert [n.split(":")[0] for n in notes] == ["recent-games trend not updated",
+                                                 "ice-time windows not updated"]

@@ -12,6 +12,7 @@ GET /api/inseason/league?start=&days=21   team strengths + 1-for-1 trades
 GET /api/inseason/partner-trades?partner=<team id>&give=ids&get=ids   package deals with one team
 GET /api/inseason/moves?days=30&league=   roster changes for every team (inseason_moves.py)
 GET /api/inseason/leagues             league configs + the Yahoo league each follows
+GET /api/inseason/matchup?league=&team=&start=   this week's head-to-head (inseason_matchup.py)
 
 Every endpoint takes ?league=<config stem>. A league with its own ``yahoo:``
 block reads and writes its files under data/leagues/<stem>/; the others share
@@ -50,7 +51,7 @@ from src.inseason.roster import (
     roster_plan,
 )
 from src.inseason import leagues as store
-from src.inseason.leagues import FA_FILE, LEAGUE_FILE, MARKET_FILE, MOVES_FILE, ROSTER_FILE  # noqa: F401
+from src.inseason.leagues import FA_FILE, LEAGUE_FILE, MARKET_FILE, MATCHUPS_FILE, MOVES_FILE, ROSTER_FILE  # noqa: F401
 from src.paths import DATA_DIR, DB_PATH, DEFAULT_LEAGUE_PATH, LEAGUE_DIR
 from src.valuation.league import LeagueConfig, load_league
 
@@ -220,6 +221,8 @@ def get_player(player_id: int, league: LeagueName = None,
              toi_pg_prior=ln.toi_pg_prior, toi_pg_obs=ln.toi_pg_obs,
              as_of=ctx.as_of, league=ctx.league.name,
              unit="fpts" if ctx.scorer.points else "z")
+    from src.inseason.roster import luck_json, role_json
+    h.update(luck=luck_json(ctx, player_id), role=role_json(ctx, player_id))
     return h
 
 
@@ -489,3 +492,4 @@ def _refresh(league: str | None, force: bool) -> dict:
 from src.api import inseason_league  # noqa: E402,F401
 from src.api import inseason_player  # noqa: E402,F401
 from src.api import inseason_moves  # noqa: E402,F401
+from src.api import inseason_matchup  # noqa: E402,F401

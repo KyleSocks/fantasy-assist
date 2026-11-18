@@ -182,6 +182,48 @@ def game_values(ctx: Context, pid: int, dates: list[str],
     return out
 
 
+def luck_json(ctx: Context, pid: int) -> dict | None:
+    """Luck for the page: the numbers, a one-line text and (points leagues)
+    roughly how many fantasy points it has been worth so far."""
+    from .luck import describe
+    lk = ctx.luck.get(pid)
+    if not lk:
+        return None
+    ln = ctx.lines.get(pid)
+    pts = None
+    if ln is not None and ctx.scorer.points:
+        v = lambda st: ctx.scorer.value_stats(pid, ln.position, st)  # noqa: E731
+        base = v({})
+        per = (v({"saves": 1.0}) - v({"goals_against": 1.0})) if ln.is_goalie \
+            else v({"goals": 1.0}) - base
+        pts = lk["luck"] * per
+    return {**{k: lk[k] for k in ("luck", "z", "status", "usual_pct", "expected")},
+            "pct": lk.get("sh_pct", lk.get("sv_pct")), "text": describe(lk),
+            "points": pts}
+
+
+def role_json(ctx: Context, pid: int) -> dict | None:
+    """Deployment for the page (src/inseason/lines.py), linemates named."""
+    from .lines import label
+    r = ctx.roles.get(pid)
+    if not r:
+        return None
+    name = lambda q: ctx.lines[q].name if q in ctx.lines else str(q)  # noqa: E731
+    out = {k: r.get(k) for k in ("line", "pp", "usual_line", "usual_pp", "change",
+                                 "date", "games", "recent_toi", "prior_toi",
+                                 "recent_pp_toi", "prior_pp_toi")}
+    out.update(label=label(r), mates=[{"id": q, "name": name(q)} for q in r.get("mates") or []])
+    return out
+
+
+def _role_flag(role: dict | None) -> str | None:
+    if not role or not role.get("change"):
+        return None
+    was = ", ".join(x for x in (role.get("usual_line"), role.get("usual_pp") or "no PP") if x)
+    now = role.get("label") or "no PP"
+    return f"{'promoted' if role['change'] == 'up' else 'demoted'}: {now} (was {was})"
+
+
 def _player_row(ctx: Context, pid: int, elig: set[str], start: str,
                 days: int) -> dict:
     ln = ctx.lines[pid]
@@ -201,6 +243,11 @@ def _player_row(ctx: Context, pid: int, elig: set[str], start: str,
         flags.append("producing below projection")
     if h["verdict"] != "HOLD":
         flags.append(h["verdict"].lower())
+    lk, role = luck_json(ctx, pid), role_json(ctx, pid)
+    if lk and lk["text"]:
+        flags.append(lk["text"])
+    if _role_flag(role):
+        flags.append(_role_flag(role))
     return {
         "id": pid, "name": ln.name, "team": ln.team, "pos": ln.position,
         "elig": sorted(elig), "gp": ln.gp,
@@ -214,6 +261,7 @@ def _player_row(ctx: Context, pid: int, elig: set[str], start: str,
         "ros_vs_repl": h["ros_vs_replacement"],
         "window_games": len(h["window"]["games"]),
         "verdict": h["verdict"], "flags": flags,
+        "luck": lk, "role": role,
     }
 
 

@@ -10,7 +10,7 @@ Every league config (config/leagues/<key>.yaml) can be used mid-season.
   under different scoring, which is how it has always worked.
 
 Files (same names in either place): my_roster.txt, fa.txt,
-league_rosters.json, market.json, roster_moves.json.
+league_rosters.json, market.json, roster_moves.json, matchups.json.
 """
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ FA_FILE = "fa.txt"
 LEAGUE_FILE = "league_rosters.json"
 MARKET_FILE = "market.json"
 MOVES_FILE = "roster_moves.json"
+MATCHUPS_FILE = "matchups.json"
 
 
 def yahoo_link(cfg: LeagueConfig | None, icfg: dict | None) -> dict | None:

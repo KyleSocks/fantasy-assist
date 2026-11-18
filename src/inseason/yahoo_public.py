@@ -335,3 +335,66 @@ def fetch_market(league_id: int, client: httpx.Client | None = None) -> list[dic
         if own:
             client.close()
     return out
+
+
+# ── this week's matchups ──────────────────────────────────────────────
+# The league home page's "Matchups" module lists every head-to-head pair
+# (a link to /matchup?week=W&mid1=A&mid2=B) with each side's current score
+# and Yahoo's own projection (the italic number). A matchup page's header
+# names the week's days ("Mon 11/16" ... "Sun 11/22"); the rest of it is
+# drawn by script, so only the dates are read from it.
+
+_MATCHUP_LI = re.compile(r'<li\b[^>]*data-target="[^"]*matchup\?week=(\d+)&amp;mid1=(\d+)&amp;mid2=(\d+)"'
+                         r'.*?</li>', re.S)
+_SCORE = re.compile(r'<div class="Fz-lg[^"]*">\s*(-?[\d.]+)\s*</div>\s*'
+                    r'<div class="F-shade Italic[^"]*">\s*(-?[\d.]+)\s*</div>')
+_DAY = re.compile(r'\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (\d{1,2})/(\d{1,2})\b')
+
+
+def parse_matchups(page: str) -> dict:
+    """{"week": int | None, "matchups": [{"week", "teams": [a, b],
+    "score": [a, b], "yahoo_proj": [a, b]}]} from the league home page."""
+    out = []
+    week = None
+    for m in _MATCHUP_LI.finditer(page):
+        w, a, b = (int(x) for x in m.groups())
+        week = week or w
+        sc = _SCORE.findall(m.group(0))
+        if len(sc) < 2:
+            continue
+        out.append({"week": w, "teams": [a, b],
+                    "score": [float(sc[0][0]), float(sc[1][0])],
+                    "yahoo_proj": [float(sc[0][1]), float(sc[1][1])]})
+    return {"week": week, "matchups": out}
+
+
+def parse_week_dates(page: str, today: datetime.date | None = None) -> list[str]:
+    """The week's days from a matchup page header, as ISO dates in order."""
+    today = today or datetime.date.today()
+    seen: list[str] = []
+    for mon, day in _DAY.findall(page):
+        d = _waiver_date(list(_MONTHS)[int(mon) - 1], day, today)
+        if d not in seen:
+            seen.append(d)
+    return seen
+
+
+def fetch_matchups(league_id: int, client: httpx.Client | None = None) -> dict:
+    """This week's matchups, scores and dates (two page loads). Raises
+    ValueError when the league page has no matchups (preseason, or a
+    rotisserie league)."""
+    own = client is None
+    client = client or httpx.Client(headers=HEADERS, timeout=30,
+                                    follow_redirects=True)
+    try:
+        m = parse_matchups(_get(client, f"{BASE}/{league_id}"))
+        if not m["matchups"]:
+            raise ValueError("no head-to-head matchups on the league page")
+        a, b = m["matchups"][0]["teams"]
+        m["dates"] = parse_week_dates(_get(
+            client, f"{BASE}/{league_id}/matchup?week={m['week']}&mid1={a}&mid2={b}"))
+        m["fetched"] = datetime.datetime.now().isoformat(timespec="minutes")
+        return m
+    finally:
+        if own:
+            client.close()

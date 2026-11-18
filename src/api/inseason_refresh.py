@@ -114,6 +114,14 @@ def _pull(key: str, cfg, link: dict, force: bool) -> dict:
         out["moves"] = len(events)
     except Exception as e:
         out["yahoo_error"] = f"Yahoo lists not updated: {e}"
+    # this week's head-to-head matchups (scores, dates): optional extra
+    try:
+        mu = yp.fetch_matchups(link["league_id"])
+        folder.mkdir(parents=True, exist_ok=True)
+        ins._write_atomic({folder / ins.MATCHUPS_FILE: json.dumps(mu, ensure_ascii=False)})
+        out["matchups"] = len(mu["matchups"])
+    except Exception as e:
+        out["matchups_error"] = f"matchups not updated: {e}"
     # trade-market data (% rostered, Fan Pts, ranks): optional extra
     try:
         rows = yp.fetch_market(link["league_id"])
