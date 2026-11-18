@@ -178,7 +178,7 @@ def game_values(ctx: Context, pid: int, dates: list[str],
     for d, opp in ctx.team_games(ln.team, dates[0], dates[-1]):
         if d == dates[0] and ln.team in locked:
             continue
-        out[d] = game_value(ctx, ln, opp)
+        out[d] = game_value(ctx, ln, opp, d)
     return out
 
 

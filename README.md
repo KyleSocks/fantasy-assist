@@ -126,6 +126,14 @@ flagged in every table (Role column, "Just promoted" filter on Free agents). Sho
 save % far from a player's usual are flagged as running hot / due to bounce back
 (`src/inseason/luck.py`); a cold player is never marked a drop candidate.
 
+**What feeds the in-season projection** (`src/inseason/model.py`, `deploy.py`): each stat
+blends the preseason projection with this season; goals are blended shots x blended
+shooting % (shooting % needs ~375 shots to count fully, so finishing luck washes out);
+expected ice time from here on (season, last 7 days, last game's PP time) scales PPP,
+goals/assists and shots; goalies' start chance drops on the second night of a
+back-to-back. Everything downstream (verdicts, plan, trades, matchup) uses these rates.
+Each player page lists what moved his projection.
+
 **Roster moves:** every Refresh stores each team's roster; comparing it with the previous
 one gives the adds, drops, claims (dropped by one team, picked up by another), trades and
 IR moves in between, appended to `roster_moves.json`. Moves are only seen at refreshes,
