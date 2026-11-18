@@ -180,3 +180,4 @@ dialog#player-dlg::backdrop { background: var(--shade); }
 @media (max-width: 480px) {
   .pd-stats th, .pd-stats td { padding: 4px 4px; font-size: 13px; }
 }
+.team-card .open-roster { justify-self: start; }

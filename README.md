@@ -108,7 +108,7 @@ How the numbers are made (tunable in `config/inseason.yaml`):
 
 **GUI:** run the server (`uv run uvicorn src.api.main:app`, or `server-start.bat`) and open
 http://127.0.0.1:8000/inseason -- tabs for the roster audit, the streaming plan, free
-agents + tonight's streams, the league (team strengths and trades), **Moves** (every
+agents + tonight's streams (the Roster tab has a Team picker to view any team's roster), the league (team strengths and trades), **Moves** (every
 team's adds, drops, trades and IR moves), the schedule grid, and editing your roster /
 free-agent lists. The **Refresh data** button re-ingests this season's stats, rosters and
 schedule and rewrites the selected league's roster, free-agent and league files from its
