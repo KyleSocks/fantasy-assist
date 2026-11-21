@@ -67,6 +67,21 @@
   const verdict = (v) => `<span class="verdict ${esc(v.split(" ")[0])}">${esc(v)}</span>`;
   const flags = (r) => (r.flags || []).filter((f) => !/^(hold|borderline|drop)/.test(f))
     .map((f) => `<span class="flag ${/^(small|injured)/.test(f) ? "ok" : /^(promoted|shooting cold|saving cold)/.test(f) ? "good" : ""}">${esc(f)}</span>`).join("");
+  // % rostered (Yahoo-wide) and its 7-day change
+  const rosCell = (r) => { const x = r.rostered; if (!x) return '<span class="muted">–</span>';
+    const d = x.d7; return `${Math.round(x.pct)}%${d != null && Math.abs(d) >= 1 ? ` <span class="${d > 0 ? "pos" : "neg"}">${d > 0 ? "▲" : "▼"}${Math.round(Math.abs(d))}</span>` : ""}`; };
+  // "Stats from" switch: which window the "Last N days" column shows
+  let statWindow = 14;
+  try { statWindow = Number(localStorage.getItem("fa-stat-window")) || 14; } catch { /* default */ }
+  document.querySelectorAll(".win-select").forEach((sel) => {
+    sel.value = String(statWindow);
+    sel.addEventListener("change", () => {
+      statWindow = Number(sel.value);
+      try { localStorage.setItem("fa-stat-window", String(statWindow)); } catch { /* session only */ }
+      document.querySelectorAll(".win-select").forEach((o) => { o.value = sel.value; });
+      if (current === "fa") drawFreeAgents(); else load();
+    });
+  });
   // deployment: "F2, PP1" with an arrow when it's a change from usual
   const ROLE_RANK = { F1: 1, F2: 2, F3: 3, F4: 4, D1: 1, D2: 2, D3: 3 };
   const roleSort = (r) => (r.role && (r.role.line || r.role.pp)
@@ -115,6 +130,12 @@
         fmt: (r) => (r.trend == null ? `<span class="muted" title="${r.trend_games || 0} games in the window">–</span>`
           : `${num(r.trend)} <span class="${cls(r.trend_diff)}">${trendTxt(r.trend_pct, r.trend_diff)}</span>`) },
       { key: "blended", label: "Blend", minor: true, title: "blended value per game played", fmt: (r) => num(r.blended) },
+      { key: "win", label: `Last ${statWindow}d`, title: `value per game played (per start for goalies) over the last ${statWindow} days`,
+        sort: (r) => r.windows?.[statWindow]?.per_game,
+        fmt: (r) => { const w = r.windows?.[statWindow];
+          return w && w.per_game != null ? `${num(w.per_game)} <span class="muted">${w.games} gp</span>` : '<span class="muted">–</span>'; } },
+      { key: "ros", label: "% Ros", minor: true, title: "% of Yahoo leagues rostering him, and the change over 7 days",
+        sort: (r) => r.rostered?.d7 ?? -999, fmt: rosCell },
       { key: "avail", label: "Plays", minor: true, title: "share of team games he plays / starts (injuries, scratches)",
         fmt: (r) => (r.avail == null ? "–" : `<span class="${r.avail < 0.85 ? "neg" : ""}">${Math.round(r.avail * 100)}%</span>`) },
       { key: "team_game", label: "Value", title: "value per team game (blend x plays): what every decision uses",
@@ -149,8 +170,22 @@
   function load() { status(""); return Promise.resolve((loaders[current] || (() => {}))()); }
 
   // ── roster ───────────────────────────────────────────────────────────
+  // Alerts about your team (src/inseason/alerts.py), last 7 days
+  async function drawAlerts() {
+    const box = $("alerts");
+    if (rosterTeam) { box.hidden = true; return; }
+    try {
+      const r = await api(`/api/inseason/alerts?league=${encodeURIComponent($("league").value)}&days=7`);
+      box.hidden = !r.alerts.length;
+      box.innerHTML = `<h3>Alerts</h3><ul>${r.alerts.slice(0, 12).map((x) =>
+        `<li class="alert ${esc(x.kind)}"><span class="muted">${esc(dow(x.at.slice(0, 10)))} ${esc(md(x.at.slice(0, 10)))}</span> ${
+          x.player_id ? `<button type="button" class="plink" data-pid="${x.player_id}">${esc(x.text)}</button>` : esc(x.text)}</li>`).join("")}</ul>`;
+    } catch { box.hidden = true; }
+  }
+
   loaders.roster = async () => {
     status("Loading roster…");
+    drawAlerts();
     try {
       const q = new URLSearchParams(params(rosterTeam ? { team: rosterTeam } : {}));
       let a;
@@ -285,7 +320,8 @@
       && (!q || `${r.name} ${r.team}`.toLowerCase().includes(q))
       && (!pos || r.elig.includes(pos))
       && (!role || (role === "up" ? r.role?.change === "up" : role === "pp1" ? r.role?.pp === "PP1"
-        : role === "cold" ? r.luck?.status === "cold" : true)));
+        : role === "cold" ? r.luck?.status === "cold"
+        : role === "rising" ? (r.rostered?.d7 ?? 0) >= 3 : true)));
     const c = faData.counts;
     $("fa-counts").textContent = `${rows.length} match: ${c.FA} free agents, ${c.W} on waivers, ${c.OUT} injured in all.`;
     table($("fa-table"), playerCols([

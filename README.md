@@ -154,7 +154,7 @@ team_name: Office Grinders   # optional; default: your team's name on Yahoo
 
 A league with its own block keeps its files in `data/leagues/<config name>/`
 (`my_roster.txt`, `fa.txt`, `league_rosters.json`, `market.json`,
-`roster_moves.json`). A league without one follows `yahoo:` in `config/inseason.yaml`
+`roster_moves.json`, `matchups.json`, `market_history.json`, `alerts.json`). A league without one follows `yahoo:` in `config/inseason.yaml`
 and shares the files in `data/`. The Refresh button pulls the selected league; the
 twice-daily timer (no `league`) pulls the default league and every league with its own
 block.
@@ -167,6 +167,39 @@ package you win by your model (rest of season above replacement), with how it lo
 them by Yahoo's market numbers and each lineup's fit over the window; tick players on
 both sides to score an offer you received. Taking back more players than you send cuts
 your worst. Endpoint: `/api/inseason/partner-trades?partner=<team id>&give=ids&get=ids`.
+
+**Recap tab:** last week in review and the week ahead. Top 10 scorers of the last 7 days
+(with who owns them), players heating up or cooling off (last 14 days vs their blend, 4+
+games, 20%+ off), line and PP changes, luck flags, bandwagon adds (free agents whose %
+rostered across Yahoo rose most this week, and whether the numbers back it), and next
+week's schedule with skater streams (teams with 4+ games) and goalie streams. Endpoint:
+`/api/inseason/recap?league=<config>`.
+
+**Stat windows and % rostered:** every refresh also pulls each player's last 7, 14, 28
+and 56 days (pick one with "Stats from" on Roster and Free agents; it shows as a column)
+and records each player's Yahoo % rostered in `market_history.json` (30 days kept). The
+"% Ros" column shows the 7-day change; the "% rostered rising" filter on Free agents
+lists free agents up 3+ points this week. Needs two refreshes a few days apart.
+
+**Compare:** "Add to compare" in any player's card puts him in a tray at the bottom (up
+to 3); Compare shows them side by side: value, every stat window, role, luck, % rostered
+and their weekly points on one chart.
+
+**Alerts:** each refresh compares the new data with the last and logs alerts for your
+team: injury or IR changes, line or PP changes for your players, free agents promoted to
+PP1, and your goalie's team playing the second night of a back-to-back tomorrow (he
+starts about half as often then). They show at the top of Roster
+(`/api/inseason/alerts?days=7`). To get them on your phone, point `alerts.url` in
+`config/inseason.yaml` at an [ntfy](https://ntfy.sh) topic:
+
+```yaml
+alerts:
+  url: "https://ntfy.sh/some-long-random-topic"   # or your own ntfy server
+```
+
+There's no free source of confirmed starting goalies in the NHL API, so start chances
+come from each goalie's share of starts plus the back-to-back rule, not from morning
+skate reports.
 
 ## Running on a home server
 

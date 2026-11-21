@@ -30,7 +30,7 @@ from fastapi import HTTPException
 
 from src.api import inseason as ins
 from src.inseason import leagues as store
-from src.inseason import moves
+from src.inseason import moves, rostered
 
 NO_LINK = ("no Yahoo league set for '{key}': add a yahoo: block (league_id, "
            "team_id) to config/leagues/{key}.yaml, or set yahoo.league_id / "
@@ -62,6 +62,38 @@ def _snapshot(link: dict, teams: dict) -> dict:
     }
 
 
+def _alerts(folder, before, snap, ctx, roster_text: str, fa_text: str) -> dict:
+    """Alerts about your team (src/inseason/alerts.py): stored, and sent to
+    alerts.url from config/inseason.yaml when one is set. Never fails the
+    refresh."""
+    from src.inseason import alerts
+    from src.inseason.roster import parse_list
+    try:
+        my = {}
+        for line in roster_text.splitlines():
+            parts = [x.strip() for x in line.split("|")]
+            if len(parts) >= 3 and not line.lstrip().startswith("#"):
+                pl = parse_list(ctx, line)
+                pid = next(iter(list(pl.active) + list(pl.inactive)), None)
+                if pid is not None:
+                    my[f"{parts[0]}|{parts[1]}"] = pid
+        fa = set(parse_list(ctx, fa_text).active)
+        new = alerts.make(before, snap, ctx, my, fa, datetime.date.today())
+        log, fresh = alerts.merge(store.read_json(folder / ins.ALERTS_FILE), new)
+        ins._write_atomic({folder / ins.ALERTS_FILE: json.dumps(log, ensure_ascii=False)})
+        res = {"new": len(fresh)}
+        url = ((ctx.icfg.get("alerts") or {}).get("url") or "").strip()
+        if url and fresh:
+            try:
+                alerts.send(url, fresh)
+                res["sent"] = len(fresh)
+            except Exception as e:
+                res["send_error"] = str(e)
+        return res
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def _pull(key: str, cfg, link: dict, force: bool) -> dict:
     """One league's Yahoo pull. Failures are reported in the result (the old
     files stay), never raised."""
@@ -69,10 +101,12 @@ def _pull(key: str, cfg, link: dict, force: bool) -> dict:
 
     folder = store.data_dir(ins.DATA_DIR, key, cfg)
     out: dict = {"yahoo": None, "yahoo_error": None}
+    fa_market: list[dict] = []
     try:
         stats: dict = {}
         roster, fas = yp.fetch_lists(link["league_id"], link["team_id"],
                                      link["free_agent_pages"], stats=stats)
+        fa_market = stats.get("market", [])
         teams = yp.fetch_league(link["league_id"])
         old = ins._list_count(folder / ins.FA_FILE)
         if (not force and old >= ins.FA_SHRINK_MIN_OLD
@@ -106,6 +140,7 @@ def _pull(key: str, cfg, link: dict, force: bool) -> dict:
             folder / ins.LEAGUE_FILE: json.dumps(snap, ensure_ascii=False, indent=1),
             folder / ins.MOVES_FILE: json.dumps(log, ensure_ascii=False, indent=1)})
         ctx = ins._ctx(key)
+        out["alerts"] = _alerts(folder, before, snap, ctx, roster_text, fa_text)
         _, miss_r = ins.parse_players(ctx, roster_text)
         _, miss_f = ins.parse_players(ctx, fa_text)
         out["yahoo"] = {"roster": len(roster), "free_agents": len(fas),
@@ -125,11 +160,18 @@ def _pull(key: str, cfg, link: dict, force: bool) -> dict:
     # trade-market data (% rostered, Fan Pts, ranks): optional extra
     try:
         rows = yp.fetch_market(link["league_id"])
+        now = datetime.datetime.now().isoformat(timespec="minutes")
         if rows:
             folder.mkdir(parents=True, exist_ok=True)
             ins._write_atomic({folder / ins.MARKET_FILE: json.dumps({
-                "fetched": datetime.datetime.now().isoformat(timespec="minutes"),
-                "players": rows}, ensure_ascii=False)})
+                "fetched": now, "players": rows}, ensure_ascii=False)})
+        # % rostered over time: rostered players + the free-agent pages
+        hist = rostered.update(store.read_json(folder / ins.MARKET_HISTORY_FILE),
+                               rows + fa_market, now)
+        if hist["snapshots"]:
+            folder.mkdir(parents=True, exist_ok=True)
+            ins._write_atomic({folder / ins.MARKET_HISTORY_FILE:
+                               json.dumps(hist, ensure_ascii=False)})
         out["market"] = len(rows)
     except Exception as e:
         out["market_error"] = f"market data not updated: {e}"

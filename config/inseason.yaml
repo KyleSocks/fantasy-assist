@@ -118,3 +118,10 @@ play_share_k_games: 20
 play_share_use_season: false
 # share for a skater with no projection (rookies); match gp_healthy_share
 play_share_unprojected: 0.88
+# Alerts about your team (injury tags, IR moves, line / PP changes, your
+# goalie on a back-to-back, free agents promoted to PP1) are made on every
+# Refresh and listed on the Roster tab. Set a URL to also get them as phone
+# notifications: an ntfy topic (https://ntfy.sh/<a-long-random-topic>, or
+# your own ntfy server) or any endpoint that takes a plain-text POST.
+alerts:
+  url: ""

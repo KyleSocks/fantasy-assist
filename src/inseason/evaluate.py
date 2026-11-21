@@ -156,6 +156,10 @@ def build_context(db_path: str, league: LeagueConfig,
         for pid, rec in load_recent(conn).items():
             if pid in lines:
                 lines[pid].extra["recent"] = rec
+        from .windows import load_windows
+        for pid, w in load_windows(conn).items():
+            if pid in lines:
+                lines[pid].extra["windows"] = w
         skaters, goalies = load_current(conn, season)
         factors = opponent_factors(skaters, goalies, team_games_played(skaters),
                                    icfg["opponent_k_games"])
