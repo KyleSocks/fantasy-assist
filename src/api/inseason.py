@@ -13,6 +13,7 @@ GET /api/inseason/partner-trades?partner=<team id>&give=ids&get=ids   package de
 GET /api/inseason/moves?days=30&league=   roster changes for every team (inseason_moves.py)
 GET /api/inseason/leagues             league configs + the Yahoo league each follows
 GET /api/inseason/matchup?league=&team=&start=   this week's head-to-head (inseason_matchup.py)
+GET /api/inseason/recap?league=      last week in review + next week (inseason_recap.py)
 
 Every endpoint takes ?league=<config stem>. A league with its own ``yahoo:``
 block reads and writes its files under data/leagues/<stem>/; the others share
@@ -51,7 +52,7 @@ from src.inseason.roster import (
     roster_plan,
 )
 from src.inseason import leagues as store
-from src.inseason.leagues import FA_FILE, LEAGUE_FILE, MARKET_FILE, MATCHUPS_FILE, MOVES_FILE, ROSTER_FILE  # noqa: F401
+from src.inseason.leagues import ALERTS_FILE, FA_FILE, LEAGUE_FILE, MARKET_FILE, MARKET_HISTORY_FILE, MATCHUPS_FILE, MOVES_FILE, ROSTER_FILE  # noqa: F401
 from src.paths import DATA_DIR, DB_PATH, DEFAULT_LEAGUE_PATH, LEAGUE_DIR
 from src.valuation.league import LeagueConfig, load_league
 
@@ -118,6 +119,16 @@ def _with_waivers(ctx: Context) -> Context:
         active = parse_list(ctx, _read(FA_FILE, ctx)).active if mtime else ()
         apply_waiver_replacement(ctx, active)
         ctx.__dict__["_fa_mtime"] = mtime
+    # % rostered trend (market_history.json), re-read when it changes
+    hpath = _dir(ctx) / MARKET_HISTORY_FILE
+    hm = os.path.getmtime(hpath) if hpath.exists() else None
+    if ctx.__dict__.get("_ros_mtime", "unset") != hm:
+        from src.inseason import rostered
+        hist = store.read_json(hpath) if hm else None
+        ctx.__dict__["_rostered"] = {
+            days: rostered.by_player(ctx.lines, rostered.changes(hist, days))
+            for days in (3, 7)}
+        ctx.__dict__["_ros_mtime"] = hm
     return ctx
 
 
@@ -205,6 +216,24 @@ def _add_lineup_fit(ctx, rows: list[dict], date: str) -> None:
         r["adds"] = max(with_him - total, 0.0)
 
 
+def _projection_inputs(ctx, pid: int, start: str) -> dict:
+    """What the projection uses beyond the season blend: goals from
+    shooting %, deployment factors, back-to-back nights (goalies)."""
+    from src.inseason.evaluate import goalie_share
+    ln = ctx.lines[pid]
+    out: dict = {"sh_pct": ln.extra.get("sh_pct"), "deploy": None, "b2b": []}
+    dep = ln.extra.get("deploy")
+    if dep:
+        val = lambda st: ctx.scorer.value_stats(pid, ln.position, st)  # noqa: E731
+        out["deploy"] = {**dep, "value_delta": val(dep["delta"]) - val({})}
+    if ln.is_goalie and ln.start_share > 0:
+        end = (datetime.date.fromisoformat(start) + datetime.timedelta(days=13)).isoformat()
+        out["b2b"] = [{"date": d, "share": goalie_share(ctx, ln, d)}
+                      for d, _ in ctx.team_games(ln.team, start, end)
+                      if abs(goalie_share(ctx, ln, d) - ln.start_share) > 1e-9]
+    return out
+
+
 @router.get("/player/{player_id}")
 def get_player(player_id: int, league: LeagueName = None,
                start: DateStr = None, days: Days = 10) -> dict:
@@ -222,7 +251,11 @@ def get_player(player_id: int, league: LeagueName = None,
              as_of=ctx.as_of, league=ctx.league.name,
              unit="fpts" if ctx.scorer.points else "z")
     from src.inseason.roster import luck_json, role_json
-    h.update(luck=luck_json(ctx, player_id), role=role_json(ctx, player_id))
+    from src.inseason.roster import _rostered
+    from src.inseason.trend import windows_json
+    h.update(windows=windows_json(ctx, ln), rostered=_rostered(ctx, player_id))
+    h.update(luck=luck_json(ctx, player_id), role=role_json(ctx, player_id),
+             inputs=_projection_inputs(ctx, player_id, _day(start)))
     return h
 
 
@@ -354,8 +387,10 @@ def get_free_agents(start: DateStr = None, days: Days = 9,
                     league: LeagueName = None) -> dict:
     ctx = _ctx(league)
     fa_path = _dir(ctx) / FA_FILE
+    hist = _dir(ctx) / MARKET_HISTORY_FILE
     key = (_gen(ctx), _day(start), days,
-           os.path.getmtime(fa_path) if fa_path.exists() else 0)
+           os.path.getmtime(fa_path) if fa_path.exists() else 0,
+           os.path.getmtime(hist) if hist.exists() else 0, str(_dir(ctx)))
     if _FA_CACHE.get("key") == key:
         return _FA_CACHE["value"]
     pl = parse_list(ctx, _read(FA_FILE, ctx))
@@ -394,6 +429,18 @@ def get_plan(hold: int, adds: Annotated[str, Query(max_length=40)] = "1,4", star
     lock = {t.strip() for t in locked.split(",") if t.strip()}
     return roster_plan(ctx, roster, fas, hold, _day(start), days,
                        budget or [0], lock, avail, force=force)
+
+
+@router.get("/alerts")
+def get_alerts(league: LeagueName = None,
+               days: Annotated[int, Query(ge=1, le=60)] = 7) -> dict:
+    """Alerts about your team from the last ``days`` days, newest first
+    (src/inseason/alerts.py)."""
+    key, cfg = _league_cfg(league)
+    log = store.read_json(store.data_dir(DATA_DIR, key, cfg) / ALERTS_FILE) or {}
+    cutoff = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+    items = [a for a in log.get("items") or [] if (a.get("at") or "") >= cutoff]
+    return {"alerts": list(reversed(items))}
 
 
 @router.get("/leagues")
@@ -493,3 +540,4 @@ from src.api import inseason_league  # noqa: E402,F401
 from src.api import inseason_player  # noqa: E402,F401
 from src.api import inseason_moves  # noqa: E402,F401
 from src.api import inseason_matchup  # noqa: E402,F401
+from src.api import inseason_recap  # noqa: E402,F401

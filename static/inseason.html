@@ -48,6 +48,7 @@
     <button type="button" class="tab" data-tab="fa">Free agents</button>
     <button type="button" class="tab" data-tab="league">League</button>
     <button type="button" class="tab" data-tab="moves">Moves</button>
+    <button type="button" class="tab" data-tab="recap">Recap</button>
     <button type="button" class="tab" data-tab="schedule">Schedule</button>
     <button type="button" class="tab" data-tab="lists">Lists</button>
   </nav>
@@ -60,9 +61,13 @@
         <h2 id="roster-title">Your roster</h2>
         <p id="repl-note" class="muted"></p>
       </div>
+      <div id="alerts" class="alerts" hidden></div>
       <div class="form-row">
         <label class="field grow"><span>Team</span><select id="roster-team">
           <option value="">Your team</option></select></label>
+        <label class="field"><span>Stats from</span><select class="win-select">
+          <option value="7">Last 7 days</option><option value="14">Last 14 days</option>
+          <option value="28">Last 28 days</option><option value="56">Last 56 days</option></select></label>
       </div>
       <details class="how"><summary>How to read this</summary>
         <p>Weakest players first, by <b>Value</b> (fantasy points per team game: his blended per-game
@@ -125,7 +130,11 @@
           <option>LW</option><option>RW</option><option>D</option><option>G</option></select></label>
         <label class="field"><span>Only</span><select id="fa-role"><option value="">Everyone</option>
           <option value="up">Just promoted (line or PP)</option><option value="pp1">On PP1</option>
-          <option value="cold">Unlucky (due to bounce back)</option></select></label>
+          <option value="cold">Unlucky (due to bounce back)</option>
+          <option value="rising">% rostered rising (3+ in a week)</option></select></label>
+        <label class="field"><span>Stats from</span><select class="win-select">
+          <option value="7">Last 7 days</option><option value="14">Last 14 days</option>
+          <option value="28">Last 28 days</option><option value="56">Last 56 days</option></select></label>
         <fieldset class="checks"><legend>Show</legend>
           <label><input id="fa-show-FA" type="checkbox" checked> Free agents</label>
           <label><input id="fa-show-W" type="checkbox" checked> Waivers</label>
@@ -246,6 +255,18 @@
       <div id="moves-feed" class="feed"></div>
     </section>
 
+    <section id="tab-recap" class="panel" hidden>
+      <div class="lede"><h2>Week in review</h2><p id="recap-meta" class="muted"></p></div>
+      <details class="how"><summary>How to read this</summary>
+        <p>Players rostered in your league (with the team that has them) and your league's free agents.
+          <b>Heating up / cooling off</b>: the last 14 days per game against his blended rate (4+ games,
+          20% or more either way). <b>Bandwagon</b>: free agents whose % rostered across Yahoo rose most this
+          week, and whether his numbers clear the free-agent bar. <b>Next week</b> uses the same projections
+          as the rest of the app.</p>
+      </details>
+      <div id="recap-body" class="recap"></div>
+    </section>
+
     <section id="tab-schedule" class="panel" hidden>
       <div class="lede"><h2>NHL schedule</h2>
         <p class="muted">Games per team over the window. Off-nights are light NHL nights, when your
@@ -269,8 +290,14 @@
     </section>
   </main>
 
+  <div id="cmp-tray" class="cmp-tray" hidden></div>
+  <dialog id="cmp-dlg" aria-labelledby="cmp-title">
+    <header><h2 id="cmp-title">Compare</h2><button type="button" id="cmp-close">Close</button></header>
+    <div id="cmp-body"></div>
+  </dialog>
+
   <dialog id="player-dlg" aria-labelledby="pd-name">
-    <header><h2 id="pd-name"></h2><button type="button" id="pd-close">Close</button></header>
+    <header><h2 id="pd-name"></h2><div class="pd-actions"><button type="button" id="pd-compare">Add to compare</button><button type="button" id="pd-close">Close</button></div></header>
     <div id="pd-body"></div>
   </dialog>
 
@@ -279,6 +306,8 @@
   <script src="/static/inseason-partner.js"></script>
   <script src="/static/inseason-moves.js"></script>
   <script src="/static/inseason-matchup.js"></script>
+  <script src="/static/inseason-recap.js"></script>
+  <script src="/static/inseason-compare.js"></script>
   <script src="/static/inseason-player.js"></script>
 </body>
 </html>

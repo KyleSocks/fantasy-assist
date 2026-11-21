@@ -160,7 +160,7 @@ dialog#player-dlg::backdrop { background: var(--shade); }
   #refresh { grid-column: 1 / -1; }
   .asof { grid-column: 1 / -1; white-space: normal; }
 
-  .ins-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 0 calc(var(--pad) - 4px); overflow: visible; gap: 0; }
+  .ins-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)); padding: 0 calc(var(--pad) - 4px); overflow: visible; gap: 0; }
   .ins-tabs .tab { min-width: 0; padding: 6px 2px 3px; font-size: 18px; white-space: normal; line-height: 1.05; }
 
   .ins-main { padding-top: 12px; }
@@ -204,4 +204,43 @@ dialog#player-dlg::backdrop { background: var(--shade); }
   .mu-board { grid-template-columns: 1fr 1fr; }
   .mu-mid { grid-column: 1 / -1; grid-row: 2; }
   .mu-final { font-size: 44px; }
+}
+
+/* ── alerts, recap, compare ───────────────────────────────── */
+
+.alerts { padding: 12px 14px; background: var(--sheet); border: 1px solid var(--line); border-left: 4px solid var(--kick); border-radius: var(--r-sm); }
+.alerts h3 { margin: 0 0 6px; font-size: 22px; }
+.alerts ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.alert.injury .plink, .alert.ir .plink { color: var(--bad-fg); }
+.alert.pp1 .plink { color: var(--ok-fg); }
+.recap { display: grid; gap: 8px; }
+.recap-sec h3 { margin-top: 8px; }
+.recap-sec > p { margin: 2px 0 8px; }
+.nights { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 130px), 1fr)); gap: 6px; }
+.nights li { padding: 8px 10px; background: var(--sheet); border: 1px solid var(--line); border-radius: var(--r-sm); }
+
+.pd-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.cmp-tray { position: fixed; left: 50%; bottom: 12px; z-index: 20; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; background: var(--sheet); border: 1px solid var(--line);
+  border-radius: var(--r); box-shadow: 0 8px 24px -12px var(--shade); }
+.cmp-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; background: var(--raised); border-radius: 999px; font-size: 13px; max-width: 12rem; }
+.cmp-chip button { min-height: 26px; width: 26px; padding: 0; border-radius: 999px; background: transparent; border: 0; }
+dialog#cmp-dlg { width: min(860px, calc(100% - 24px)); max-height: calc(100dvh - 24px); padding: 0; color: var(--ink); background: var(--sheet); border: 1px solid var(--line); border-radius: var(--r); overflow: auto; }
+dialog#cmp-dlg::backdrop { background: var(--shade); }
+#cmp-dlg header { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 14px 18px; background: var(--sheet); border-bottom: 1px solid var(--line); }
+#cmp-title { font-family: var(--display); font-weight: 800; font-size: 26px; line-height: 1.05; }
+#cmp-body { padding: 14px 18px 24px; display: grid; gap: 10px; }
+.cmp-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.cmp-table th, .cmp-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.cmp-table thead th, .cmp-table tr:first-child th { font-weight: 600; }
+.cmp-table th[scope="row"] { color: var(--muted); font-weight: 400; font-size: 13px; }
+.cmp-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.cmp-chart svg { display: block; width: 100%; height: auto; }
+.cmp-chart .grid { stroke: var(--line); }
+.cmp-chart .ax { fill: var(--muted); font-size: 12px; font-family: var(--body); }
+
+@media (max-width: 760px) {
+  dialog#cmp-dlg { width: 100%; max-width: none; max-height: 100dvh; height: 100dvh; margin: 0; border: 0; border-radius: 0; }
+  .cmp-table th, .cmp-table td { padding: 5px 4px; font-size: 13px; }
+  .cmp-tray { left: 12px; right: 12px; transform: none; width: auto; }
 }

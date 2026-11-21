@@ -6,7 +6,10 @@ done this season:
 
     blended = (preseason_rate * K + season_to_date_total) / (K + games)
 
-with a per-stat K from config/inseason.yaml. Opponent factors scale a single
+with a per-stat K from config/inseason.yaml -- except goals, which are
+blended shots x blended shooting % (see build_lines), so shooting luck
+regresses at the rate shooting % actually stabilises. Deployment (line,
+PP unit, ice time) then scales the blended rates: src/inseason/deploy.py. Opponent factors scale a single
 game's expected line by how much the opponent allows (goals / shots against)
 or generates (goals / shots for), each regressed to the league mean.
 """
@@ -276,6 +279,7 @@ def build_lines(conn, season_id: int, priors: dict[int, dict], cfg: dict,
     team_gp = team_games_played(skaters)
     team_total = season_team_games(conn, season_id)
     sk_fb = _skater_fallback(skaters)
+    sh_fb = sk_fb["goals"] / sk_fb["shots"] if sk_fb.get("shots") else 0.10
     g_fb, sv_fb = _goalie_fallback(goalies)
     kg = cfg["skater_k_games"]
     kgs = cfg["goalie_k_starts"]
@@ -342,6 +346,24 @@ def build_lines(conn, season_id: int, priors: dict[int, dict], cfg: dict,
         bl = {s: blend(prior.get(s, 0.0), ((cur_s or {}).get(s) or 0), gp,
                        kg.get(s, 40))
               for s in SKATER_STATS}
+        kss = cfg.get("skater_sh_pct_k_shots")
+        if kss and bl["shots"] > 0:
+            # Goals = shots x shooting %. Shot volume settles in a few
+            # weeks (k = the shots k); shooting % takes hundreds of shots
+            # (k = skater_sh_pct_k_shots), so a hot or cold finishing
+            # stretch moves the goal rate far less than blending goals per
+            # game directly would. This is where shooting luck (luck.py)
+            # comes out of the projection.
+            prior_sh = (prior.get("goals", 0.0) / prior["shots"]
+                        if prior.get("shots") else sh_fb)
+            goals_now = (cur_s or {}).get("goals") or 0
+            shots_now = (cur_s or {}).get("shots") or 0
+            sh_pct = blend(prior_sh, goals_now, shots_now, kss)
+            bl["goals"] = bl["shots"] * sh_pct
+            sh_info = {"prior": prior_sh, "blended": sh_pct,
+                       "season": goals_now / shots_now if shots_now else None}
+        else:
+            sh_info = None
         toi_obs = ((cur_s or {}).get("toi_sec") or 0) / gp if gp else None
         # Share of his team's games he plays. Rates above are per game
         # PLAYED; a player who misses games is worth less per TEAM game.
@@ -363,4 +385,6 @@ def build_lines(conn, season_id: int, priors: dict[int, dict], cfg: dict,
                           toi_pg_obs=toi_obs, has_projection=has_proj,
                           play_share=ps, play_share_prior=ps_prior,
                           play_share_obs=ps_obs)
+        if sh_info:
+            lines[pid].extra["sh_pct"] = sh_info
     return lines

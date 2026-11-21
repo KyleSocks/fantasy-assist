@@ -156,13 +156,20 @@ def build_context(db_path: str, league: LeagueConfig,
         for pid, rec in load_recent(conn).items():
             if pid in lines:
                 lines[pid].extra["recent"] = rec
+        from .windows import load_windows
+        for pid, w in load_windows(conn).items():
+            if pid in lines:
+                lines[pid].extra["windows"] = w
         skaters, goalies = load_current(conn, season)
         factors = opponent_factors(skaters, goalies, team_games_played(skaters),
                                    icfg["opponent_k_games"])
-        from .luck import load_luck
+        from .deploy import apply as apply_deployment
         from .lines import load_roles
+        from .luck import load_luck
         luck = load_luck(conn, season)
         roles = load_roles(conn, as_of)
+        # ice time from here on (line / PP changes) scales the blended rates
+        apply_deployment(lines, roles, skaters, icfg.get("deployment") or {})
         games = [tuple(r) for r in conn.execute(
             "SELECT game_date, home_abbrev, away_abbrev FROM schedule"
             " WHERE season_id=? AND game_type=2 ORDER BY game_date, game_id",
@@ -241,17 +248,52 @@ def form(ctx: Context, line: Line) -> dict[str, float | None]:
             "team_game": team_game}
 
 
-def game_value(ctx: Context, line: Line, opp: str | None) -> float:
+def game_value(ctx: Context, line: Line, opp: str | None,
+               date: str | None = None) -> float:
     """Value of one team game for ``line`` against ``opp``, memoised per
     context: it depends only on the player and the opponent, and windows
-    re-ask it for every game of every candidate."""
+    re-ask it for every game of every candidate. ``date``: goalies' start
+    chance that night (back-to-backs, goalie_share)."""
     memo = ctx.__dict__.setdefault("_game_value", {})
     key = (line.player_id, opp)
     v = memo.get(key)
     if v is None:
         v = memo[key] = _value(ctx, line,
                                expected_line(line, ctx.factors.get(opp)))
+    if date and line.is_goalie and line.start_share > 0:
+        v *= goalie_share(ctx, line, date) / line.start_share
     return v
+
+
+def _prev_day(d: str) -> str:
+    import datetime as _dt
+    return (_dt.date.fromisoformat(d) - _dt.timedelta(days=1)).isoformat()
+
+
+def goalie_share(ctx: Context, line: Line, date: str) -> float:
+    """Chance ``line`` starts his team's game on ``date``. Normally his
+    start share; on the second night of a back-to-back the team's usual
+    starter (biggest share) starts goalie_b2b_starter_factor as often and
+    his partners split the difference by their shares. Over a season this
+    moves a few starts from the starter to the backup, as teams do."""
+    f = ctx.icfg.get("goalie_b2b_starter_factor")
+    if not f or not line.team or not ctx.team_games(line.team, _prev_day(date), _prev_day(date)):
+        return line.start_share
+    pool = ctx.__dict__.setdefault("_goalie_pool", {})
+    if line.team not in pool:
+        pool[line.team] = sorted(
+            ((ln.start_share, pid) for pid, ln in ctx.lines.items()
+             if ln.is_goalie and ln.team == line.team and ln.start_share > 0),
+            reverse=True)
+    gs = pool[line.team]
+    if not gs:
+        return line.start_share
+    top_share, top = gs[0]
+    if line.player_id == top:
+        return top_share * f
+    others = sum(sh for sh, _ in gs[1:])
+    freed = top_share * (1 - f)
+    return line.start_share + (freed * line.start_share / others if others else 0.0)
 
 
 def player_window(ctx: Context, pid: int, start: str, end: str) -> dict:
@@ -259,7 +301,7 @@ def player_window(ctx: Context, pid: int, start: str, end: str) -> dict:
     off = ctx.icfg["off_night_max_games"]
     games = []
     for d, opp in ctx.team_games(line.team, start, end):
-        v = game_value(ctx, line, opp)
+        v = game_value(ctx, line, opp, d)
         games.append({"date": d, "opp": opp, "value": v,
                       "off_night": ctx.games_on(d) <= off})
     return {"games": games, "value": sum(g["value"] for g in games),
@@ -305,7 +347,7 @@ def apply_waiver_replacement(ctx: Context, available) -> dict[str, str]:
 def ros_value(ctx: Context, pid: int, start: str) -> float:
     """Weighted value of every game from ``start`` to the fantasy end."""
     line = ctx.lines[pid]
-    return sum(game_value(ctx, line, opp) * ctx.game_weight(d)
+    return sum(game_value(ctx, line, opp, d) * ctx.game_weight(d)
                for d, opp in ctx.team_games(line.team, start, ctx.fantasy_end()))
 
 

@@ -235,6 +235,8 @@ def fetch_lists(league_id: int, team_id: int, fa_pages: int = 0,
                         "rows: login/consent wall or a page redesign")
                 rows = parse_rows(html_page)
                 unparsed += raw - len(rows)
+                if stats is not None:     # % rostered etc. for trend history
+                    stats.setdefault("market", []).extend(parse_market_rows(html_page))
                 new = [p for p in rows if (p.name, p.team) not in seen]
                 seen.update((p.name, p.team) for p in new)
                 fas += new
