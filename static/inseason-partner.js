@@ -161,5 +161,26 @@
   });
   ["shop-pos", "shop-gain"].forEach((id) => $(id).addEventListener("change", drawShop));
 
-  window.insPartner = { fill: (L) => { fillShop(L); fill(L); } };
+  // Deep link from the Recap takes: open the League tab and run "Trade with
+  // a team" (partner + players to get ticked) or "Shop a player" (give).
+  let pending = null;
+  function applyPending() {
+    const p = pending; pending = null;
+    if (!p) return;
+    if (p.partner != null) {
+      $("pt-team").value = String(p.partner);
+      drawPick();
+      (p.get || []).forEach((id) => { const b = document.querySelector(`.pt-get[value="${id}"]`); if (b) b.checked = true; });
+      $("pt-pick").scrollIntoView({ behavior: "smooth", block: "start" });
+      $("pt-run").click();
+    } else if (p.give != null) {
+      $("shop-give").value = String(p.give);
+      $("shop-give").scrollIntoView({ behavior: "smooth", block: "center" });
+      $("shop-run").click();
+    }
+  }
+  window.insPartner = {
+    fill: (L) => { fillShop(L); fill(L); applyPending(); },
+    open: (req) => { pending = req; window.insKit.showTab("league"); },
+  };
 })();

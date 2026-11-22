@@ -157,3 +157,38 @@ def get_recap(league: LeagueName = None) -> dict:
                                    start_share=ctx.lines[p].start_share) for p in stream_g],
         },
     }
+
+
+@ins.router.get("/takes")
+def get_takes(league: LeagueName = None, start: str | None = None) -> dict:
+    """Buy low / sell high / trade targets / waiver adds / stashes for your
+    league (src/inseason/takes.py)."""
+    from src.inseason.takes import build
+    from src.inseason.teams import Market
+
+    ctx = ins._ctx(league)
+    folder = ins._dir(ctx)
+    snap = store.read_json(folder / ins.LEAGUE_FILE)
+    if snap is None:
+        raise HTTPException(400, "no league rosters yet: press Refresh data")
+    owners: dict[int, int] = {}
+    names: dict[int, str] = {}
+    for tid, t in (snap.get("teams") or {}).items():
+        names[int(tid)] = t.get("name") or "?"
+        text = "\n".join(f"{p['name']} | {p.get('team', '')} | {','.join(p.get('positions') or [])}"
+                         for p in t.get("players") or [])
+        pl = parse_list(ctx, text)
+        for pid in list(pl.active) + list(pl.inactive):
+            owners[pid] = int(tid)
+    my_team = snap.get("my_team_id")
+    my_team = int(my_team) if my_team is not None else None
+    fa = parse_list(ctx, ins._read(ins.FA_FILE, ctx))
+    fas = {p for p in fa.active if p not in owners}
+    injured = {p for p in fa.inactive if p not in owners}   # free agents listed OUT / IR
+    mdata = store.read_json(folder / ins.MARKET_FILE)
+    market = Market(ctx, (mdata or {}).get("players") or [])
+    out = build(ctx, owners=owners, team_names=names, my_team=my_team, fas=fas,
+                injured_fas=injured, market=market, rostered=lambda p: _rostered(ctx, p),
+                start=ins._day(start))
+    return {"as_of": ctx.as_of, "my_team": names.get(my_team), "my_team_id": my_team,
+            "has_market": bool(mdata), **out}

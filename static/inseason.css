@@ -244,3 +244,19 @@ dialog#cmp-dlg::backdrop { background: var(--shade); }
   .cmp-table th, .cmp-table td { padding: 5px 4px; font-size: 13px; }
   .cmp-tray { left: 12px; right: 12px; transform: none; width: auto; }
 }
+
+/* ── takes (Recap tab) ─────────────────────────────────────── */
+.takes { display: grid; gap: 6px; margin-bottom: 8px; }
+.takes > h3 { margin: 4px 0 0; }
+.takes-lead { margin: 0 0 4px; max-width: 72ch; font-size: 16px; line-height: 1.5; }
+.take-group h4 { margin: 10px 0 6px; font-size: 15px; }
+.take-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 8px; }
+.take { display: grid; gap: 6px; align-content: start; padding: 10px 12px; background: var(--sheet); border: 1px solid var(--line); border-left-width: 4px; border-radius: var(--r-sm); }
+.take.buy_low, .take.waiver_adds { border-left-color: var(--ok-fg); }
+.take.sell_high { border-left-color: var(--kick); }
+.take.trade_targets { border-left-color: var(--blue); }
+.take.stashes { border-left-color: var(--muted); }
+.take header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.take header .plink { font-weight: 700; }
+.take p { margin: 0; line-height: 1.45; font-size: 14px; }
+.take footer { display: flex; justify-content: flex-end; }
