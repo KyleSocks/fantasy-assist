@@ -293,6 +293,7 @@ def load_roles(conn: sqlite3.Connection, as_of: str | None = None) -> dict[int, 
                                  "change": None})
         if gp:
             r[f"{window}_toi"] = t / gp
+            r[f"{window}_ev_toi"] = (ev or 0) / gp
             r[f"{window}_pp_toi"] = (pp or 0) / gp
             r[f"{window}_gp"] = gp
     return out

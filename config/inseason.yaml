@@ -16,6 +16,24 @@ skater_k_games:
   shots: 15
   hits: 10
   blocks: 10
+# Goals = blended shots x blended shooting %. Shooting % blends toward his
+# projected % with this many shots of prior (it takes ~300-400 shots to
+# settle), so a lucky or unlucky finishing stretch moves his goal rate
+# far less than his shot volume does. Remove the key to blend goals per
+# game directly with skater_k_games.goals instead.
+skater_sh_pct_k_shots: 375
+# Deployment (src/inseason/deploy.py): his expected ice time from here on
+# blends the season average with the last 7 days (and the power-play time
+# of his last game, from shift charts), k games of season prior; rates
+# tied to that ice time scale with it, within [min, max] of normal.
+deployment:
+  k_games: 6
+  last_game_weight: 2     # the last game's PP time counts as this many games
+  min_factor: 0.6
+  max_factor: 1.6
+# Goalies: on the second night of a back-to-back the usual starter starts
+# this fraction as often as usual; the rest goes to his partner(s).
+goalie_b2b_starter_factor: 0.5
 goalie_k_starts:
   wins: 20
   saves: 15
