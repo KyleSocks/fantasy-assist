@@ -216,6 +216,20 @@ def role_json(ctx: Context, pid: int) -> dict | None:
     return out
 
 
+from .trend import windows_json  # noqa: E402
+
+
+def _rostered(ctx: Context, pid: int) -> dict | None:
+    """% of Yahoo leagues rostering him now, and the change over 3 and 7
+    days (src/inseason/rostered.py); None before the first pull."""
+    r = ctx.__dict__.get("_rostered") or {}
+    now = (r.get(7) or {}).get(pid)
+    if not now:
+        return None
+    return {"pct": now["pct"], "d7": now["delta"], "since7": now["since"],
+            "d3": ((r.get(3) or {}).get(pid) or {}).get("delta")}
+
+
 def _role_flag(role: dict | None) -> str | None:
     if not role or not role.get("change"):
         return None
@@ -261,7 +275,8 @@ def _player_row(ctx: Context, pid: int, elig: set[str], start: str,
         "ros_vs_repl": h["ros_vs_replacement"],
         "window_games": len(h["window"]["games"]),
         "verdict": h["verdict"], "flags": flags,
-        "luck": lk, "role": role,
+        "luck": lk, "role": role, "rostered": _rostered(ctx, pid),
+        "windows": windows_json(ctx, ctx.lines[pid]),
     }
 
 
