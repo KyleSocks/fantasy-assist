@@ -157,6 +157,15 @@ def _pull(key: str, cfg, link: dict, force: bool) -> dict:
         out["matchups"] = len(mu["matchups"])
     except Exception as e:
         out["matchups_error"] = f"matchups not updated: {e}"
+    # standings + playoff settings (playoff odds, "Playing for": auto)
+    try:
+        from src.inseason.standings import fetch_standings
+        st = fetch_standings(link["league_id"])
+        folder.mkdir(parents=True, exist_ok=True)
+        ins._write_atomic({folder / ins.STANDINGS_FILE: json.dumps(st, ensure_ascii=False)})
+        out["standings"] = len(st["teams"])
+    except Exception as e:
+        out["standings_error"] = f"standings not updated: {e}"
     # trade-market data (% rostered, Fan Pts, ranks): optional extra
     try:
         rows = yp.fetch_market(link["league_id"])

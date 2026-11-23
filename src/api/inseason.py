@@ -53,7 +53,7 @@ from src.inseason.roster import (
     roster_plan,
 )
 from src.inseason import leagues as store
-from src.inseason.leagues import ALERTS_FILE, FA_FILE, LEAGUE_FILE, MARKET_FILE, MARKET_HISTORY_FILE, MATCHUPS_FILE, MOVES_FILE, ROSTER_FILE  # noqa: F401
+from src.inseason.leagues import ALERTS_FILE, FA_FILE, LEAGUE_FILE, MARKET_FILE, MARKET_HISTORY_FILE, MATCHUPS_FILE, MOVES_FILE, ROSTER_FILE, STANDINGS_FILE  # noqa: F401
 from src.paths import DATA_DIR, DB_PATH, DEFAULT_LEAGUE_PATH, LEAGUE_DIR
 from src.valuation.league import LeagueConfig, load_league
 
@@ -132,7 +132,34 @@ def _with_waivers(ctx: Context) -> Context:
             days: rostered.by_player(ctx.lines, rostered.changes(hist, days))
             for days in (3, 7)}
         ctx.__dict__["_ros_mtime"] = hm
+    # standings -> playoff odds -> "Playing for" when trade_focus is auto
+    spath = _dir(ctx) / STANDINGS_FILE
+    sm = os.path.getmtime(spath) if spath.exists() else None
+    if ctx.__dict__.get("_st_mtime", "unset") != sm:
+        ctx.__dict__["_standings"] = _standings(ctx, store.read_json(spath) if sm else None)
+        ctx.__dict__["_auto_focus"] = (ctx.__dict__["_standings"] or {}).get("focus")
+        ctx.__dict__["_st_mtime"] = sm
     return ctx
+
+
+def _standings(ctx: Context, st: dict | None) -> dict | None:
+    """Standings with playoff odds and the focus they imply for your team
+    (your team = my_team_id of the stored league rosters)."""
+    if not st:
+        return None
+    from src.inseason import standings as S
+    cfg = ctx.icfg.get("standings") or {}
+    o = S.odds(st, cfg)
+    snap = store.read_json(_dir(ctx) / LEAGUE_FILE) or {}
+    me = snap.get("my_team_id")
+    me = int(me) if me is not None else None
+    mine = o["teams"].get(me, {}).get("odds") if me is not None else None
+    return {"fetched": st.get("fetched"), "playoffs": st.get("playoffs"),
+            "weeks_played": o["weeks_played"], "weeks_left": o["weeks_left"],
+            "spots": o["spots"], "my_team_id": me, "my_odds": mine,
+            "focus": S.focus_for(mine, cfg) if mine is not None else None,
+            "teams": [{**t, **o["teams"].get(t["team_id"], {}), "mine": t["team_id"] == me}
+                      for t in st.get("teams") or []]}
 
 
 def _today() -> str:

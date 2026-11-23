@@ -209,10 +209,17 @@ Until then he's worth nothing over replacement (you'd stream his spot), and he t
 slot instead of an active one, so trading a healthy player for him opens a roster spot
 (and the other side has to cut someone).
 
+**Standings and playoff odds:** Refresh reads the standings table on your Yahoo league page and
+the playoff format from its settings page (e.g. "6 teams - Week 24, 25 and 26"). The League tab
+shows W-L-T, points for and each team's playoff odds: the rest of the regular season simulated
+4000 times from points for per week (pulled toward the league average), random opponents (the
+schedule isn't public), top N by wins then points for. Head-to-head leagues only.
+
 **Playing for (trade focus):** a picker above the trade tools (also in Settings) sets how much a
 regular-season game counts against a fantasy-playoff one, everywhere rest-of-season values are
-used: *Making the playoffs* (all games equal), *Balanced* (playoff games x `playoff_game_weight`)
-or *The title* (spot is safe: regular season x 0.25, playoffs x 3). With *The title*, trading for
+used: *Auto* (default: from your playoff odds -- 90%+ the title, 50%+ balanced, below that making
+the playoffs), *Making the playoffs* (all games equal), *Balanced* (playoff games x
+`playoff_game_weight`) or *The title* (spot is safe: regular season x 0.25, playoffs x 3). With *The title*, trading for
 an injured star who's back before your playoffs ranks high even though you lose points until
 then. A free agent who fills the roster spot his IR stint opens counts only until he's back.
 Set a player's expected return yourself (e.g. "out 12 weeks" from the news) in his card; it

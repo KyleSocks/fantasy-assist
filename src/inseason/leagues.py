@@ -27,6 +27,7 @@ MOVES_FILE = "roster_moves.json"
 MATCHUPS_FILE = "matchups.json"
 MARKET_HISTORY_FILE = "market_history.json"
 ALERTS_FILE = "alerts.json"
+STANDINGS_FILE = "standings.json"
 
 
 def yahoo_link(cfg: LeagueConfig | None, icfg: dict | None) -> dict | None:

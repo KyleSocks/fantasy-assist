@@ -506,7 +506,7 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
         "ros_end": ctx.fantasy_end(),
         "playoff_game_weight": ctx.focus_weights()[1],
         "regular_game_weight": ctx.focus_weights()[0],
-        "trade_focus": ctx.icfg.get("trade_focus", "balanced"),
+        "trade_focus": ctx.focus(),
         "market_k_games": float(ctx.icfg.get("market_k_games", 5)),
         "market_weights": market.weights if market else None,
     }

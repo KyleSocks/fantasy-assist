@@ -109,6 +109,8 @@ yahoo:
 # weight. A judgment call -- raise it once your playoff spot is safe.
 playoff_game_weight: 2.0
 # What you're playing for (also a picker in the trade tools):
+#   auto           from your playoff odds (standings on Refresh): 90%+ ->
+#                  playoffs, 50%+ -> balanced, below -> make_playoffs
 #   make_playoffs  every game counts the same
 #   balanced       playoff games x playoff_game_weight
 #   playoffs       your playoff spot is safe: regular-season games count
@@ -116,9 +118,17 @@ playoff_game_weight: 2.0
 #                  contender_playoff_weight. Trades for an injured star who's
 #                  back before the playoffs rank high even if you lose
 #                  points until then.
-trade_focus: balanced
+trade_focus: auto
 contender_regular_weight: 0.25
 contender_playoff_weight: 3.0
+# Playoff odds (src/inseason/standings.py): simulated rest of the regular
+# season from points-for per week, pulled toward the league average.
+standings:
+  safe_odds: 0.90      # auto focus -> playoffs at or above
+  bubble_odds: 0.50    # auto focus -> balanced at or above, else make_playoffs
+  week_sd_pct: 0.18    # weekly score spread, share of the league average
+  k_weeks: 3           # weeks of league average mixed into points-for
+  sims: 4000
 # Skaters: share of team games played (injuries, scratches) blends the
 # projection's durability with this season's games played / team games.
 play_share_k_games: 20
