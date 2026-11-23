@@ -32,7 +32,9 @@
     : g > 0 ? `<b class="pos">You by ${num(g, d)}</b>` : `<b class="neg">${esc(them)} by ${num(-g, d)}</b>`);
   // Yahoo injury tag, share of games played, fantasy-playoff games
   // injury tag, plus shooting / save luck (hot = sell-high, cold = buy-low)
+  // out_until: on IR / OUT, counted from his estimated return (teams.py)
   const tag = (p) => (p.injury ? `<span class="flag">${esc(p.injury)}</span>` : "")
+    + (p.out_until ? `<span class="flag" title="injured: counted from his estimated return (by Yahoo tag; set in Settings)">${p.injury ? "" : "IR, "}back ~${md(p.out_until)}</span>` : "")
     + (p.luck === "hot" ? '<span class="flag" title="shooting or saving well above his usual: expect it to cool off">running hot</span>'
       : p.luck === "cold" ? '<span class="flag good" title="shooting or saving well below his usual: expect it to come back">due to bounce back</span>' : "");
   const extras = (p) => [p.avail != null && p.avail < 0.85 ? `plays ${Math.round(p.avail * 100)}%` : "",

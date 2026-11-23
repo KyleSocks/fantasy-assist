@@ -202,6 +202,13 @@ thresholds and the alerts URL. A changed field is marked and has a "Default" but
 work in Docker where `config/` is read-only, and every tab recomputes on the next load.
 The full explanation of each setting stays in `config/inseason.yaml`.
 
+**Injured players in trades:** players on IR / OUT / NA show up in every trade tool (League
+tab lists, Trade with a team, Shop a player). Each is counted from an estimated return,
+by Yahoo tag: IR 3 weeks, IR-LT 10, O 1, NA never (change IR, IR-LT and O in Settings).
+Until then he's worth nothing over replacement (you'd stream his spot), and he takes an IR
+slot instead of an active one, so trading a healthy player for him opens a roster spot
+(and the other side has to cut someone).
+
 **Takes** (top of the Recap tab): a short column about your league. Each player has two
 prices per team game: your model's and the Yahoo crowd's (% rostered, season points and
 preseason rank, turned into the same units, as in the trade tools).
