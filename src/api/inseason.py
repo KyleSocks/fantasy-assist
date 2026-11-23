@@ -253,9 +253,14 @@ def _injury_status(ctx, pid: int, start: str) -> dict | None:
     from src.inseason.teams import injury_returns, team_tags, trade_roster
     snap = store.read_json(_dir(ctx) / LEAGUE_FILE) or {}
     for t in (snap.get("teams") or {}).values():
-        _, out = trade_roster(ctx, t.get("players") or [], start)
+        roster, out = trade_roster(ctx, t.get("players") or [], start)
+        tag = team_tags(ctx, t.get("players") or []).get(pid)
+        if pid in roster and pid not in out and tag:
+            # tagged (DTD, O...) but not on IR: counted as healthy unless
+            # you set a date
+            return {"owner": t.get("name"), "tag": tag, "back": None, "yours": False}
         if pid in out:
-            return {"owner": t.get("name"), "tag": team_tags(ctx, t.get("players") or []).get(pid),
+            return {"owner": t.get("name"), "tag": tag,
                     "back": out[pid],
                     "yours": pid in injury_returns()}
     return None

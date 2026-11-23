@@ -450,3 +450,16 @@ def test_stop_gap_for_an_injured_pickup_ends_when_he_returns(db):  # noqa: F811
     lineup.sim.until = {}
     assert o["my_gain"] == pytest.approx(capped)
     assert capped < lineup.gain({3}, {2: {"C"}, 6: {"G"}})     # a permanent add would be worth more
+
+
+
+def test_your_return_date_counts_for_an_active_listed_player(db):  # noqa: F811
+    """Goalie B isn't on IR at Yahoo, but you know he's out until 11-04:
+    trades count him from then. A date already past changes nothing."""
+    from src.inseason.teams import set_injury_return, trade_roster
+    ctx = _ir_ctx(db)
+    set_injury_return(7, "2026-11-04")
+    assert trade_roster(ctx, IR_LEAGUE["teams"]["2"]["players"], "2026-11-01")[1] == {
+        2: "2026-11-03", 7: "2026-11-04"}
+    set_injury_return(7, "2026-10-01")
+    assert 7 not in trade_roster(ctx, IR_LEAGUE["teams"]["2"]["players"], "2026-11-01")[1]

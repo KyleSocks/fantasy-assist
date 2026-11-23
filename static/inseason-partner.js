@@ -22,7 +22,19 @@
         <span class="muted">${esc(p.elig.join(","))}, ${num(p.per_game)} per game${extras(p) ? `, ${extras(p)}` : ""}</span></label>`).join("")}</div>`;
     $("pt-pick").innerHTML = side(me, "pt-give", "You give (tick up to 2)") +
       side(them, "pt-get", `You get from ${them ? them.name : "?"} (up to 2)`);
+    clearDeals();
+  }
+  // results belong to the exact request that made them: a new partner,
+  // a changed tick or a newer search throws them away (a slow earlier
+  // search used to land after a newer one and show the wrong team's deals)
+  let ptSeq = 0;
+  function clearDeals(msg = "") {
+    ptSeq++;                      // any search still running is now stale
+    ptData = null;
     $("pt-offer").innerHTML = "";
+    $("pt-table").innerHTML = "";
+    $("pt-meta").textContent = msg;
+    clearSort("pt-table");
   }
   const ticked = (cls) => [...document.querySelectorAll(`.${cls}:checked`)].map((x) => x.value);
   // their_view = what they gain as the market sees it, so their view of
@@ -70,9 +82,10 @@
     } else $("pt-offer").innerHTML = "";
     const rows = ptData.deals.filter((x) => !$("pt-sweet").checked || x.sweet_spot);
     const P2 = (ids) => ids.map((i) => P[i].name).join(", ");
+    const asked = ptData._asked;          // the ticks this search was run with
     const req = ptData.constrained
-      ? `${ptData.found} deals including your ticks (${[P2(ticked("pt-give").map(Number).filter((i) => P[i])),
-          P2(ticked("pt-get").map(Number).filter((i) => P[i]))].filter(Boolean).join(" / ")}), best for you first${$("pt-sweet").checked ? ", likely-accept only" : ""}`
+      ? `${ptData.found} deals with ${them} including ${[P2(asked.give.filter((i) => P[i])),
+          P2(asked.get.filter((i) => P[i]))].filter(Boolean).join(" / ")}, best for you first${$("pt-sweet").checked ? ", likely-accept only" : ""}`
       : `${ptData.found} deals you win with ${ptData.partner.name}`
         + ` (best ${ptData.scored} of ${ptData.considered} packages lineup-simulated)`;
     $("pt-meta").textContent = `${req}; ${rows.length} shown`
@@ -86,17 +99,32 @@
     if (give.length > 2 || get.length > 2) return status("Tick at most 2 players a side.", true);
     if (Math.max(give.length, get.length) > Number($("pt-size").value))
       return status("Ticked more players than the deal size allows.", true);
+    clearDeals("Trying every package with this team…");
+    const mine = ptSeq;
+    const partner = $("pt-team").value;
     status("Trying every package with this team (a few seconds)…");
     try {
-      ptData = await api(`/api/inseason/partner-trades?${new URLSearchParams({
+      const r = await api(`/api/inseason/partner-trades?${new URLSearchParams({
         league: $("league").value, start: $("start").value, days: $("league-days").value,
-        partner: $("pt-team").value, size: $("pt-size").value,
+        partner, size: $("pt-size").value,
         give: give.join(","), get: get.join(",") })}`);
+      if (mine !== ptSeq || String(r.partner.id) !== partner) return;   // superseded
+      r._asked = { give: give.map(Number), get: get.map(Number) };
+      ptData = r;
       drawDeals();
       status("");
-    } catch (e) { status(e.message, true); }
+    } catch (e) {
+      if (mine !== ptSeq) return;
+      $("pt-meta").textContent = "";
+      status(e.message, true);
+    }
   });
-  $("pt-team").addEventListener("change", () => { ptData = null; drawPick(); $("pt-table").innerHTML = ""; $("pt-meta").textContent = ""; clearSort("pt-table"); });
+  $("pt-team").addEventListener("change", () => drawPick());
+  // ticking or unticking makes the shown deals out of date
+  $("pt-pick").addEventListener("change", () => {
+    if (ptData) clearDeals("Ticks changed: press Find deals.");
+  });
+  $("pt-size").addEventListener("change", () => { if (ptData) clearDeals("Deal size changed: press Find deals."); });
   const clearSort = (id) => { const bar = $(id).closest(".scroll").previousElementSibling; if (bar && bar.classList.contains("tbl-sort")) bar.hidden = true; };
   $("pt-sweet").addEventListener("change", drawDeals);
 
