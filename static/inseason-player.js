@@ -119,10 +119,13 @@
     if (!i) return "";
     const how = i.yours ? "your date" : `an estimate from his ${i.tag ? `${esc(i.tag)} ` : ""}tag; change it here`;
     const owner = i.owner ? ` on ${esc(i.owner.replace(/\.$/, ""))}` : "";
-    return `<div class="pd-injury" data-pid="${p.player_id}">
-      <p><b>Injured</b>${owner}. Trades and takes count him from <b>${md(i.back)}</b>
-        <span class="muted">(${how})</span>: nothing before that, every game after.</p>
-      <div class="pd-injury-set"><label>Expected back <input type="date" value="${esc(i.back)}"></label>
+    const head = i.back
+      ? `<p><b>Injured</b>${owner}. Trades and takes count him from <b>${md(i.back)}</b>
+        <span class="muted">(${how})</span>: nothing before that, every game after.</p>`
+      : `<p><b>Listed ${esc(i.tag)}</b>${owner}, but not on IR, so trades count him as healthy.
+        If he's out longer (e.g. weeks from the news), set when he's back.</p>`;
+    return `<div class="pd-injury" data-pid="${p.player_id}">${head}
+      <div class="pd-injury-set"><label>Expected back <input type="date" value="${esc(i.back || "")}"></label>
         <button type="button" class="pd-back-save">Save date</button>
         ${i.yours ? '<button type="button" class="pd-back-clear quiet">Use the estimate</button>' : ""}
         <span class="muted pd-back-msg" role="status"></span></div></div>`;

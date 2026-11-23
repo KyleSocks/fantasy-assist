@@ -102,6 +102,11 @@ def trade_roster(ctx: Context, players: list[dict], start: str,
     out_until = {}
     d0 = datetime.date.fromisoformat(start)
     mine = injury_returns()
+    # your own date counts even if Yahoo still lists him active (a long
+    # injury the manager hasn't moved to IR yet), while it's in the future
+    for pid in pl.active:
+        if mine.get(pid, "") > start:
+            out_until[pid] = mine[pid]
     for pid in pl.inactive:
         if pid in mine:                       # your own estimate
             out_until[pid] = max(mine[pid], start)
