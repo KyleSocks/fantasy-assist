@@ -4,7 +4,7 @@
 // helpers static/inseason.js exposes as window.insKit.
 (function () {
   "use strict";
-  const { $, esc, num, signed, cls, winner, tag, extras, table, api, status, unit, league } = window.insKit;
+  const { $, esc, num, signed, cls, winner, tag, extras, table, api, status, unit, league, md } = window.insKit;
   let ptData = null;
   function fill(L) {
     const sel = $("pt-team"), prev = sel.value;
@@ -106,7 +106,7 @@
     const me = L.teams.find((t) => t.mine);
     const sel = $("shop-give"), prev = sel.value;
     sel.innerHTML = (me ? me.players : []).map((p) =>
-      `<option value="${p.id}">${esc(p.name)} (${esc(p.elig.join(","))}, ${num(p.per_game)})</option>`).join("");
+      `<option value="${p.id}">${esc(p.name)} (${esc(p.elig.join(","))}, ${num(p.per_game)}${p.out_until ? `, injured, back ~${md(p.out_until)}` : ""})</option>`).join("");
     if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
   }
   const leanCell = (x) => `<span title="${esc(x.lean)} ${signed(100 * x.tilt, 0)}% of your player's value">${

@@ -337,3 +337,62 @@ def test_waiver_replacement_nth_best_free_agent(db):  # noqa: F811
     ctx.icfg["replacement_fa_rank"] = 1
     assert apply_waiver_replacement(ctx, {1, 2, 3})["F"] == "Alex Ovechkin"
     assert ctx.scorer.replacement["F"] == pytest.approx(2.825)
+
+
+# Strong Center on their IR, Dee Two on mine. IR = 2 days here (0.3 weeks
+# rounds to 2), so from 2026-11-01 both are back 2026-11-03: Strong
+# Center's 11-02 game doesn't count, his later ones do.
+IR_LEAGUE = {"teams": {
+    "1": {"name": "Mine", "players": [
+        *LEAGUE["teams"]["1"]["players"][:3],
+        {"name": "Dee Two", "team": "CCC", "positions": ["D"], "inactive": True}]},
+    "2": {"name": "Theirs", "players": [
+        {"name": "Strong Center", "team": "BBB", "positions": ["C"], "inactive": True,
+         "injury": "IR"},
+        {"name": "Goalie B", "team": "BBB", "positions": ["G"]}]}}}
+
+
+def _ir_ctx(db):  # noqa: F811
+    return build_context(db, POINTS, priors=PRIORS,
+                         icfg=dict(ICFG, trade_injury_weeks={"IR": 0.3}))
+
+
+def test_trade_roster_keeps_injured_players_with_a_return_date(db):  # noqa: F811
+    from src.inseason.teams import injury_weeks, trade_roster
+    ctx = _ir_ctx(db)
+    roster, out = trade_roster(ctx, IR_LEAGUE["teams"]["2"]["players"], "2026-11-01")
+    assert set(roster) == {2, 7} and out == {2: "2026-11-03"}
+    # defaults by Yahoo tag, then the IR/OUT marker
+    plain = _trade_ctx(db)
+    assert injury_weeks(plain, "IR-LT", "IR") == 10 and injury_weeks(plain, None, "IR") == 3
+    assert injury_weeks(plain, "O", "OUT") == 1 and injury_weeks(plain, "weird", None) == 3
+
+
+def test_injured_players_are_tradeable(db):  # noqa: F811
+    from src.inseason.evaluate import ros_over_replacement
+    from src.inseason.partner import partner_trades
+    from src.inseason.teams import RosLineup, analyze, trade_options, trade_roster
+    ctx = _ir_ctx(db)
+    mine, out = trade_roster(ctx, IR_LEAGUE["teams"]["1"]["players"], "2026-11-01")
+    out_until = {**out, 2: "2026-11-03"}
+    lineup = RosLineup(ctx, mine, "2026-11-01", out_until)
+    r = partner_trades(ctx, IR_LEAGUE, 1, 2, "2026-11-01", 4, offer=([3], [2]))
+    sc = next(p for p in r["theirs"] if p["id"] == 2)
+    assert sc["out_until"] == "2026-11-03"
+    # worth only the games after he's back, and nothing over replacement
+    # while he's out
+    assert sc["lineup_value"] == pytest.approx(lineup.gain_with(2, {"C"}))
+    assert lineup.sim.games(2) and min(lineup.sim.games(2)) >= "2026-11-03"
+    assert sc["ros_value"] == pytest.approx(ros_over_replacement(ctx, 2, "2026-11-03"))
+    assert any(p["id"] == 5 and p["out_until"] for p in r["mine"])       # my IR guy too
+    # Depth Wing (healthy) for Strong Center (IR): he goes to my IR slot, so
+    # I cut no one and have an open active spot; they take a healthy player
+    # for an IR one, so they must cut one of theirs.
+    o = r["offer"]
+    assert o["my_cut"] == [] and o["their_cut"] == [7]
+    # Shop my IR player; the league tab lists both injured players
+    s = trade_options(ctx, IR_LEAGUE, 1, 5, "2026-11-01", 4, max_tilt=99)
+    assert s["give"]["out_until"] == "2026-11-03"
+    a = analyze(ctx, IR_LEAGUE, 1, "2026-11-01", 4)
+    listed = {p["id"]: p["out_until"] for t in a["teams"] for p in t["players"]}
+    assert listed[2] == listed[5] == "2026-11-03" and listed[1] is None

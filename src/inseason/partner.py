@@ -14,9 +14,7 @@ from __future__ import annotations
 
 import itertools
 
-from src.valuation.valuation import value_group
-
-from .evaluate import Context, ros_over_replacement
+from .evaluate import Context
 from .roster import dates_from
 from .teams import (
     Market,
@@ -24,9 +22,11 @@ from .teams import (
     _Sim,
     close_call,
     league_slots,
+    market_after,
     market_per_game,
-    team_players,
+    ros_after,
     team_tags,
+    trade_roster,
 )
 
 
@@ -57,30 +57,30 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
     leaves you an open roster spot fills it with the best of them for your
     lineup (``my_adds``) -- a lower bound, since you'd really stream it.
     """
-    rosters = {int(t): team_players(ctx, v["players"])[0]
-               for t, v in league["teams"].items()}
+    rosters, out_until = {}, {}
+    for t, v in league["teams"].items():
+        rosters[int(t)], out = trade_roster(ctx, v["players"], start)
+        out_until.update(out)
     names = {int(k): v["name"] for k, v in league["teams"].items()}
     if partner_id not in rosters or partner_id == my_team_id:
         raise ValueError(f"unknown trade partner {partner_id}")
     mine, theirs = rosters[my_team_id], rosters[partner_id]
     need_g, need_t = (set(require[0]), set(require[1])) if require else (set(), set())
     if not need_g <= set(mine) or not need_t <= set(theirs):
-        raise ValueError("ticked players must be on the two active rosters")
+        raise ValueError("ticked players must be on the two rosters")
     if len(need_g) > max_size or len(need_t) > max_size:
         raise ValueError(f"tick at most {max_size} players a side")
     constrained = bool(need_g or need_t)
     mkt_pg = market.per_game if market else (lambda p: market_per_game(ctx, p))
     card = market.card if market else (lambda p: {"market_source": "season-to-date"})
     avg_ros = ctx.weighted_team_games(start, ctx.fantasy_end())
-    repl = ctx.scorer.replacement
 
     def market_value(p: int) -> float:
-        r = repl[value_group(ctx.lines[p].position)]
-        return max((mkt_pg(p) - r) * avg_ros, 0.0)
+        return market_after(ctx, p, mkt_pg(p), start, out_until)
 
     M = {p: market_value(p) for p in (*mine, *theirs)}
 
-    ros = RosLineup(ctx, mine, start)
+    ros = RosLineup(ctx, mine, start, out_until)
     keeps = {p: ros.loss_without(p) for p in mine}                # >= 0
     adds = {p: ros.gain_with(p, e) for p, e in theirs.items()}   # >= 0
     # free-agent shortlist for open spots: the best 2 at each position
@@ -96,9 +96,16 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
     def cuts(keep: list[int], vals: dict[int, float], n: int) -> list[int]:
         return sorted(keep, key=lambda p: (vals[p], p))[:n] if n > 0 else []
 
+    def active(ps) -> int:
+        """Players who need an active roster spot (injured ones go to IR)."""
+        return sum(1 for p in ps if p not in out_until)
+
     def deal(give: tuple[int, ...], get: tuple[int, ...]) -> dict:
-        m_cut = cuts([p for p in mine if p not in give], keeps, len(get) - len(give))
-        t_cut = cuts([p for p in theirs if p not in get], M, len(give) - len(get))
+        # roster spots: only healthy players count; cuts come from healthy
+        # players too (an injured one sits in an IR slot)
+        need = active(get) - active(give)
+        m_cut = cuts([p for p in mine if p not in give and p not in out_until], keeps, need)
+        t_cut = cuts([p for p in theirs if p not in get and p not in out_until], M, -need)
         view = (sum(M[p] for p in give) - sum(M[p] for p in get)
                 - sum(M[p] for p in t_cut))
         scale = max(sum(M[p] for p in get), 0.25 * avg_ros, 1e-9)
@@ -110,7 +117,7 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
                 # stage-1 estimate; replaced by the exact simulation below
                 "my_gain": (sum(adds[p] for p in get) - sum(keeps[p] for p in give)
                             - sum(keeps[p] for p in m_cut)
-                            + fa_best * max(len(give) - len(get), 0))}
+                            + fa_best * max(-need, 0))}
 
     def exact(d: dict) -> dict:
         out = {*d["give"], *d["my_cut"]}
@@ -118,7 +125,7 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
         gain = ros.gain(out, add)
         d["my_adds"] = []
         # open roster spots: add the free agent who helps the lineup most
-        for _ in range(max(len(d["give"]) - len(d["get"]), 0)):
+        for _ in range(max(active(d["give"]) - active(d["get"]), 0)):
             best = max(((ros.gain(out, {**add, f: e}), f)
                         for f, e in short.items() if f not in add), default=None)
             if best is None or best[0] <= gain + 1e-9:
@@ -160,7 +167,7 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
     n_found = len(rows)
     rows = rows[:limit]
 
-    sim = _Sim(ctx, dates_from(start, days), league_slots(ctx))
+    sim = _Sim(ctx, dates_from(start, days), league_slots(ctx), out_until=out_until)
     base_m, base_t = sim.total(mine), sim.total(theirs)
 
     def fit(d: dict) -> dict:
@@ -180,7 +187,7 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
         g = tuple(p for p in offer[0] if p in mine)
         t = tuple(p for p in offer[1] if p in theirs)
         if len(g) != len(offer[0]) or len(t) != len(offer[1]):
-            raise ValueError("offer players must be on the two active rosters")
+            raise ValueError("offer players must be on the two rosters")
         offer_row = fit(exact(deal(g, t)))
 
     tags = {**team_tags(ctx, league["teams"][str(my_team_id)]["players"]),
@@ -190,7 +197,8 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
         ln = ctx.lines[p]
         return {"id": p, "name": ln.name, "team": ln.team, "elig": sorted(elig),
                 "per_game": ctx.scorer.per_game[p], "market_pg": mkt_pg(p),
-                "ros_value": ros_over_replacement(ctx, p, start),
+                "ros_value": ros_after(ctx, p, start, out_until),
+                "out_until": out_until.get(p),
                 "lineup_value": lineup, "market_value": market_value(p),
                 "injury": tags.get(p), "playoff_games": ctx.playoff_games(ln.team),
                 "luck": (ctx.luck.get(p) or {}).get("status"),

@@ -45,6 +45,50 @@ def team_players(ctx: Context, players: list[dict]) -> tuple[dict[int, set[str]]
     return parse_players(ctx, _roster_text(players))
 
 
+# weeks an injured player is assumed out, by Yahoo tag (then IR / OUT
+# marker); ``trade_injury_weeks`` in inseason.yaml overrides. NA = minors.
+INJURY_WEEKS = {"DTD": 0, "O": 1, "OUT": 1, "IR": 3, "IR+": 3, "INJ": 3, "IR-LT": 10,
+                "IR-NR": 10, "NA": 99}
+
+
+def injury_weeks(ctx: Context, tag: str | None, kind: str | None) -> float:
+    weeks = {**INJURY_WEEKS, **(ctx.icfg.get("trade_injury_weeks") or {})}
+    for key in ((tag or "").strip().upper(), (kind or "").upper()):
+        if key in weeks:
+            return float(weeks[key])
+    return float(weeks.get("default", 3))
+
+
+def trade_roster(ctx: Context, players: list[dict], start: str,
+                 ) -> tuple[dict[int, set[str]], dict[int, str]]:
+    """Everyone tradeable on a stored roster -- active players plus those on
+    IR / OUT / NA -- and {injured pid: estimated return date} (``start`` +
+    injury_weeks for his tag). Injured players fill an IR spot, not an
+    active one, and count nothing before they're back."""
+    pl = parse_list(ctx, _roster_text(players))
+    out_until = {}
+    d0 = datetime.date.fromisoformat(start)
+    for pid in pl.inactive:
+        wk = injury_weeks(ctx, pl.tags.get(pid), pl.inactive_kind.get(pid))
+        out_until[pid] = (d0 + datetime.timedelta(days=round(wk * 7))).isoformat()
+    return {**pl.active, **pl.inactive}, out_until
+
+
+def ros_after(ctx: Context, pid: int, start: str, out_until: dict[int, str]) -> float:
+    """Rest-of-season value over replacement from when he can play: while
+    he's out you'd stream a replacement, so those weeks count 0."""
+    return ros_over_replacement(ctx, pid, max(start, out_until.get(pid, start)))
+
+
+def market_after(ctx: Context, pid: int, per_game: float, start: str,
+                 out_until: dict[int, str]) -> float:
+    """Market value over replacement (floored at 0) over the games left
+    after his return."""
+    r = ctx.scorer.replacement[value_group(ctx.lines[pid].position)]
+    games = ctx.weighted_team_games(max(start, out_until.get(pid, start)), ctx.fantasy_end())
+    return max((per_game - r) * games, 0.0)
+
+
 def team_tags(ctx: Context, players: list[dict]) -> dict[int, str]:
     """{pid: Yahoo injury tag (DTD, O, IR-LT ...)} for a stored roster."""
     return parse_list(ctx, _roster_text(players)).tags
@@ -61,14 +105,17 @@ class _Sim:
     each night counts ctx.game_weight(date) (fantasy-playoff nights extra)."""
 
     def __init__(self, ctx: Context, dates: list[str], slots: dict[str, int],
-                 weighted: bool = False):
+                 weighted: bool = False, out_until: dict[int, str] | None = None):
         self.ctx, self.dates, self.slots = ctx, dates, slots
         self.w = ctx.game_weight if weighted else (lambda d: 1.0)
         self.gv: dict[int, dict[str, float]] = {}
+        self.out_until = out_until or {}   # injured: no games before this date
 
     def games(self, pid: int) -> dict[str, float]:
         if pid not in self.gv:
-            self.gv[pid] = game_values(self.ctx, pid, self.dates)
+            gv = game_values(self.ctx, pid, self.dates) if self.dates else {}
+            back = self.out_until.get(pid)
+            self.gv[pid] = {d: v for d, v in gv.items() if not back or d >= back}
         return self.gv[pid]
 
     def night(self, roster: dict[int, set[str]], d: str):
@@ -98,8 +145,10 @@ class RosLineup:
     nothing). Each change re-simulates only the nights a moved player plays.
     """
 
-    def __init__(self, ctx: Context, roster: dict[int, set[str]], start: str):
-        self.sim = _Sim(ctx, ros_dates(ctx, start), league_slots(ctx), weighted=True)
+    def __init__(self, ctx: Context, roster: dict[int, set[str]], start: str,
+                 out_until: dict[int, str] | None = None):
+        self.sim = _Sim(ctx, ros_dates(ctx, start), league_slots(ctx), weighted=True,
+                        out_until=out_until)
         self.roster = roster
         self.base = {d: self.sim.night(roster, d)[0] for d in self.sim.dates}
 
@@ -145,12 +194,13 @@ def analyze(ctx: Context, league: dict, my_team_id: int, start: str,
     average) and 1-for-1 trades for ``my_team_id``."""
     dates = dates_from(start, days)
     slots = league_slots(ctx)
-    sim = _Sim(ctx, dates, slots)
-    rosters, unmatched = {}, []
+    rosters, unmatched, out_until = {}, [], {}
     names = {int(k): v["name"] for k, v in league["teams"].items()}
     for tid, t in league["teams"].items():
-        rosters[int(tid)], miss = team_players(ctx, t["players"])
-        unmatched += miss
+        rosters[int(tid)], out = trade_roster(ctx, t["players"], start)
+        out_until.update(out)
+        unmatched += team_players(ctx, t["players"])[1]
+    sim = _Sim(ctx, dates, slots, out_until=out_until)
     reports = {tid: team_report(sim, r) for tid, r in rosters.items()}
     avg = {s: sum(r["by_slot"][s] for r in reports.values()) / len(reports)
            for s in SLOT_ORDER}
@@ -164,9 +214,10 @@ def analyze(ctx: Context, league: dict, my_team_id: int, start: str,
             "games": len(sim.games(p)), "starts": rep["starts"].get(p, 0),
             "injury": tags.get(p), "playoff_games": ctx.playoff_games(ctx.lines[p].team),
             "luck": (ctx.luck.get(p) or {}).get("status"),
+            "out_until": out_until.get(p),
             "avail": (ctx.lines[p].start_share if ctx.lines[p].is_goalie
                       else ctx.lines[p].play_share)}
-            for p, e in roster.items()), key=lambda x: -x["per_game"])
+            for p, e in roster.items()), key=lambda x: (x["out_until"] is not None, -x["per_game"]))
         teams.append({
             "id": tid, "name": names[tid],
             "mine": tid == my_team_id, "total": rep["total"], "bench": rep["bench"],
@@ -345,32 +396,33 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
     Ordered by market_edge, favours-you first.
     """
     dates = dates_from(start, days)
-    sim = _Sim(ctx, dates, league_slots(ctx))
-    rosters = {int(t): team_players(ctx, v["players"])[0]
-               for t, v in league["teams"].items()}
+    rosters, out_until = {}, {}
+    for t, v in league["teams"].items():
+        rosters[int(t)], out = trade_roster(ctx, v["players"], start)
+        out_until.update(out)
+    sim = _Sim(ctx, dates, league_slots(ctx), out_until=out_until)
     names = {int(k): v["name"] for k, v in league["teams"].items()}
     mine = rosters[my_team_id]
     if give not in mine:
-        raise ValueError(f"{ctx.lines[give].name} isn't on your active roster")
+        raise ValueError(f"{ctx.lines[give].name} isn't on your roster")
     mkt_pg = market.per_game if market else (lambda p: market_per_game(ctx, p))
     card = market.card if market else (lambda p: {"market_source": "season-to-date"})
     avg_ros = ctx.weighted_team_games(start, ctx.fantasy_end())
-    repl = ctx.scorer.replacement
     cache: dict[int, tuple[float, float]] = {}
 
     def values(pid: int) -> tuple[float, float]:
         """(model ROS value over replacement, market ROS value over repl,
-        floored at 0: a below-replacement player is just dropped)."""
+        floored at 0: a below-replacement player is just dropped); an
+        injured player counts from his estimated return."""
         if pid not in cache:
-            r = repl[value_group(ctx.lines[pid].position)]
-            cache[pid] = (ros_over_replacement(ctx, pid, start),
-                          max((mkt_pg(pid) - r) * avg_ros, 0.0))
+            cache[pid] = (ros_after(ctx, pid, start, out_until),
+                          market_after(ctx, pid, mkt_pg(pid), start, out_until))
         return cache[pid]
 
     g_ours, g_mkt = values(give)
     scale = max(abs(mkt_pg(give)) * avg_ros, 1e-9)
     ge = mine[give]
-    ros = RosLineup(ctx, mine, start)
+    ros = RosLineup(ctx, mine, start, out_until)
     give_loss = ros.loss_without(give)
     rows = []
     for tid, theirs in rosters.items():
@@ -392,6 +444,7 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
                 "get": {"id": get, "name": ctx.lines[get].name,
                         "team": ctx.lines[get].team, "elig": sorted(te),
                         "per_game": ctx.scorer.per_game[get],
+                        "out_until": out_until.get(get),
                         "market_pg": mkt_pg(get), **card(get)},
                 "my_gain": my_gain, "market_edge": edge, "tilt": tilt,
                 "lean": ("favors you" if tilt > 0.15 else
@@ -405,6 +458,7 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
     return {
         "give": {"id": give, "name": gl.name, "team": gl.team,
                  "elig": sorted(ge), "per_game": ctx.scorer.per_game[give],
+                 "out_until": out_until.get(give),
                  "market_pg": mkt_pg(give), **card(give),
                  "ros_value": g_ours, "market_value": g_mkt},
         "dates": dates, "ros_games": avg_ros, "options": rows,

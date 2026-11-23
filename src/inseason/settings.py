@@ -86,6 +86,11 @@ GROUPS = [
         F("trend_min_games", "Trend minimum games", "fewer = no trend shown", "int", 1, 20),
     ]),
     ("Trades: the Yahoo market", "How a typical manager values a player.", [
+        F("trade_injury_weeks.IR", "Injured on IR: weeks out", "trades count an IR player from this many "
+          "weeks from now (Yahoo tag IR)", "float", 0, 30, 0.5, default=3),
+        F("trade_injury_weeks.IR-LT", "Long-term IR: weeks out", "Yahoo tag IR-LT", "float", 0, 30, 0.5,
+          default=10),
+        F("trade_injury_weeks.O", "Out (O): weeks out", "Yahoo tag O", "float", 0, 30, 0.5, default=1),
         F("market_weights.rostered", "Weight: % rostered", "", "float", 0, 1, 0.05),
         F("market_weights.points", "Weight: season points", "", "float", 0, 1, 0.05),
         F("market_weights.name", "Weight: preseason rank", "", "float", 0, 1, 0.05),
