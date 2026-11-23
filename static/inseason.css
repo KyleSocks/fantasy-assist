@@ -260,3 +260,7 @@ dialog#cmp-dlg::backdrop { background: var(--shade); }
 .take header .plink { font-weight: 700; }
 .take p { margin: 0; line-height: 1.45; font-size: 14px; }
 .take footer { display: flex; justify-content: flex-end; }
+.pd-adv { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.pd-adv th, .pd-adv td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: baseline; }
+.pd-adv th { font-weight: 400; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.pd-adv td.muted { font-size: 13px; }

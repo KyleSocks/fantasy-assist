@@ -85,6 +85,15 @@ def reasons(ctx: Context, pid: int, rostered: dict | None, today: str,
             out.append({"kind": "recent", "sign": 1 if d > 0 else -1,
                         "text": f"{w['per_game']:.2f} {per} over the last 14 days "
                                 f"({w['games']} games) vs {w['base']:.2f} usual"})
+    on = ln.extra.get("onice")
+    acfg = ctx.icfg.get("advanced") or {}
+    if on and on["shots"] >= acfg.get("onice_flag_shots", 100) \
+            and abs(on["pct"] - on["league"]) >= acfg.get("onice_flag_pts", 0.025):
+        hot = on["pct"] > on["league"]
+        out.append({"kind": "onice", "sign": 1 if hot else -1,
+                    "text": f"linemates shooting {on['pct'] * 100:.1f}% at 5v5 with him on the ice "
+                            f"vs {on['league'] * 100:.1f}% league average, so his assists should "
+                            f"{'cool off' if hot else 'pick up'}"})
     r = role_json(ctx, pid)
     if r and r.get("change"):
         was = ", ".join(x for x in (r.get("usual_line"), r.get("usual_pp") or "no PP") if x)
