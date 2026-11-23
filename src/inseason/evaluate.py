@@ -156,10 +156,13 @@ def build_context(db_path: str, league: LeagueConfig,
         for pid, rec in load_recent(conn).items():
             if pid in lines:
                 lines[pid].extra["recent"] = rec
-        from .advanced import apply as apply_advanced, load_advanced
-        # advanced stats; on-ice shooting luck comes out of assists
-        apply_advanced(lines, load_advanced(conn, season), icfg.get("advanced") or {},
-                       icfg.get("skater_k_games") or {})
+        from .advanced import apply as apply_advanced, load_advanced, load_inputs
+        # advanced stats; on-ice shooting luck (vs his linemates' career
+        # shooting) comes out of assists
+        adv = load_advanced(conn, season)
+        acfg = icfg.get("advanced") or {}
+        apply_advanced(lines, adv, acfg, icfg.get("skater_k_games") or {},
+                       load_inputs(conn, season, adv, acfg))
         from .windows import load_windows
         for pid, w in load_windows(conn).items():
             if pid in lines:

@@ -36,6 +36,7 @@ RECENT_DAYS = 7
 PRIOR_DAYS = 21
 MIN_UNIT_SEC = 20          # a PP unit needs this much PP time together
 PERIOD_SEC = 1200
+PAIRS_BACKFILL = 120       # older games' shift charts fetched per refresh for game_pairs
 
 LINE_RANK = {"F1": 1, "F2": 2, "F3": 3, "F4": 4, "D1": 1, "D2": 2, "D3": 3}
 PP_RANK = {"PP1": 1, "PP2": 2, None: 3}
@@ -53,6 +54,17 @@ CREATE TABLE IF NOT EXISTS game_deployment (
     mates TEXT,           -- JSON list of 5v5 linemate ids
     PRIMARY KEY (game_id, player_id)
 );
+-- 5v5 seconds each skater shared with each teammate (mate_id = player_id:
+-- his own 5v5 seconds), every game of the season -- for linemates' shooting
+-- talent behind his on-ice shooting % (advanced.py)
+CREATE TABLE IF NOT EXISTS game_pairs (
+    game_id INTEGER NOT NULL,
+    player_id INTEGER NOT NULL,
+    mate_id INTEGER NOT NULL,
+    sec INTEGER NOT NULL,
+    PRIMARY KEY (game_id, player_id, mate_id)
+);
+CREATE TABLE IF NOT EXISTS game_pairs_done (game_id INTEGER PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS skater_toi_window (
     player_id INTEGER NOT NULL,
     window TEXT NOT NULL,          -- 'recent' or 'prior'
@@ -145,7 +157,9 @@ def game_units(shifts: list[dict], positions: dict[int, str]) -> dict[int, dict]
         units = _group(skaters, pp, pp_pair, 5, 2, min_sec=MIN_UNIT_SEC)
         for p in skaters:
             out[p] = {"team": team, "line": None, "pp": None,
-                      "es_sec": es[p], "pp_sec": pp[p], "mates": []}
+                      "es_sec": es[p], "pp_sec": pp[p], "mates": [],
+                      "pairs": {q: es_pair[frozenset((p, q))] for q in skaters
+                                if q != p and es_pair[frozenset((p, q))]}}
         f_lines = [g for g in lines if g and positions.get(g[0], "C") != "D"]
         d_pairs = [g for g in lines if g and positions.get(g[0]) == "D"]
         for prefix, groups in (("F", f_lines), ("D", d_pairs)):
@@ -200,25 +214,37 @@ def ingest_deployment(conn: sqlite3.Connection, fetcher, season: int,
         if all(v >= GAMES_PER_TEAM for v in per_team.values()) and len(per_team) >= 32:
             break
     have = {g for (g,) in conn.execute("SELECT DISTINCT game_id FROM game_deployment")}
+    paired = {g for (g,) in conn.execute("SELECT game_id FROM game_pairs_done")}
+    # older games of the season still missing pair data, newest first, a
+    # batch per refresh so the first one doesn't fetch the whole season
+    backfill = [(gid, d) for gid, d, _, _ in rows if gid not in want and gid not in paired]
+    backfill = backfill[:PAIRS_BACKFILL]
     positions = dict(conn.execute("SELECT player_id, position FROM players"))
-    fetched = 0
-    for gid, d in sorted(want.items(), key=lambda x: x[1]):
-        if gid in have:
-            continue
+    fetched = pairs_games = 0
+    todo = [(gid, d, True) for gid, d in sorted(want.items(), key=lambda x: x[1])
+            if gid not in have or gid not in paired]
+    todo += [(gid, d, False) for gid, d in backfill]
+    for gid, d, recent in todo:
         data = fetcher.get_json(SHIFT_URL.format(gid=gid))
         shifts = data.get("data", []) if isinstance(data, dict) else []
         units = game_units(shifts, positions)
         if not units:
             continue
-        conn.executemany(
-            "INSERT OR REPLACE INTO game_deployment VALUES (?,?,?,?,?,?,?,?,?)",
-            [(gid, d, u["team"], p, u["line"], u["pp"], u["es_sec"], u["pp_sec"],
-              json.dumps(u["mates"])) for p, u in units.items()])
-        fetched += 1
+        if recent and gid not in have:
+            conn.executemany(
+                "INSERT OR REPLACE INTO game_deployment VALUES (?,?,?,?,?,?,?,?,?)",
+                [(gid, d, u["team"], p, u["line"], u["pp"], u["es_sec"], u["pp_sec"],
+                  json.dumps(u["mates"])) for p, u in units.items()])
+            fetched += 1
+        conn.executemany("INSERT OR REPLACE INTO game_pairs VALUES (?,?,?,?)",
+                         [(gid, p, q, sec) for p, u in units.items()
+                          for q, sec in ({p: u["es_sec"]} | u["pairs"]).items() if sec])
+        conn.execute("INSERT OR REPLACE INTO game_pairs_done VALUES (?)", (gid,))
+        pairs_games += 1
     if want:
         conn.execute(f"DELETE FROM game_deployment WHERE game_id NOT IN"
                      f" ({','.join('?' * len(want))})", list(want))
-    return {"deployment_games": fetched}
+    return {"deployment_games": fetched, "pair_games": pairs_games}
 
 
 def ingest_toi_windows(conn: sqlite3.Connection, fetcher, season: int,

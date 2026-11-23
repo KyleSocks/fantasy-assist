@@ -10,14 +10,27 @@ Reports (api.nhle.com/stats/rest/en):
   skater/puckPossessions  individual shots and shot attempts per 60
   goalie/advanced      quality starts, quality start %, shots against / 60
 
-Assist luck. A skater's assists at 5v5 come from his linemates' goals, and
-the share of on-ice shots that go in (on-ice SH%) is mostly luck: it swings
-a lot and barely carries from one half-season to the next. So, like
-shooting % for goals (model.py), it's regressed toward the league average:
+Assist luck. A skater's assists at 5v5 come from his linemates' goals. How
+often their shots go in with him on the ice (on-ice SH%) depends on who
+they are -- skating with snipers runs high every year -- and beyond that
+is mostly luck. So the target isn't the league average but what the guys
+he actually plays with usually shoot:
 
+  career SH%     each skater's goals / shots over his past seasons
+                 (skater_seasons, this season left out), with
+                 ``career_sh_pct_k_shots`` shots of his position's average
+                 mixed in so a rookie's 3-for-10 doesn't count as 30%
+  linemate mix   over this season's games (game_pairs, from shift charts),
+                 everyone who was on the ice with him at 5v5 -- himself
+                 included -- weighted by seconds together x his career
+                 shots per second: each one's share of the shots taken
+                 while he's out there
+  baseline       that mix of career SH%s, scaled so the league as a whole
+                 averages the league's 5v5 on-ice SH% (career SH% is all
+                 situations, power plays included, and runs higher)
   on-ice shots   S = 5v5 minutes x ``onice_shots_per_60`` / 60 (the stats
                  API doesn't give on-ice shots, so a league-typical rate)
-  regressed SH%  r = (league x k + actual x S) / (k + S), k by position
+  regressed SH%  r = (baseline x k + actual x S) / (k + S), k by position
                  (``onice_sh_pct_k_shots``; defencemen higher, their on-ice
                  SH% is even less theirs)
   expected A5    5v5 assists x r / actual
@@ -27,8 +40,9 @@ shooting % for goals (model.py), it's regressed toward the league average:
                  dominates and never touches power-play assists.
 
 ``league`` is the 5v5-ice-time-weighted average on-ice SH% of everyone in
-the report. Players with no 5v5 assists or an on-ice SH% of 0 are left
-alone (nothing to scale).
+the report. A player with no shift-chart pairs yet falls back to the league
+average. Players with no 5v5 assists or an on-ice SH% of 0 are left alone
+(nothing to scale).
 """
 from __future__ import annotations
 
@@ -136,6 +150,21 @@ def load_advanced(conn: sqlite3.Connection, season: int) -> dict[int, dict]:
     return out
 
 
+def load_inputs(conn: sqlite3.Connection, season: int, adv: dict[int, dict],
+                cfg: dict) -> dict[int, dict]:
+    """Linemate baselines for everyone with pair data (see apply)."""
+    lg = league_onice(adv)
+    prs = pairs(conn, season)
+    if lg is None or not prs:
+        return {}
+    try:
+        car = career(conn, season, cfg.get("career_sh_pct_k_shots", 100))
+    except sqlite3.OperationalError:
+        car = {}
+    positions = dict(conn.execute("SELECT player_id, position FROM players"))
+    return linemate_baselines(prs, car, positions, lg)
+
+
 def league_onice(adv: dict[int, dict]) -> float | None:
     """5v5-TOI-weighted average on-ice SH%."""
     num = den = 0.0
@@ -148,8 +177,77 @@ def league_onice(adv: dict[int, dict]) -> float | None:
     return num / den if den else None
 
 
-def onice_assists(line: Line, a: dict, league: float, cfg: dict, k_assists: float) -> dict | None:
-    """The assist adjustment for one skater (module docstring), or None."""
+def career(conn: sqlite3.Connection, season: int, k: float) -> dict[int, dict]:
+    """{pid: {"sh": career SH% (shrunk), "spm": shots per second, "shots"}}
+    from past seasons; position averages for F and D fill thin records."""
+    pos = dict(conn.execute("SELECT player_id, position FROM players"))
+    rows = list(conn.execute(
+        "SELECT player_id, SUM(goals), SUM(shots), SUM(toi_sec) FROM skater_seasons"
+        " WHERE season_id < ? GROUP BY player_id", (season,)))
+    tot: dict[str, list[float]] = {"F": [0, 0, 0], "D": [0, 0, 0]}
+    for pid, g, sh, t in rows:
+        grp = "D" if pos.get(pid) == "D" else "F"
+        tot[grp][0] += g or 0
+        tot[grp][1] += sh or 0
+        tot[grp][2] += t or 0
+    avg = {grp: (v[0] / v[1] if v[1] else 0.09, v[1] / v[2] if v[2] else 0.0015)
+           for grp, v in tot.items()}
+    out = {}
+    for pid, g, sh, t in rows:
+        a_sh, a_spm = avg["D" if pos.get(pid) == "D" else "F"]
+        out[pid] = {"sh": ((g or 0) + k * a_sh) / ((sh or 0) + k),
+                    "spm": (sh / t) if sh and t else a_spm, "shots": sh or 0}
+    out["_avg"] = avg
+    return out
+
+
+def pairs(conn: sqlite3.Connection, season: int) -> dict[int, dict[int, int]]:
+    """{pid: {mate (or himself): 5v5 seconds together}} over this season."""
+    out: dict[int, dict[int, int]] = {}
+    try:
+        for p, q, sec in conn.execute(
+                "SELECT gp.player_id, gp.mate_id, SUM(gp.sec) FROM game_pairs gp"
+                " JOIN schedule s ON s.game_id = gp.game_id WHERE s.season_id=?"
+                " GROUP BY gp.player_id, gp.mate_id", (season,)):
+            out.setdefault(p, {})[q] = sec
+    except sqlite3.OperationalError:
+        return {}
+    return out
+
+
+def linemate_baselines(prs: dict[int, dict[int, int]], car: dict, positions: dict[int, str],
+                       league: float) -> dict[int, dict]:
+    """{pid: {"raw": mix of career SH%s, "baseline": scaled to the league's
+    5v5 on-ice level, "mates": [(mate, share of shots), ...] biggest first}}."""
+    avg = car.get("_avg") or {"F": (0.09, 0.0015), "D": (0.05, 0.0012)}
+
+    def info(q):
+        c = car.get(q)
+        if c:
+            return c["sh"], c["spm"]
+        return avg["D" if positions.get(q) == "D" else "F"]
+
+    raw = {}
+    for p, with_ in prs.items():
+        if not with_.get(p):
+            continue
+        w = {q: sec * info(q)[1] for q, sec in with_.items()}
+        tw = sum(w.values())
+        if tw <= 0:
+            continue
+        raw[p] = (sum(w[q] * info(q)[0] for q in w) / tw,
+                  sorted(((q, x / tw) for q, x in w.items() if q != p), key=lambda t: -t[1]))
+    own = {p: prs[p][p] for p in raw}
+    tot = sum(own.values())
+    mean = sum(raw[p][0] * own[p] for p in raw) / tot if tot else 0.0
+    scale = league / mean if mean else 1.0
+    return {p: {"raw": r, "baseline": r * scale, "mates": m[:4]} for p, (r, m) in raw.items()}
+
+
+def onice_assists(line: Line, a: dict, league: float, cfg: dict, k_assists: float,
+                  baseline: float | None = None) -> dict | None:
+    """The assist adjustment for one skater (module docstring), or None.
+    ``baseline``: what his linemates usually shoot (None: league average)."""
     actual, a5, gp = a.get("onice_sh_pct"), a.get("assists_5v5"), a.get("gp") or 0
     if not actual or not a5 or not gp or not a.get("toi_5v5_pg"):
         return None
@@ -157,18 +255,24 @@ def onice_assists(line: Line, a: dict, league: float, cfg: dict, k_assists: floa
     shots = minutes * cfg.get("onice_shots_per_60", 28.0) / 60
     ks = cfg.get("onice_sh_pct_k_shots") or {}
     k = ks.get("D" if line.position == "D" else "F", 1000)
-    reg = (league * k + actual * shots) / (k + shots)
+    target = league if baseline is None else baseline
+    reg = (target * k + actual * shots) / (k + shots)
     expected = a5 * reg / actual
     delta = (expected - a5) / (k_assists + gp)
-    return {"pct": actual, "league": league, "regressed": reg, "shots": shots,
+    return {"pct": actual, "league": league, "baseline": target,
+            "basis": "league" if baseline is None else "linemates",
+            "regressed": reg, "shots": shots,
             "assists_5v5": a5, "expected_5v5": expected, "delta_pg": delta}
 
 
-def apply(lines: dict[int, Line], adv: dict[int, dict], cfg: dict, k_games: dict) -> None:
+def apply(lines: dict[int, Line], adv: dict[int, dict], cfg: dict, k_games: dict,
+          bases: dict[int, dict] | None = None) -> None:
     """Attach ``extra["adv"]`` to every player with advanced stats and, when
     ``onice_sh_pct_k_shots`` is set, move skaters' blended assists for
-    on-ice shooting luck (``extra["onice"]``)."""
+    on-ice shooting luck (``extra["onice"]``). ``bases``: linemate_baselines
+    (missing players use the league average)."""
     lg = league_onice(adv)
+    bases = bases or {}
     for pid, a in adv.items():
         ln = lines.get(pid)
         if ln is None:
@@ -176,8 +280,13 @@ def apply(lines: dict[int, Line], adv: dict[int, dict], cfg: dict, k_games: dict
         ln.extra["adv"] = a
         if ln.is_goalie or lg is None or not cfg.get("onice_sh_pct_k_shots"):
             continue
-        o = onice_assists(ln, a, lg, cfg, k_games.get("assists", 40))
+        b = bases.get(pid)
+        o = onice_assists(ln, a, lg, cfg, k_games.get("assists", 40),
+                          b["baseline"] if b else None)
         if o is None:
             continue
+        if b:
+            o["mates"] = [{"id": q, "name": lines[q].name if q in lines else str(q),
+                           "share": sh} for q, sh in b["mates"]]
         ln.blended["assists"] = max(0.0, ln.blended["assists"] + o["delta_pg"])
         ln.extra["onice"] = o

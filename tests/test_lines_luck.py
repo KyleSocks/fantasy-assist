@@ -62,6 +62,10 @@ def test_game_units_hand_worked():
     assert sorted(u[4]["mates"]) == [5, 6] and u[13]["mates"] == [14]
     assert sorted(p for p, v in u.items() if v["pp"] == "PP1") == [1, 2, 3, 4, 11]
     assert u[1]["pp_sec"] == 120 and u[21]["pp_sec"] == 0 and u[21]["pp"] is None
+    # 5v5 seconds with each teammate: 1 was out with 2, 3, 11, 12 for all
+    # his 980; never with line 2 or pair 2. PP time doesn't count.
+    assert u[1]["pairs"] == {2: 980, 3: 980, 11: 980, 12: 980}
+    assert u[13]["pairs"] == {4: 1300, 5: 1300, 6: 1300, 14: 1300}
 
 
 def test_goalie_found_without_a_position():
@@ -128,10 +132,15 @@ def test_ingest_fetches_only_new_recent_games():
     conn.executemany("INSERT INTO schedule VALUES (?,?,?,?,?,2)", [
         (g, 20262027, f"2026-11-{g:02d}", "A", "B") for g in range(1, 9)])
     f = _Fake(game())
-    assert lines.ingest_deployment(conn, f, 20262027, "2026-11-08") == {"deployment_games": 5}
-    assert [u.rsplit("=", 1)[1] for u in f.urls] == ["3", "4", "5", "6", "7"]
+    # deployment for the last 5 (3..7); pair seconds for those plus the
+    # older games, newest first (2, 1)
+    assert lines.ingest_deployment(conn, f, 20262027, "2026-11-08") == {
+        "deployment_games": 5, "pair_games": 7}
+    assert [u.rsplit("=", 1)[1] for u in f.urls] == ["3", "4", "5", "6", "7", "2", "1"]
+    assert {g for (g,) in conn.execute("SELECT DISTINCT game_id FROM game_pairs")} == set(range(1, 8))
     f.urls.clear()
-    assert lines.ingest_deployment(conn, f, 20262027, "2026-11-08") == {"deployment_games": 0}
+    assert lines.ingest_deployment(conn, f, 20262027, "2026-11-08") == {
+        "deployment_games": 0, "pair_games": 0}
     assert f.urls == []                                   # nothing new
     assert lines.ingest_toi_windows(conn, f, 20262027, "2026-11-16")["toi_windows"] == 2
     assert 'gameDate>="2026-11-09"' in f.urls[0] and 'gameDate<="2026-11-15 23:59:59"' in f.urls[0]

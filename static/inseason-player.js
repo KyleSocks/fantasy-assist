@@ -148,8 +148,14 @@
     }
     const o = i.onice;
     if (o) {
-      rows.push(`Assists: linemates shoot <b>${pc(o.pct)}</b> at 5v5 with him on the ice (league ${pc(o.league)}).
-        That mostly doesn't last, so it's counted as ${pc(o.regressed)}: ${o.assists_5v5} assists at 5v5 are worth
+      const who = o.mates && o.mates.length
+        ? ` (mostly ${o.mates.slice(0, 3).map((m) => `<button type="button" class="plink" data-pid="${m.id}">${esc(m.name)}</button>`).join(", ")})`
+        : "";
+      const base = o.basis === "linemates"
+        ? `The players he's been out with${who} usually shoot <b>${pc(o.baseline)}</b> (career, at 5v5 levels; league ${pc(o.league)}).`
+        : `No linemate data yet, so it's compared with the league average, ${pc(o.league)}.`;
+      rows.push(`Assists: linemates shoot <b>${pc(o.pct)}</b> at 5v5 with him on the ice. ${base}
+        The gap mostly doesn't last, so it's counted as ${pc(o.regressed)}: ${o.assists_5v5} assists at 5v5 are worth
         ${Number(o.expected_5v5).toFixed(1)}, moving his projection <span class="${cls(o.value_delta)}">${signed(o.value_delta, 2)}</span> ${esc(p.unit)} a game.`);
     }
     const d = i.deploy;

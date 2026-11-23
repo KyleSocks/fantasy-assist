@@ -104,3 +104,64 @@ def test_ingest_merges_traded_rows_and_loads():
     assert a[9] == {"gs": 12, "quality_starts": 7, "qs_pct": 0.583, "shots_against_per60": 29.5,
                     "goals_for_avg": 3.1}
     assert advanced.load_advanced(sqlite3.connect(":memory:"), 20262027) == {}
+
+
+def _career_db():
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE players (player_id INTEGER PRIMARY KEY, position TEXT)")
+    conn.executemany("INSERT INTO players VALUES (?,?)", [(1, "C"), (2, "L"), (3, "D"), (4, "R")])
+    conn.execute("CREATE TABLE skater_seasons (player_id INTEGER, season_id INTEGER, goals INTEGER,"
+                 " shots INTEGER, toi_sec INTEGER)")
+    conn.executemany("INSERT INTO skater_seasons VALUES (?,?,?,?,?)", [
+        (1, 20242025, 20, 200, 40000), (1, 20252026, 10, 100, 20000),
+        (1, 20262027, 9, 20, 9000),                     # this season: left out
+        (2, 20252026, 5, 100, 20000), (3, 20252026, 6, 120, 40000)])
+    return conn
+
+
+def test_career_shooting_hand_worked():
+    """Forwards' past seasons: 35 goals on 400 shots (8.75%), 400 shots in
+    80000 s; D: 6 on 120 (5%). k 100 shots of the position average:
+    1: (30 + 8.75)/(300 + 100) = 9.6875%, 300 shots / 60000 s.
+    2: (5 + 8.75)/200 = 6.875%. 3: (6 + 5)/220 = 5%. 4 has no history."""
+    car = advanced.career(_career_db(), 20262027, 100)
+    assert car[1]["sh"] == pytest.approx(0.096875) and car[1]["spm"] == pytest.approx(0.005)
+    assert car[2]["sh"] == pytest.approx(0.06875)
+    assert car[3]["sh"] == pytest.approx(0.05) and car[3]["spm"] == pytest.approx(0.003)
+    assert 4 not in car and car["_avg"]["F"] == pytest.approx((0.0875, 0.005))
+
+
+def test_linemate_baselines_hand_worked():
+    """Player 1 at 5v5: himself 1000 s, with 2 1000 s, with D 3 500 s, with
+    rookie 4 500 s (forward average: 8.75%, .005 shots/s). Shot weights:
+    1000 x .005 = 5, 5, 500 x .003 = 1.5, 500 x .005 = 2.5 (total 14).
+    Mix = (5 x .096875 + 5 x .06875 + 1.5 x .05 + 2.5 x .0875)/14 =
+    1.121875/14 = .0801339. Player 2 (himself 1000, with 1 1000):
+    (5 x .06875 + 5 x .096875)/10 = .0828125. League mix (by own 5v5
+    seconds, 1000 each) = .0814732; league on-ice 8% -> scale .08/.0814732:
+    player 1's baseline = .0786849, player 2's = .0813151."""
+    car = advanced.career(_career_db(), 20262027, 100)
+    prs = {1: {1: 1000, 2: 1000, 3: 500, 4: 500}, 2: {2: 1000, 1: 1000}}
+    b = advanced.linemate_baselines(prs, car, {1: "C", 2: "L", 3: "D", 4: "R"}, 0.08)
+    raw1, raw2 = 1.121875 / 14, 0.828125 / 10
+    scale = 0.08 / ((raw1 + raw2) / 2)
+    assert b[1]["raw"] == pytest.approx(raw1) and b[2]["raw"] == pytest.approx(raw2)
+    assert b[1]["baseline"] == pytest.approx(raw1 * scale) == pytest.approx(0.0786849, abs=1e-7)
+    assert b[2]["baseline"] == pytest.approx(0.0813151, abs=1e-7)
+    assert [q for q, _ in b[1]["mates"]] == [2, 4, 3]
+    assert b[1]["mates"][0][1] == pytest.approx(5 / 14)
+
+
+def test_apply_uses_the_linemate_baseline():
+    """Same player as the first test (12% on 140 shots, 10 5v5 assists),
+    but his linemates usually shoot 11%: (.11 x 1000 + .12 x 140)/1140 =
+    .1112281; expected 10 x .1112281/.12 = 9.26901; (9.26901 - 10)/60 =
+    -.012183 -- a much smaller cut than against the 8% league average."""
+    lines = {1: line(1), 2: line(2)}
+    adv = {1: {"gp": 20, "toi_5v5_pg": 900, "onice_sh_pct": 0.12, "assists_5v5": 10}}
+    bases = {1: {"baseline": 0.11, "mates": [(2, 0.4)]}}
+    advanced.apply(lines, adv, CFG, {"assists": 40}, bases)
+    o = lines[1].extra["onice"]
+    assert o["basis"] == "linemates" and o["baseline"] == 0.11
+    assert o["delta_pg"] == pytest.approx(-0.012183, abs=1e-6)
+    assert o["mates"] == [{"id": 2, "name": "P", "share": 0.4}]
