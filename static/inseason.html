@@ -256,14 +256,21 @@
     </section>
 
     <section id="tab-recap" class="panel" hidden>
-      <div class="lede"><h2>Week in review</h2><p id="recap-meta" class="muted"></p></div>
+      <div class="lede"><h2>Takes and week in review</h2><p id="recap-meta" class="muted"></p></div>
       <details class="how"><summary>How to read this</summary>
         <p>Players rostered in your league (with the team that has them) and your league's free agents.
           <b>Heating up / cooling off</b>: the last 14 days per game against his blended rate (4+ games,
           20% or more either way). <b>Bandwagon</b>: free agents whose % rostered across Yahoo rose most this
           week, and whether his numbers clear the free-agent bar. <b>Next week</b> uses the same projections
           as the rest of the app.</p>
+        <p><b>Takes</b> compare two prices for each player, both per team game: your model's and the Yahoo
+          crowd's (% rostered, season points and preseason rank, turned into the same units). <b>Buy low</b>:
+          on another team, worth starting, and your model is 10%+ above the crowd. <b>Sell high</b>: yours,
+          and the crowd is 10%+ above your model. The edge is the gap times his team's games left.
+          <b>Trade targets</b> and <b>waiver adds</b>: hot over the last 14 days or just promoted, split by
+          whether another team has him or he's a free agent. <b>Stashes</b>: injured free agents worth an IR spot.</p>
       </details>
+      <div id="takes" class="takes"></div>
       <div id="recap-body" class="recap"></div>
     </section>
 

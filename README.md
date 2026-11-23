@@ -175,6 +175,20 @@ rostered across Yahoo rose most this week, and whether the numbers back it), and
 week's schedule with skater streams (teams with 4+ games) and goalie streams. Endpoint:
 `/api/inseason/recap?league=<config>`.
 
+**Takes** (top of the Recap tab): a short column about your league. Each player has two
+prices per team game: your model's and the Yahoo crowd's (% rostered, season points and
+preseason rank, turned into the same units, as in the trade tools).
+- **Buy low:** on another team, worth starting, model 10%+ above the crowd. The edge is the
+  gap times his team's games left. "Trade with <team>" opens that trade finder with him ticked.
+- **Sell high:** yours, crowd 10%+ above your model. "Shop him" runs Shop a player.
+- **Trade targets / waiver adds:** hot over the last 14 days or just promoted, split by whether
+  another team has him or he's a free agent in your league.
+- **Stashes:** injured free agents worth an IR spot.
+
+Each take says why (luck, last 14 days, line or PP change, % rostered moving, games missed).
+Thresholds live under `takes:` in `config/inseason.yaml` (defaults in `src/inseason/takes.py`).
+Endpoint: `/api/inseason/takes?league=<config>`.
+
 **Stat windows and % rostered:** every refresh also pulls each player's last 7, 14, 28
 and 56 days (pick one with "Stats from" on Roster and Free agents; it shows as a column)
 and records each player's Yahoo % rostered in `market_history.json` (30 days kept). The

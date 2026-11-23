@@ -20,8 +20,11 @@
 
   loaders.recap = async () => {
     status("Building the recap…");
+    const lg = encodeURIComponent($("league").value);
+    api(`/api/inseason/takes?league=${lg}&start=${encodeURIComponent($("start").value)}`)
+      .then(drawTakes, (e) => { $("takes").innerHTML = `<p class="muted">Takes: ${esc(e.message)}</p>`; });
     try {
-      const r = await api(`/api/inseason/recap?league=${encodeURIComponent($("league").value)}`);
+      const r = await api(`/api/inseason/recap?league=${lg}`);
       draw(r);
       status("");
     } catch (e) {
@@ -29,6 +32,47 @@
       status("");
     }
   };
+
+  // ── takes: a short column about your league (/api/inseason/takes) ──
+  const KINDS = [
+    ["buy_low", "Buy low", "Nobody on another team looks underpriced right now."],
+    ["sell_high", "Sell high", "None of your players is priced well above what your model expects."],
+    ["trade_targets", "Trade targets", "No hot or newly promoted starters on other teams."],
+    ["waiver_adds", "Waiver adds", "No hot or newly promoted free agents worth a spot."],
+    ["stashes", "Stashes", "No injured free agents worth an IR spot."],
+  ];
+  function lead(t) {
+    const u = t.unit;
+    const bits = [];
+    const b = t.buy_low[0], s = t.sell_high[0], a = t.waiver_adds[0];
+    if (b) bits.push(`The best buy is <b>${esc(b.name)}</b> from ${esc(b.owner)}, about ${num(b.edge, 0)} ${esc(u)} more than his price the rest of the way.`);
+    if (s) bits.push(`Your best sell is <b>${esc(s.name)}</b>: the crowd pays about ${num(s.edge, 0)} ${esc(u)} more than your model thinks he's worth.`);
+    if (a) bits.push(`On the wire, <b>${esc(a.name)}</b> is the add.`);
+    if (!t.has_market) bits.push("No Yahoo market data yet, so prices fall back to season-to-date stats: press Refresh data.");
+    return bits.length ? `<p class="takes-lead">${bits.join(" ")}</p>` : "";
+  }
+  function card(x, kind) {
+    const btn = kind === "buy_low" || kind === "trade_targets"
+      ? `<button type="button" class="take-go" data-partner="${x.owner_id}" data-get="${x.id}">Trade with ${esc(x.owner)}</button>`
+      : kind === "sell_high" ? `<button type="button" class="take-go" data-give="${x.id}">Shop him</button>` : "";
+    const ros = x.rostered ? ` <span class="muted">${Math.round(x.rostered.pct)}% rostered</span>` : "";
+    return `<article class="take ${kind}">
+      <header><button type="button" class="plink" data-pid="${x.id}">${esc(x.name)}</button>
+        <span class="muted">${esc(x.pos)}, ${esc(x.team)}${x.owner && kind !== "sell_high" ? ` (${esc(x.owner)})` : ""}</span>${ros}</header>
+      <p>${esc(x.take)}</p>${btn ? `<footer>${btn}</footer>` : ""}</article>`;
+  }
+  function drawTakes(t) {
+    $("takes").innerHTML = `<h3>Takes</h3>${lead(t)}` + KINDS.map(([k, title, empty]) =>
+      `<section class="take-group"><h4>${title}</h4>${t[k].length
+        ? `<div class="take-list">${t[k].map((x) => card(x, k)).join("")}</div>`
+        : `<p class="muted">${empty}</p>`}</section>`).join("");
+  }
+  $("takes").addEventListener("click", (e) => {
+    const b = e.target.closest(".take-go");
+    if (!b || !window.insPartner) return;
+    if (b.dataset.partner) window.insPartner.open({ partner: b.dataset.partner, get: [b.dataset.get] });
+    else window.insPartner.open({ give: b.dataset.give });
+  });
 
   function draw(r) {
     const u = r.unit;
