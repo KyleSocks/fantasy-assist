@@ -32,8 +32,14 @@ GOALIE_STATS: tuple[str, ...] = ("wins", "saves", "goals_against", "shutouts")
 
 
 def load_inseason_config(path: str | Path | None = None) -> dict:
+    """config/inseason.yaml with the app's changes (data/settings.yaml, the
+    settings gear) laid over it. An explicit ``path`` is read as is."""
     with open(path or INSEASON_CONFIG_PATH) as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    if path is None:
+        from .settings import merge, read_overrides
+        cfg = merge(cfg or {}, read_overrides())
+    return cfg
 
 
 def blend(prior_rate: float, total: float, games: float, k: float) -> float:

@@ -264,3 +264,34 @@ dialog#cmp-dlg::backdrop { background: var(--shade); }
 .pd-adv th, .pd-adv td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: baseline; }
 .pd-adv th { font-weight: 400; color: var(--muted); font-size: 13px; white-space: nowrap; }
 .pd-adv td.muted { font-size: 13px; }
+
+/* ── settings gear ─────────────────────────────────────────── */
+dialog#set-dlg { width: min(760px, calc(100% - 24px)); max-height: calc(100dvh - 24px); padding: 0; color: var(--ink); background: var(--sheet); border: 1px solid var(--line); border-radius: var(--r); overflow: auto; }
+dialog#set-dlg::backdrop { background: var(--shade); }
+#set-dlg > header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 14px 18px; background: var(--sheet); border-bottom: 1px solid var(--line); }
+#set-dlg h2 { margin: 0; font-family: var(--display); font-weight: 800; font-size: 26px; }
+#set-form { padding: 10px 18px 0; }
+.set-intro { margin: 0 0 8px; font-size: 13px; }
+.set-intro code { font-size: 12px; overflow-wrap: anywhere; }
+#set-body details { border-bottom: 1px solid var(--line); }
+#set-body summary { padding: 12px 0; font-weight: 700; cursor: pointer; }
+#set-body details > p { margin: 0 0 8px; font-size: 13px; }
+.set-grid { display: grid; gap: 2px 18px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); padding-bottom: 12px; }
+.set-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 10px; padding: 8px 0 8px 10px; border-left: 3px solid transparent; }
+.set-row.changed { border-left-color: var(--kick); }
+.set-row label { font-weight: 500; }
+.set-row > p { grid-column: 1 / -1; margin: 0; font-size: 12.5px; line-height: 1.35; }
+.set-ctl { display: flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.set-ctl input[type=number] { width: 7.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+.set-ctl input[type=text] { width: min(100%, 18rem); }
+.set-row:has(input[type=text]) { grid-template-columns: 1fr; }
+.set-row:has(input[type=text]) .set-ctl { justify-content: flex-start; }
+.set-ctl input[type=checkbox] { width: 22px; height: 22px; }
+.set-undo { font-size: 12px; min-height: 28px; padding: 2px 8px; }
+.set-foot { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin: 0 -18px; padding: 12px 18px; background: var(--sheet); border-top: 1px solid var(--line); }
+#set-status { margin-right: auto; font-size: 13px; }
+@media (max-width: 760px) {
+  dialog#set-dlg { width: 100%; max-width: none; max-height: 100dvh; height: 100dvh; margin: 0; border: 0; border-radius: 0; }
+  .set-row { padding-left: 8px; }
+  .set-ctl input[type=number] { width: 6.5rem; }
+}

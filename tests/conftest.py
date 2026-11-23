@@ -9,6 +9,14 @@ import pytest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
+def _no_app_settings(monkeypatch, tmp_path):
+    """Tests run on config/inseason.yaml alone: never a settings file left
+    on this machine by the app's gear button."""
+    import src.inseason.settings as st
+    monkeypatch.setattr(st, "SETTINGS_PATH", tmp_path / "settings.yaml")
+
+
+@pytest.fixture(autouse=True)
 def _no_live_matchups(monkeypatch):
     """Refresh tests fake the Yahoo pages they use; the matchup pull (an
     optional extra) must never reach the network from a test."""
