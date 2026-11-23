@@ -221,7 +221,11 @@ def _projection_inputs(ctx, pid: int, start: str) -> dict:
     shooting %, deployment factors, back-to-back nights (goalies)."""
     from src.inseason.evaluate import goalie_share
     ln = ctx.lines[pid]
-    out: dict = {"sh_pct": ln.extra.get("sh_pct"), "deploy": None, "b2b": []}
+    out: dict = {"sh_pct": ln.extra.get("sh_pct"), "deploy": None, "b2b": [], "onice": None}
+    on = ln.extra.get("onice")
+    if on:
+        out["onice"] = {**on, "value_delta": ctx.scorer.value_stats(
+            pid, ln.position, {"assists": on["delta_pg"]}) - ctx.scorer.value_stats(pid, ln.position, {})}
     dep = ln.extra.get("deploy")
     if dep:
         val = lambda st: ctx.scorer.value_stats(pid, ln.position, st)  # noqa: E731
@@ -253,7 +257,8 @@ def get_player(player_id: int, league: LeagueName = None,
     from src.inseason.roster import luck_json, role_json
     from src.inseason.roster import _rostered
     from src.inseason.trend import windows_json
-    h.update(windows=windows_json(ctx, ln), rostered=_rostered(ctx, player_id))
+    h.update(windows=windows_json(ctx, ln), rostered=_rostered(ctx, player_id),
+             adv=ln.extra.get("adv"))
     h.update(luck=luck_json(ctx, player_id), role=role_json(ctx, player_id),
              inputs=_projection_inputs(ctx, player_id, _day(start)))
     return h

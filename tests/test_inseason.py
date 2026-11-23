@@ -421,3 +421,28 @@ def test_play_share_ignores_this_seasons_missed_games_when_off(db):
             assert ln.play_share == ln.play_share_prior == 0.88
         else:
             assert ln.start_share == on.lines[pid].start_share
+
+
+def test_skater_play_share_off_counts_every_team_game(db):
+    """skater_play_share false: same setup as the scaling test above (Ovi
+    prior .9, Dee Two played 6 of 10), but every skater counts at 100% of
+    his team's games, so value per team game = per game played (2.825 for
+    Ovi). The shares still show for the card; goalie start shares are
+    unchanged."""
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE skater_current SET gp=6 WHERE player_id=5")
+    conn.commit()
+    conn.close()
+    pri = {**PRIORS, 1: dict(PRIORS[1], gp_share=0.9)}
+    on = build_context(db, POINTS, priors=pri, icfg=dict(ICFG, play_share_k_games=20))
+    off = build_context(db, POINTS, priors=pri, icfg=dict(
+        ICFG, play_share_k_games=20, skater_play_share=False))
+    ovi, dt = off.lines[1], off.lines[5]
+    assert ovi.play_share == dt.play_share == 1.0
+    assert ovi.play_share_prior == 0.9 and dt.play_share_obs == pytest.approx(0.6)
+    assert off.scorer.per_game[1] == pytest.approx(2.825)
+    from src.inseason.evaluate import form
+    assert form(off, dt)["team_game"] == pytest.approx(form(off, dt)["blended"])
+    for pid, ln in off.lines.items():
+        if ln.is_goalie:
+            assert ln.start_share == on.lines[pid].start_share

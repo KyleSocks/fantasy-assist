@@ -175,6 +175,20 @@ rostered across Yahoo rose most this week, and whether the numbers back it), and
 week's schedule with skater streams (teams with 4+ games) and goalie streams. Endpoint:
 `/api/inseason/recap?league=<config>`.
 
+**Advanced stats:** each refresh also pulls the NHL stats API's advanced reports (season to
+date): Corsi % and relative Corsi, offensive-zone starts, shots and attempts per 60, 5v5
+points per 60, on-ice shooting %, PDO, and goalies' quality starts and shots against per
+60. They show in each player's card and in Compare. One of them changes the projection:
+on-ice shooting % at 5v5 (how often linemates score with him on the ice) is mostly luck,
+so it's pulled toward the league average before it counts toward his 5v5 assists, the way
+shooting % is for goals. Settings under `advanced:` in `config/inseason.yaml`. Expected
+goals and high-danger chances aren't in the NHL API, so they're not here.
+
+**Missed games:** skaters count at 100% of their team's games (`skater_play_share: false`):
+you have IR slots and can stream a fill-in, so a guy who might get hurt isn't worth less
+while he plays. Players listed OUT are still treated as out. Goalies still use their share
+of starts.
+
 **Takes** (top of the Recap tab): a short column about your league. Each player has two
 prices per team game: your model's and the Yahoo crowd's (% rostered, season points and
 preseason rank, turned into the same units, as in the trade tools).

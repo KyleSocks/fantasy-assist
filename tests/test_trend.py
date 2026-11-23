@@ -106,4 +106,5 @@ def test_failed_trend_fetch_is_reported_not_fatal(tmp_path):
     # the fixture has no window reports either: both failures are reported
     assert [n.split(":")[0] for n in notes] == ["recent-games trend not updated",
                                                  "ice-time windows not updated",
-                                                 "stat windows not updated"]
+                                                 "stat windows not updated",
+                     "advanced stats not updated"]

@@ -108,3 +108,18 @@ def test_buy_low_is_not_repeated_as_trade_target(monkeypatch):
                       rostered=lambda p: None, start="2026-11-16")
     assert [x["name"] for x in out["buy_low"]] == ["Abe"]
     assert out["trade_targets"] == []
+
+
+def test_onice_luck_is_a_reason(monkeypatch):
+    """On-ice 5v5 SH% 12.0% vs 8.0% league over 140 shots (>= 100, 4 points
+    off >= 2.5): a good-luck reason. 9.0% (1 point off) says nothing."""
+    monkeypatch.setattr(takes, "recent", lambda c, p, days=14: None)
+    ln = L(1, "Abe")
+    ln.extra["onice"] = {"pct": 0.12, "league": 0.08, "shots": 140}
+    ctx = Ctx({1: ln}, {1: 3.0})
+    rs = takes.reasons(ctx, 1, None, AS_OF)
+    assert rs == [{"kind": "onice", "sign": 1, "text":
+                   "linemates shooting 12.0% at 5v5 with him on the ice vs 8.0% league average, "
+                   "so his assists should cool off"}]
+    ln.extra["onice"]["pct"] = 0.09
+    assert takes.reasons(ctx, 1, None, AS_OF) == []

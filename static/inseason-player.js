@@ -52,7 +52,9 @@
       ["Preseason", num(f.prior), `${u} / game`],
       ["This season", num(f.observed), f.vs_prior_pct == null ? `${u} / game` : `${pct(f.vs_prior_pct)} vs preseason`],
       ["Blend", num(f.blended), `${u} / game played`],
-      ["Plays", f.avail == null ? "–" : `${Math.round(f.avail * 100)}%`, "of team games"],
+      p.position !== "G" && f.avail === 1
+        ? ["Games", `${p.gp}`, "played; values count every team game (IR covers injuries)"]
+        : ["Plays", f.avail == null ? "–" : `${Math.round(f.avail * 100)}%`, "of team games"],
       ["Value", num(f.team_game), `vs ${num(p.replacement_pg)} free-agent bar`],
       ["Rest of season", `<span class="${cls(p.ros_vs_replacement)}">${signed(p.ros_vs_replacement, 0)}</span>`,
         `${u} vs a free agent, ${p.ros_games} games to ${md(p.ros_end)}`],
@@ -63,7 +65,7 @@
         <span class="muted">NHL stats through ${esc(p.as_of)}</span></p>
       <div class="pd-tiles">${tiles.map(([l, v, s]) =>
         `<div><span class="muted">${l}</span><b>${v}</b><span class="muted">${esc(s)}</span></div>`).join("")}</div>
-      ${deployment(p)}${luckBlock(p)}${inputs(p)}
+      ${deployment(p)}${luckBlock(p)}${advBlock(p)}${inputs(p)}
       <h3>Per ${p.position === "G" ? "start" : "game"}</h3>
       <div class="scroll"><table class="pd-stats"><thead><tr><th class="l"></th>${keys.map((k) => `<th>${LABELS[k]}</th>`).join("")}</tr></thead>
         <tbody>${[["Preseason", p.prior], ["This season", p.observed], ["Blend", p.blended]].map(([l, d]) =>
@@ -109,6 +111,31 @@
       ${pctTxt(l.usual_pct)} usual: ${say}${pts}.</li><li>${verdictTxt}</li></ul>`;
   }
 
+  // Advanced stats, season to date (advanced.py)
+  function advBlock(p) {
+    const a = p.adv;
+    if (!a) return "";
+    const pc = (x, d = 1) => (x == null ? "–" : `${(x * 100).toFixed(d)}%`);
+    const n1 = (x) => (x == null ? "–" : Number(x).toFixed(1));
+    const mm = (x) => (x == null ? "–" : `${Math.floor(x / 60)}:${String(Math.round(x % 60)).padStart(2, "0")}`);
+    let rows;
+    if (p.position === "G") {
+      rows = [["Quality starts", a.quality_starts == null ? "–" : `${a.quality_starts} of ${a.gs}`, `${pc(a.qs_pct, 0)} (about 53% is average)`],
+        ["Shots against / 60", n1(a.shots_against_per60), "how busy he is"],
+        ["Team goals for", n1(a.goals_for_avg), "a game in his starts (wins)"]];
+    } else {
+      const rel = a.sat_rel == null ? "" : ` (${a.sat_rel >= 0 ? "+" : "−"}${Math.abs(a.sat_rel * 100).toFixed(1)} vs team without him)`;
+      rows = [["Corsi (shot attempts) %", pc(a.sat_pct), `at 5v5${rel}`],
+        ["Offensive-zone starts", pc(a.oz_start_pct, 0), "of his offensive + defensive zone starts at 5v5"],
+        ["Shots / 60", n1(a.ishots_per60), `his own at 5v5; ${n1(a.isat_per60)} attempts`],
+        ["5v5 points / 60", a.points_per60_5v5 == null ? "–" : Number(a.points_per60_5v5).toFixed(2), `${mm(a.toi_5v5_pg)} a game at 5v5`],
+        ["On-ice shooting %", pc(a.onice_sh_pct), "5v5, everyone's shots with him on"],
+        ["PDO", a.pdo == null ? "–" : Number(a.pdo).toFixed(3), "on-ice SH% + SV%; 1.000 is normal, far off it is luck"]];
+    }
+    return `<h3>Advanced</h3><div class="scroll"><table class="pd-adv"><tbody>${rows.map(([l, v, s]) =>
+      `<tr><th scope="row">${l}</th><td><b>${v}</b></td><td class="muted">${esc(s)}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+
   // What the projection uses beyond the season blend (deploy.py, model.py)
   function inputs(p) {
     const i = p.inputs || {};
@@ -118,6 +145,12 @@
       rows.push(`Goals = shots x shooting %. Shooting % used: <b>${pc(i.sh_pct.blended)}</b>
         (${pc(i.sh_pct.season)} this season, ${pc(i.sh_pct.prior)} projected), so a hot or cold
         finishing run counts for little until it lasts.`);
+    }
+    const o = i.onice;
+    if (o) {
+      rows.push(`Assists: linemates shoot <b>${pc(o.pct)}</b> at 5v5 with him on the ice (league ${pc(o.league)}).
+        That mostly doesn't last, so it's counted as ${pc(o.regressed)}: ${o.assists_5v5} assists at 5v5 are worth
+        ${Number(o.expected_5v5).toFixed(1)}, moving his projection <span class="${cls(o.value_delta)}">${signed(o.value_delta, 2)}</span> ${esc(p.unit)} a game.`);
     }
     const d = i.deploy;
     if (d) {

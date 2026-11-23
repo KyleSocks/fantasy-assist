@@ -380,6 +380,8 @@ def build_lines(conn, season_id: int, priors: dict[int, dict], cfg: dict,
         ps = (min(blend(ps_prior, gp_here, tgp,
                         cfg.get("play_share_k_games", 20)), 1.0)
               if cfg.get("play_share_use_season", True) else ps_prior)
+        if not cfg.get("skater_play_share", True) and pos != "G":
+            ps = 1.0             # IR slots + streaming cover missed games
         lines[pid] = Line(pid, name, pos, team, gp, dict(prior), obs, bl,
                           toi_pg_prior=(pr or {}).get("toi_pg"),
                           toi_pg_obs=toi_obs, has_projection=has_proj,

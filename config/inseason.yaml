@@ -118,6 +118,24 @@ play_share_k_games: 20
 play_share_use_season: false
 # share for a skater with no projection (rookies); match gp_healthy_share
 play_share_unprojected: 0.88
+# false: skaters count at 100% of their team's games -- no discount for
+# expected missed games. You have IR slots and can stream a short-term
+# fill-in, so a player who might get hurt isn't worth less per game while
+# he plays. (Players listed OUT are still handled as out.) The shares above
+# still show in a player's card. Goalies always use their start share.
+skater_play_share: false
+# Advanced stats (src/inseason/advanced.py). On-ice shooting % at 5v5 --
+# how often linemates' shots go in with him on the ice -- is mostly luck,
+# so it's regressed toward the league average before it counts toward his
+# 5v5 assists. k = on-ice shots of league average mixed in: on-ice SH%
+# barely repeats season to season, so k is large (defencemen larger: it's
+# even less theirs). Remove onice_sh_pct_k_shots to turn the adjustment off
+# (the stats still show in player cards).
+advanced:
+  onice_shots_per_60: 28      # league-typical 5v5 shots for per 60
+  onice_sh_pct_k_shots: {F: 1000, D: 2000}
+  onice_flag_pts: 0.025       # on-ice SH% this far from league is worth a note
+  onice_flag_shots: 100
 # Alerts about your team (injury tags, IR moves, line / PP changes, your
 # goalie on a back-to-back, free agents promoted to PP1) are made on every
 # Refresh and listed on the Roster tab. Set a URL to also get them as phone

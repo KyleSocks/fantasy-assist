@@ -189,9 +189,11 @@ def ingest_current(db_path: str = DEFAULT_DB_ARG, season_id: int | None = None,
             # deployment (lines, PP units, ice-time windows): optional
             from .lines import ingest_deployment, ingest_toi_windows
             from .windows import ingest_windows
+            from .advanced import ingest_advanced
             for step, what in ((ingest_toi_windows, "ice-time windows"),
                                (ingest_deployment, "lines and PP units"),
-                               (ingest_windows, "stat windows")):
+                               (ingest_windows, "stat windows"),
+                               (ingest_advanced, "advanced stats")):
                 try:
                     counts.update(step(conn, fetcher, season_id, as_of))
                 except Exception as e:
@@ -200,7 +202,8 @@ def ingest_current(db_path: str = DEFAULT_DB_ARG, season_id: int | None = None,
                        notes=notes)
             if notes_out is not None:
                 notes_out.extend(n for n in notes if n.startswith(
-                    ("recent-games", "ice-time", "lines and", "stat windows")))
+                    ("recent-games", "ice-time", "lines and", "stat windows",
+                     "advanced stats")))
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")
