@@ -14,6 +14,7 @@ GET /api/inseason/moves?days=30&league=   roster changes for every team (inseaso
 GET /api/inseason/leagues             league configs + the Yahoo league each follows
 GET /api/inseason/matchup?league=&team=&start=   this week's head-to-head (inseason_matchup.py)
 GET /api/inseason/recap?league=      last week in review + next week (inseason_recap.py)
+GET/PUT /api/inseason/settings       settings gear: changes to config/inseason.yaml (inseason_settings.py)
 
 Every endpoint takes ?league=<config stem>. A league with its own ``yahoo:``
 block reads and writes its files under data/leagues/<stem>/; the others share
@@ -78,7 +79,9 @@ def _ctx(league: str | None) -> Context:
                                  "uv run python -m src.inseason.ingest")
     # DB incl. its WAL (a commit may not touch hockey.db until checkpoint)
     # + config/ (inseason.yaml, league files are editable live)
-    stamp = (str(DB_PATH), db_stamp(DB_PATH), config_stamp())
+    from src.cache import file_stamp
+    from src.inseason.settings import SETTINGS_PATH
+    stamp = (str(DB_PATH), db_stamp(DB_PATH), config_stamp(), file_stamp(SETTINGS_PATH))
     hit = _CACHE.get(name)
     if hit and hit[0] == stamp:
         return _with_waivers(hit[1])
@@ -546,3 +549,4 @@ from src.api import inseason_player  # noqa: E402,F401
 from src.api import inseason_moves  # noqa: E402,F401
 from src.api import inseason_matchup  # noqa: E402,F401
 from src.api import inseason_recap  # noqa: E402,F401
+from src.api import inseason_settings  # noqa: E402,F401

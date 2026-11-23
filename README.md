@@ -193,6 +193,15 @@ you have IR slots and can stream a fill-in, so a guy who might get hurt isn't wo
 while he plays. Players listed OUT are still treated as out. Goalies still use their share
 of starts.
 
+**Settings (gear button):** the gear next to the theme button on the Mid-season page edits
+the main in-season settings: how fast this season counts vs the projection, games/ice
+time/luck, keep-drop-stream margins and free-agent bars, the Yahoo trade market, takes
+thresholds and the alerts URL. A changed field is marked and has a "Default" button;
+"Reset all" (two clicks) puts everything back. Changes are written to
+`data/settings.yaml` (only the keys you changed), laid over `config/inseason.yaml`, so they
+work in Docker where `config/` is read-only, and every tab recomputes on the next load.
+The full explanation of each setting stays in `config/inseason.yaml`.
+
 **Takes** (top of the Recap tab): a short column about your league. Each player has two
 prices per team game: your model's and the Yahoo crowd's (% rostered, season points and
 preseason rank, turned into the same units, as in the trade tools).

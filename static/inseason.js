@@ -435,7 +435,7 @@
 
   // shared with static/inseason-partner.js (trade with a team)
   window.insKit = { $, esc, num, signed, cls, winner, tag, extras, table, api, status, verdict, pct, md, params, trendTxt,
-    dow, loaders, showTab, unit: () => unit, league: () => leagueData };
+    dow, loaders, showTab, reload: () => load(), unit: () => unit, league: () => leagueData };
 
   // ── schedule ─────────────────────────────────────────────────────────
   loaders.schedule = async () => {

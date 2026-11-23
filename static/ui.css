@@ -259,6 +259,6 @@ html[data-theme="dark"] .goal-toast { color: #1a0509; }
 }
 /* very narrow phones: the page switch drops under the title */
 @media (max-width: 430px) {
-  .pages { order: 4; flex: 1; }
+  .pages { order: 4; flex: 1 1 100%; }
   .page { flex: 1; text-align: center; }
 }
