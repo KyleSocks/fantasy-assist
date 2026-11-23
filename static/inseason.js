@@ -59,7 +59,13 @@
   async function api(path, opts) {
     const res = await fetch(path, opts);
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.detail || `${res.status} ${res.statusText}`);
+    if (!res.ok) {
+      // FastAPI validation errors come as a list of {loc, msg}
+      const d = body.detail;
+      const msg = Array.isArray(d) ? d.map((x) => `${(x.loc || []).slice(-1)[0] || "input"}: ${x.msg}`).join("; ")
+        : typeof d === "string" ? d : `${res.status} ${res.statusText}`;
+      throw new Error(msg);
+    }
     return body;
   }
 

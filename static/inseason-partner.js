@@ -168,12 +168,28 @@
     const p = pending; pending = null;
     if (!p) return;
     if (p.partner != null) {
+      if (![...$("pt-team").options].some((o) => o.value === String(p.partner))) {
+        status("That team isn't in the league rosters any more: press Refresh data.", true);
+        return;
+      }
       $("pt-team").value = String(p.partner);
       drawPick();
-      (p.get || []).forEach((id) => { const b = document.querySelector(`.pt-get[value="${id}"]`); if (b) b.checked = true; });
+      const missing = (p.get || []).filter((id) => {
+        const b = document.querySelector(`.pt-get[value="${id}"]`);
+        if (b) b.checked = true;
+        return !b;
+      });
+      if (missing.length) {
+        status("That player isn't on their roster any more (traded or dropped since the last refresh): press Refresh data.", true);
+        return;
+      }
       $("pt-pick").scrollIntoView({ behavior: "smooth", block: "start" });
       $("pt-run").click();
     } else if (p.give != null) {
+      if (![...$("shop-give").options].some((o) => o.value === String(p.give))) {
+        status("That player isn't on your roster any more: press Refresh data.", true);
+        return;
+      }
       $("shop-give").value = String(p.give);
       $("shop-give").scrollIntoView({ behavior: "smooth", block: "center" });
       $("shop-run").click();
