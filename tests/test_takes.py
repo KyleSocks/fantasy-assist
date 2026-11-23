@@ -25,6 +25,10 @@ class Ctx:
         self.icfg = {}
         self.luck = {}
         self.roles = roles or {}
+        self.league = NS(playoff_window=None)
+
+    def focus_weights(self):
+        return 1.0, 2.0
 
     def team_games(self, team, a, b):
         return [("d", "x")] * (20 if b == AS_OF else 10)
@@ -123,3 +127,33 @@ def test_onice_luck_is_a_reason(monkeypatch):
                    "so his assists should cool off"}]
     ln.extra["onice"]["pct"] = 0.09
     assert takes.reasons(ctx, 1, None, AS_OF) == []
+
+
+def test_playoff_targets(monkeypatch):
+    """Playoffs 2027-03-15 to 2027-04-04. Team games: Ctx gives every team
+    10 games in any window that doesn't end today. Gus (theirs, 3.00 a
+    game, worth starting) is back 2027-02-15, four weeks before: 10
+    playoff games x 3.00 = 30 fpts there. Hal (theirs) is back 2027-03-20,
+    after the playoffs start: left out. Ivy is mine: left out. Injured
+    players never show up as buy lows."""
+    monkeypatch.setattr(takes, "recent", lambda c, p, days=14: None)
+    lines = {1: L(1, "Gus"), 2: L(2, "Hal"), 3: L(3, "Ivy")}
+    ctx = Ctx(lines, {1: 3.0, 2: 3.0, 3: 3.0})
+    ctx.league = NS(playoff_window=["2027-03-15", "2027-04-04"])
+    out = takes.build(ctx, owners={1: 2, 2: 2, 3: 1}, team_names={1: "Me", 2: "Others"},
+                      my_team=1, fas=set(), injured_fas=set(), market=NS(per_game=lambda p: 1.0),
+                      rostered=lambda p: None, start="2026-11-16",
+                      out_until={1: "2027-02-15", 2: "2027-03-20", 3: "2027-01-01"})
+    assert [x["name"] for x in out["playoff_targets"]] == ["Gus"]
+    g = out["playoff_targets"][0]
+    assert g["playoff_games"] == 10 and g["playoff_value"] == pytest.approx(30)
+    assert g["take"].startswith("Hurt, back ~02/15: 4 weeks before your playoffs start (03/15). "
+                                "He plays 10 playoff games, about 30 fpts there at 3.00 per game")
+    assert g["take"].endswith("Worth it if your playoff spot is safe (Settings: Playing for = playoffs).")
+    assert out["buy_low"] == [] and out["sell_high"] == []
+    ctx.icfg = {"trade_focus": "playoffs"}
+    out = takes.build(ctx, owners={1: 2}, team_names={2: "Others"}, my_team=1, fas=set(),
+                      injured_fas=set(), market=NS(per_game=lambda p: 1.0), rostered=lambda p: None,
+                      start="2026-11-16", out_until={1: "2027-02-15"})
+    assert out["playoff_targets"][0]["take"].endswith(
+        "Your playoff spot is set as safe, so those weeks cost you little: worth paying for.")

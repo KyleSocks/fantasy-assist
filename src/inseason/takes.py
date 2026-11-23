@@ -29,6 +29,7 @@ change, % rostered moving, games missed) and one sentence saying the take.
 """
 from __future__ import annotations
 
+import datetime
 from collections.abc import Callable
 
 from src.valuation.valuation import value_group
@@ -51,7 +52,8 @@ DEFAULTS = {
 
 
 def _cfg(ctx: Context) -> dict:
-    return {**DEFAULTS, **(ctx.icfg.get("takes") or {})}
+    return {**DEFAULTS, **(ctx.icfg.get("takes") or {}),
+            "_focus": ctx.icfg.get("trade_focus", "balanced")}
 
 
 def bar(ctx: Context, pid: int) -> float:
@@ -127,8 +129,12 @@ def _why(rs: list[dict], sign: int | None = None) -> str:
 
 def build(ctx: Context, *, owners: dict[int, int], team_names: dict[int, str],
           my_team: int | None, fas: set[int], injured_fas: set[int],
-          market, rostered: Callable[[int], dict | None], start: str) -> dict:
-    """All five lists for one league (see module docstring)."""
+          market, rostered: Callable[[int], dict | None], start: str,
+          out_until: dict[int, str] | None = None) -> dict:
+    """All the lists for one league (see module docstring). ``out_until``:
+    injured rostered players and their expected return (teams.trade_roster);
+    they're left out of the other lists and get playoff_targets instead."""
+    out_until = out_until or {}
     cfg = _cfg(ctx)
     end = ctx.fantasy_end()
     unit = "fpts" if ctx.scorer.points else "value"
@@ -148,8 +154,8 @@ def build(ctx: Context, *, owners: dict[int, int], team_names: dict[int, str],
                 "games_left": left(pid), "rostered": rs,
                 "reasons": reasons(ctx, pid, rs, ctx.as_of, cfg), **extra}
 
-    others = [p for p, t in owners.items() if t != my_team and p in ctx.lines]
-    mine = [p for p, t in owners.items() if t == my_team and p in ctx.lines]
+    others = [p for p, t in owners.items() if t != my_team and p in ctx.lines and p not in out_until]
+    mine = [p for p, t in owners.items() if t == my_team and p in ctx.lines and p not in out_until]
 
     def gap_ok(hi, lo):
         return hi > 0 and hi - lo >= cfg["gap"] * hi
@@ -230,6 +236,34 @@ def build(ctx: Context, *, owners: dict[int, int], team_names: dict[int, str],
             stash.append(x)
     stash.sort(key=lambda x: -x["model"])
 
+    # ── playoff targets: hurt now, back before your playoffs ───────────
+    po = ctx.league.playoff_window
+    playoff = []
+    if po:
+        regular, po_w = ctx.focus_weights()
+        for p, back in out_until.items():
+            if owners.get(p) == my_team or p not in ctx.lines or back > po[0]:
+                continue
+            x = row(p)
+            if x["model"] < x["bar"] * cfg["start_bar"]:
+                continue
+            ln = ctx.lines[p]
+            po_games = len(ctx.team_games(ln.team, po[0], po[1]))
+            missed = len(ctx.team_games(ln.team, start, back)) if back > start else 0
+            x.update(back=back, playoff_games=po_games, missed=missed,
+                     playoff_value=x["model"] * po_games)
+            weeks = (datetime.date.fromisoformat(back) - datetime.date.fromisoformat(po[0])).days / -7
+            x["take"] = (f"Hurt, back ~{back[5:].replace('-', '/')}: {weeks:.0f} weeks before your playoffs "
+                         f"start ({po[0][5:].replace('-', '/')}). He plays {po_games} playoff games, about "
+                         f"{x['playoff_value']:.0f} {unit} there at {x['model']:.2f} per game, and misses "
+                         f"{missed} games before he's back. {x['owner']} gets nothing from him until then. "
+                         + ("Your playoff spot is set as safe, so those weeks cost you little: worth paying for."
+                            if cfg.get("_focus") == "playoffs" else
+                            "Worth it if your playoff spot is safe (Settings: Playing for = playoffs)."))
+            playoff.append(x)
+        playoff.sort(key=lambda x: -x["playoff_value"])
+
     n = cfg["top"]
     return {"unit": unit, "buy_low": buy[:n], "sell_high": sell[:n],
-            "trade_targets": targets[:n], "waiver_adds": adds[:n], "stashes": stash[:n]}
+            "trade_targets": targets[:n], "waiver_adds": adds[:n], "stashes": stash[:n],
+            "playoff_targets": playoff[:n]}

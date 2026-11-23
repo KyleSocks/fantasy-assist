@@ -195,6 +195,27 @@
       $("shop-run").click();
     }
   }
+  // "Playing for": the trade_focus setting (settings gear) -- saved, then
+  // the trade tools recompute with the new game weights
+  async function loadFocus() {
+    try {
+      const r = await api("/api/inseason/settings");
+      const it = r.groups.flatMap((g) => g.items).find((x) => x.key === "trade_focus");
+      if (it) $("trade-focus").value = it.value;
+    } catch { /* the select keeps its value */ }
+  }
+  $("trade-focus").addEventListener("change", async () => {
+    const sel = $("trade-focus");
+    sel.disabled = true;
+    try {
+      await api("/api/inseason/settings", { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ values: { trade_focus: sel.value } }) });
+      window.insKit.reload?.();
+    } catch (e) { status(e.message, true); } finally { sel.disabled = false; }
+  });
+  window.addEventListener("ins-settings-changed", loadFocus);
+  loadFocus();
+
   window.insPartner = {
     fill: (L) => { fillShop(L); fill(L); applyPending(); },
     open: (req) => { pending = req; window.insKit.showTab("league"); },

@@ -295,3 +295,11 @@ dialog#set-dlg::backdrop { background: var(--shade); }
   .set-row { padding-left: 8px; }
   .set-ctl input[type=number] { width: 6.5rem; }
 }
+.pd-injury { padding: 10px 12px; border: 1px solid var(--line); border-left: 4px solid var(--bad-fg); border-radius: var(--r-sm); background: var(--raised); }
+.pd-injury p { margin: 0 0 8px; line-height: 1.45; }
+.pd-injury-set { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pd-injury-set label { display: inline-flex; align-items: center; gap: 6px; }
+.take.playoff_targets { border-left-color: var(--bad-fg); }
+.focus-bar { display: grid; gap: 4px; margin: 14px 0 4px; padding: 10px 12px; background: var(--raised); border-radius: var(--r-sm); }
+.focus-bar .field { max-width: 26rem; }
+.focus-bar p { margin: 0; font-size: 13px; max-width: 72ch; }

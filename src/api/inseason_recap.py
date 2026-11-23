@@ -171,14 +171,16 @@ def get_takes(league: LeagueName = None, start: str | None = None) -> dict:
     snap = store.read_json(folder / ins.LEAGUE_FILE)
     if snap is None:
         raise HTTPException(400, "no league rosters yet: press Refresh data")
+    from src.inseason.teams import trade_roster
     owners: dict[int, int] = {}
     names: dict[int, str] = {}
+    out_until: dict[int, str] = {}
+    day = ins._day(start)
     for tid, t in (snap.get("teams") or {}).items():
         names[int(tid)] = t.get("name") or "?"
-        text = "\n".join(f"{p['name']} | {p.get('team', '')} | {','.join(p.get('positions') or [])}"
-                         for p in t.get("players") or [])
-        pl = parse_list(ctx, text)
-        for pid in list(pl.active) + list(pl.inactive):
+        roster, out = trade_roster(ctx, t.get("players") or [], day)
+        out_until.update(out)
+        for pid in roster:
             owners[pid] = int(tid)
     my_team = snap.get("my_team_id")
     my_team = int(my_team) if my_team is not None else None
@@ -189,6 +191,6 @@ def get_takes(league: LeagueName = None, start: str | None = None) -> dict:
     market = Market(ctx, (mdata or {}).get("players") or [])
     out = build(ctx, owners=owners, team_names=names, my_team=my_team, fas=fas,
                 injured_fas=injured, market=market, rostered=lambda p: _rostered(ctx, p),
-                start=ins._day(start))
+                start=day, out_until=out_until)
     return {"as_of": ctx.as_of, "my_team": names.get(my_team), "my_team_id": my_team,
             "has_market": bool(mdata), **out}

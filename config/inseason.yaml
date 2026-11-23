@@ -108,6 +108,17 @@ yahoo:
 # window counts this many times: those weeks decide the title. 1 = no extra
 # weight. A judgment call -- raise it once your playoff spot is safe.
 playoff_game_weight: 2.0
+# What you're playing for (also a picker in the trade tools):
+#   make_playoffs  every game counts the same
+#   balanced       playoff games x playoff_game_weight
+#   playoffs       your playoff spot is safe: regular-season games count
+#                  contender_regular_weight, playoff games
+#                  contender_playoff_weight. Trades for an injured star who's
+#                  back before the playoffs rank high even if you lose
+#                  points until then.
+trade_focus: balanced
+contender_regular_weight: 0.25
+contender_playoff_weight: 3.0
 # Skaters: share of team games played (injuries, scratches) blends the
 # projection's durability with this season's games played / team games.
 play_share_k_games: 20

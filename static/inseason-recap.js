@@ -40,19 +40,21 @@
     ["trade_targets", "Trade targets", "No hot or newly promoted starters on other teams."],
     ["waiver_adds", "Waiver adds", "No hot or newly promoted free agents worth a spot."],
     ["stashes", "Stashes", "No injured free agents worth an IR spot."],
+    ["playoff_targets", "Hurt now, back for the playoffs", "No injured starters on other teams due back before your playoffs."],
   ];
   function lead(t) {
     const u = t.unit;
     const bits = [];
-    const b = t.buy_low[0], s = t.sell_high[0], a = t.waiver_adds[0];
+    const b = t.buy_low[0], s = t.sell_high[0], a = t.waiver_adds[0], h = (t.playoff_targets || [])[0];
     if (b) bits.push(`The best buy is <b>${esc(b.name)}</b> from ${esc(b.owner)}, about ${num(b.edge, 0)} ${esc(u)} more than his price the rest of the way.`);
     if (s) bits.push(`Your best sell is <b>${esc(s.name)}</b>: the crowd pays about ${num(s.edge, 0)} ${esc(u)} more than your model thinks he's worth.`);
     if (a) bits.push(`On the wire, <b>${esc(a.name)}</b> is the add.`);
+    if (h) bits.push(`For the playoffs: <b>${esc(h.name)}</b> (${esc(h.owner)}) is hurt but due back ~${md(h.back)}.`);
     if (!t.has_market) bits.push("No Yahoo market data yet, so prices fall back to season-to-date stats: press Refresh data.");
     return bits.length ? `<p class="takes-lead">${bits.join(" ")}</p>` : "";
   }
   function card(x, kind) {
-    const btn = kind === "buy_low" || kind === "trade_targets"
+    const btn = kind === "buy_low" || kind === "trade_targets" || kind === "playoff_targets"
       ? `<button type="button" class="take-go" data-partner="${x.owner_id}" data-get="${x.id}">Trade with ${esc(x.owner)}</button>`
       : kind === "sell_high" ? `<button type="button" class="take-go" data-give="${x.id}">Shop him</button>` : "";
     const ros = x.rostered ? ` <span class="muted">${Math.round(x.rostered.pct)}% rostered</span>` : "";
@@ -63,7 +65,7 @@
   }
   function drawTakes(t) {
     $("takes").innerHTML = `<h3>Takes</h3>${lead(t)}` + KINDS.map(([k, title, empty]) =>
-      `<section class="take-group"><h4>${title}</h4>${t[k].length
+      `<section class="take-group"><h4>${title}</h4>${(t[k] || []).length
         ? `<div class="take-list">${t[k].map((x) => card(x, k)).join("")}</div>`
         : `<p class="muted">${empty}</p>`}</section>`).join("");
   }

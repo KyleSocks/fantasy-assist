@@ -189,6 +189,16 @@
       </details>
       <div class="scroll"><table id="trades-table"></table></div>
 
+      <div class="focus-bar">
+        <label class="field"><span>Playing for</span><select id="trade-focus">
+          <option value="make_playoffs">Making the playoffs: every game the same</option>
+          <option value="balanced">Balanced: playoff games count extra</option>
+          <option value="playoffs">The title: my playoff spot is safe</option></select></label>
+        <p class="muted" id="trade-focus-note">Sets how much a regular-season game counts against a playoff one in
+          every trade and rest-of-season value. "The title" makes an injured star who's back before your playoffs
+          worth the weeks without him.</p>
+      </div>
+
       <div class="section-head"><h3>Shop a player</h3></div>
       <div class="form-row">
         <label class="field grow"><span>Trade away</span><select id="shop-give"></select></label>
@@ -202,8 +212,8 @@
           (% rostered across Yahoo, this season's Fan Pts and pre-season rank; weights in
           config/inseason.yaml): top = looks like you win (harder sell), bottom = looks like they win.</p>
         <p><b>Winner</b> = who really wins and by how many points: your lineup simulated night by night
-          through the end of your fantasy playoffs (playoff games count extra,
-          <code>playoff_game_weight</code>). A player who'd sit on your bench adds nothing.
+          through the end of your fantasy playoffs, with regular-season and playoff games weighted by
+          <b>Playing for</b> above. Injured players count from their expected return (set it in their card). A player who'd sit on your bench adds nothing.
           <b>They'll see</b> = who a typical manager would think wins. <b>★</b> = you gain, but to them it
           looks even or in their favour: the ones worth proposing. <b>Fit</b> = change in each lineup over
           the window (positional need).</p>
