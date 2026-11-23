@@ -194,3 +194,13 @@ def get_takes(league: LeagueName = None, start: str | None = None) -> dict:
                 start=day, out_until=out_until)
     return {"as_of": ctx.as_of, "my_team": names.get(my_team), "my_team_id": my_team,
             "has_market": bool(mdata), **out}
+
+
+
+@ins.router.get("/standings")
+def get_standings(league: LeagueName = None) -> dict:
+    """Standings with playoff odds and the focus "auto" uses."""
+    ctx = ins._ctx(league)
+    st = ctx.__dict__.get("_standings")
+    return {"standings": st, "trade_focus": ctx.icfg.get("trade_focus", "balanced"),
+            "focus": ctx.focus()}

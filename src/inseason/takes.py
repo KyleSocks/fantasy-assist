@@ -53,7 +53,7 @@ DEFAULTS = {
 
 def _cfg(ctx: Context) -> dict:
     return {**DEFAULTS, **(ctx.icfg.get("takes") or {}),
-            "_focus": ctx.icfg.get("trade_focus", "balanced")}
+            "_focus": ctx.focus()}
 
 
 def bar(ctx: Context, pid: int) -> float:
@@ -257,9 +257,9 @@ def build(ctx: Context, *, owners: dict[int, int], team_names: dict[int, str],
                          f"start ({po[0][5:].replace('-', '/')}). He plays {po_games} playoff games, about "
                          f"{x['playoff_value']:.0f} {unit} there at {x['model']:.2f} per game, and misses "
                          f"{missed} games before he's back. {x['owner']} gets nothing from him until then. "
-                         + ("Your playoff spot is set as safe, so those weeks cost you little: worth paying for."
+                         + ("Your playoff spot looks safe, so those weeks cost you little: worth paying for."
                             if cfg.get("_focus") == "playoffs" else
-                            "Worth it if your playoff spot is safe (Settings: Playing for = playoffs)."))
+                            "Worth it once your playoff spot is safe (Playing for: the title)."))
             playoff.append(x)
         playoff.sort(key=lambda x: -x["playoff_value"])
 

@@ -30,6 +30,9 @@ class Ctx:
     def focus_weights(self):
         return 1.0, 2.0
 
+    def focus(self):
+        return self.icfg.get("trade_focus", "balanced")
+
     def team_games(self, team, a, b):
         return [("d", "x")] * (20 if b == AS_OF else 10)
 
@@ -149,11 +152,11 @@ def test_playoff_targets(monkeypatch):
     assert g["playoff_games"] == 10 and g["playoff_value"] == pytest.approx(30)
     assert g["take"].startswith("Hurt, back ~02/15: 4 weeks before your playoffs start (03/15). "
                                 "He plays 10 playoff games, about 30 fpts there at 3.00 per game")
-    assert g["take"].endswith("Worth it if your playoff spot is safe (Settings: Playing for = playoffs).")
+    assert g["take"].endswith("Worth it once your playoff spot is safe (Playing for: the title).")
     assert out["buy_low"] == [] and out["sell_high"] == []
     ctx.icfg = {"trade_focus": "playoffs"}
     out = takes.build(ctx, owners={1: 2}, team_names={2: "Others"}, my_team=1, fas=set(),
                       injured_fas=set(), market=NS(per_game=lambda p: 1.0), rostered=lambda p: None,
                       start="2026-11-16", out_until={1: "2027-02-15"})
     assert out["playoff_targets"][0]["take"].endswith(
-        "Your playoff spot is set as safe, so those weeks cost you little: worth paying for.")
+        "Your playoff spot looks safe, so those weeks cost you little: worth paying for.")

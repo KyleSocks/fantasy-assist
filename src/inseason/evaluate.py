@@ -106,8 +106,16 @@ class Context:
     #                  contender_regular_weight, playoffs x
     #                  contender_playoff_weight -- an injured star back in
     #                  time for the playoffs is worth the weeks without him
-    def focus_weights(self) -> tuple[float, float]:
+    def focus(self) -> str:
+        """trade_focus, with "auto" resolved from your playoff odds
+        (standings.py; set on the context from standings.json)."""
         f = self.icfg.get("trade_focus", "balanced")
+        if f == "auto":
+            return self.__dict__.get("_auto_focus") or "balanced"
+        return f
+
+    def focus_weights(self) -> tuple[float, float]:
+        f = self.focus()
         if f == "make_playoffs":
             return 1.0, 1.0
         if f == "playoffs":

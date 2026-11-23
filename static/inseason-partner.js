@@ -197,12 +197,44 @@
   }
   // "Playing for": the trade_focus setting (settings gear) -- saved, then
   // the trade tools recompute with the new game weights
+  const FOCUS = { playoffs: "the title", balanced: "balanced", make_playoffs: "making the playoffs" };
   async function loadFocus() {
     try {
-      const r = await api("/api/inseason/settings");
-      const it = r.groups.flatMap((g) => g.items).find((x) => x.key === "trade_focus");
-      if (it) $("trade-focus").value = it.value;
+      const r = await api(`/api/inseason/standings?league=${encodeURIComponent($("league").value)}`);
+      $("trade-focus").value = r.trade_focus;
+      drawStandings(r);
     } catch { /* the select keeps its value */ }
+  }
+  // standings + playoff odds (standings.py), and what "auto" picked
+  function drawStandings(r) {
+    const s = r.standings;
+    const note = $("trade-focus-note");
+    if (!s) {
+      $("standings-meta").textContent = "No standings yet: press Refresh data (head-to-head leagues only).";
+      $("standings-table").innerHTML = "";
+      note.textContent = r.trade_focus === "auto" ? "Auto needs standings: using balanced until you refresh." : note.textContent;
+      return;
+    }
+    const pct = (x) => (x == null ? "–" : x >= 0.995 ? ">99%" : x <= 0.005 ? "<1%" : `${Math.round(x * 100)}%`);
+    $("standings-meta").textContent = `${s.weeks_played} weeks played, ${s.weeks_left} left before the playoffs`
+      + `${s.spots ? ` (top ${s.spots} make it)` : ""}. Odds simulate the rest of the regular season from points for per week;`
+      + ` read from Yahoo ${String(s.fetched || "").replace("T", " at ")}.`;
+    table($("standings-table"), [
+      { key: "name", label: "Team", left: true, stick: true, sort: (t) => t.rank,
+        fmt: (t) => `${t.rank}. ${esc(t.name)}${t.mine ? ' <span class="flag ok">you</span>' : ""}` },
+      { key: "wlt", label: "W-L-T", sort: (t) => t.w + 0.5 * t.t, fmt: (t) => `${t.w}-${t.l}-${t.t}` },
+      { key: "odds", label: "Playoff odds", fmt: (t) => `<b>${pct(t.odds)}</b>` },
+      { key: "pts", label: "Pts for", minor: true, fmt: (t) => num(t.pts, 0) },
+      { key: "per_week", label: "Per week", minor: true, fmt: (t) => num(t.per_week, 0) },
+      { key: "mean_seed", label: "Avg finish", minor: true, title: "average final regular-season rank", fmt: (t) => (t.mean_seed ? num(t.mean_seed, 1) : "–") },
+    ], s.teams, { rowClass: (t) => (t.mine ? "mine" : "") });
+    if (r.trade_focus === "auto") {
+      note.innerHTML = s.my_odds == null ? "Auto: your team isn't in the standings, so balanced."
+        : `Auto: your playoff odds are <b>${pct(s.my_odds)}</b>, so trades play for <b>${FOCUS[r.focus]}</b>.`
+          + (r.focus === "playoffs" ? " An injured star back before your playoffs is worth the weeks without him." : "");
+    } else {
+      note.textContent = `Set by hand to ${FOCUS[r.trade_focus]}${s.my_odds != null ? ` (your playoff odds: ${pct(s.my_odds)})` : ""}.`;
+    }
   }
   $("trade-focus").addEventListener("change", async () => {
     const sel = $("trade-focus");
@@ -214,10 +246,9 @@
     } catch (e) { status(e.message, true); } finally { sel.disabled = false; }
   });
   window.addEventListener("ins-settings-changed", loadFocus);
-  loadFocus();
 
   window.insPartner = {
-    fill: (L) => { fillShop(L); fill(L); applyPending(); },
+    fill: (L) => { fillShop(L); fill(L); applyPending(); loadFocus(); },
     open: (req) => { pending = req; window.insKit.showTab("league"); },
   };
 })();

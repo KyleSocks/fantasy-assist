@@ -27,3 +27,5 @@ def _no_live_matchups(monkeypatch):
     def offline(*a, **k):
         raise ValueError("offline in tests")
     monkeypatch.setattr(yp, "fetch_matchups", offline)
+    import src.inseason.standings as st
+    monkeypatch.setattr(st, "fetch_standings", offline)

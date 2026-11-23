@@ -77,9 +77,13 @@ GROUPS = [
         F("replacement_fa_rank.F", "Free-agent bar: forwards", "Nth best free agent sets the bar", "int", 1, 50),
         F("replacement_fa_rank.D", "Free-agent bar: defence", "Nth best free agent", "int", 1, 50),
         F("replacement_fa_rank.G", "Free-agent bar: goalies", "Nth best free agent", "int", 1, 20),
-        F("trade_focus", "Playing for", "make_playoffs: every game the same; balanced: playoff games x the "
-          "weight below; playoffs: spot is safe, playoff games count most", "choice",
-          choices=["make_playoffs", "balanced", "playoffs"]),
+        F("trade_focus", "Playing for", "auto: from your playoff odds; make_playoffs: every game the same; "
+          "balanced: playoff games x the weight below; playoffs: spot is safe, playoff games count most",
+          "choice", choices=["auto", "make_playoffs", "balanced", "playoffs"]),
+        F("standings.safe_odds", "Auto: title mode at odds", "playoff odds at or above this -> playoffs",
+          "float", 0, 1, 0.05),
+        F("standings.bubble_odds", "Auto: balanced at odds", "at or above this -> balanced, below -> "
+          "make_playoffs", "float", 0, 1, 0.05),
         F("contender_regular_weight", "Spot safe: regular-season game", "counts this much (Playing for = playoffs)",
           "float", 0, 1, 0.05),
         F("contender_playoff_weight", "Spot safe: playoff game", "counts this much (Playing for = playoffs)",
