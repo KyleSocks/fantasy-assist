@@ -125,15 +125,17 @@ play_share_unprojected: 0.88
 # still show in a player's card. Goalies always use their start share.
 skater_play_share: false
 # Advanced stats (src/inseason/advanced.py). On-ice shooting % at 5v5 --
-# how often linemates' shots go in with him on the ice -- is mostly luck,
-# so it's regressed toward the league average before it counts toward his
-# 5v5 assists. k = on-ice shots of league average mixed in: on-ice SH%
-# barely repeats season to season, so k is large (defencemen larger: it's
-# even less theirs). Remove onice_sh_pct_k_shots to turn the adjustment off
-# (the stats still show in player cards).
+# how often linemates' shots go in with him on the ice -- is compared with
+# what the players he's actually been on the ice with this season shoot
+# over their careers (shift charts x past seasons), and the gap is mostly
+# luck: it's regressed toward that baseline before it counts toward his
+# 5v5 assists. k = on-ice shots of the baseline mixed in (defencemen
+# larger). Remove onice_sh_pct_k_shots to turn the adjustment off (the
+# stats still show in player cards).
 advanced:
   onice_shots_per_60: 28      # league-typical 5v5 shots for per 60
   onice_sh_pct_k_shots: {F: 1000, D: 2000}
+  career_sh_pct_k_shots: 100  # position-average shots mixed into a career SH%
   onice_flag_pts: 0.025       # on-ice SH% this far from league is worth a note
   onice_flag_shots: 100
 # Alerts about your team (injury tags, IR moves, line / PP changes, your

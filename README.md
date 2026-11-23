@@ -179,9 +179,13 @@ week's schedule with skater streams (teams with 4+ games) and goalie streams. En
 date): Corsi % and relative Corsi, offensive-zone starts, shots and attempts per 60, 5v5
 points per 60, on-ice shooting %, PDO, and goalies' quality starts and shots against per
 60. They show in each player's card and in Compare. One of them changes the projection:
-on-ice shooting % at 5v5 (how often linemates score with him on the ice) is mostly luck,
-so it's pulled toward the league average before it counts toward his 5v5 assists, the way
-shooting % is for goals. Settings under `advanced:` in `config/inseason.yaml`. Expected
+on-ice shooting % at 5v5 (how often linemates score with him on the ice). It's compared
+with what the players he's actually been on the ice with this season usually shoot over
+their careers: every teammate's 5v5 seconds with him (from shift charts, back-filled over
+the season a batch of games per refresh) times his share of the shots, applied to each
+one's career shooting % from past seasons. The gap from that is mostly luck, so it's
+pulled toward that baseline before it counts toward his 5v5 assists, the way shooting % is
+for goals. Until a player has shift-chart data, the league average stands in. Settings under `advanced:` in `config/inseason.yaml`. Expected
 goals and high-danger chances aren't in the NHL API, so they're not here.
 
 **Missed games:** skaters count at 100% of their team's games (`skater_play_share: false`):
