@@ -13,7 +13,9 @@ def _no_app_settings(monkeypatch, tmp_path):
     """Tests run on config/inseason.yaml alone: never a settings file left
     on this machine by the app's gear button."""
     import src.inseason.settings as st
+    import src.inseason.teams as teams
     monkeypatch.setattr(st, "SETTINGS_PATH", tmp_path / "settings.yaml")
+    monkeypatch.setattr(teams, "INJURY_RETURNS_PATH", tmp_path / "injury_returns.json")
 
 
 @pytest.fixture(autouse=True)

@@ -38,3 +38,21 @@ def put_settings(body: SettingsIn) -> dict:
     ins._CACHE.clear()
     ins._FA_CACHE.clear()
     return {"groups": st.describe(base, new), "file": str(st.SETTINGS_PATH)}
+
+
+class InjuryReturnIn(BaseModel):
+    player_id: int
+    date: str | None = None      # None / "" = back to the estimate from his tag
+
+
+@ins.router.put("/injury-return")
+def put_injury_return(body: InjuryReturnIn) -> dict:
+    """Your own return date for an injured player (player card)."""
+    from src.inseason.teams import set_injury_return
+    try:
+        cur = set_injury_return(body.player_id, body.date or None)
+    except ValueError:
+        raise HTTPException(400, "date: use YYYY-MM-DD")
+    ins._CACHE.clear()
+    ins._FA_CACHE.clear()
+    return {"player_id": body.player_id, "date": cur.get(body.player_id)}

@@ -209,6 +209,16 @@ Until then he's worth nothing over replacement (you'd stream his spot), and he t
 slot instead of an active one, so trading a healthy player for him opens a roster spot
 (and the other side has to cut someone).
 
+**Playing for (trade focus):** a picker above the trade tools (also in Settings) sets how much a
+regular-season game counts against a fantasy-playoff one, everywhere rest-of-season values are
+used: *Making the playoffs* (all games equal), *Balanced* (playoff games x `playoff_game_weight`)
+or *The title* (spot is safe: regular season x 0.25, playoffs x 3). With *The title*, trading for
+an injured star who's back before your playoffs ranks high even though you lose points until
+then. A free agent who fills the roster spot his IR stint opens counts only until he's back.
+Set a player's expected return yourself (e.g. "out 12 weeks" from the news) in his card; it
+beats the tag estimate. Recap takes list **Hurt now, back for the playoffs**: injured starters
+on other teams due back before your playoffs start, with their playoff games and value.
+
 **Takes** (top of the Recap tab): a short column about your league. Each player has two
 prices per team game: your model's and the Yahoo crowd's (% rostered, season points and
 preseason rank, turned into the same units, as in the trade tools).

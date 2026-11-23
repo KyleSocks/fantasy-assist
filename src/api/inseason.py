@@ -219,6 +219,21 @@ def _add_lineup_fit(ctx, rows: list[dict], date: str) -> None:
         r["adds"] = max(with_him - total, 0.0)
 
 
+def _injury_status(ctx, pid: int, start: str) -> dict | None:
+    """Listed injured on a roster in this league (or on the free-agent
+    list): his tag, the return date the trade tools use, and whether you
+    set it. None when he's healthy."""
+    from src.inseason.teams import injury_returns, team_tags, trade_roster
+    snap = store.read_json(_dir(ctx) / LEAGUE_FILE) or {}
+    for t in (snap.get("teams") or {}).values():
+        _, out = trade_roster(ctx, t.get("players") or [], start)
+        if pid in out:
+            return {"owner": t.get("name"), "tag": team_tags(ctx, t.get("players") or []).get(pid),
+                    "back": out[pid],
+                    "yours": pid in injury_returns()}
+    return None
+
+
 def _projection_inputs(ctx, pid: int, start: str) -> dict:
     """What the projection uses beyond the season blend: goals from
     shooting %, deployment factors, back-to-back nights (goalies)."""
@@ -260,6 +275,7 @@ def get_player(player_id: int, league: LeagueName = None,
     from src.inseason.roster import luck_json, role_json
     from src.inseason.roster import _rostered
     from src.inseason.trend import windows_json
+    h.update(injured=_injury_status(ctx, player_id, _day(start)))
     h.update(windows=windows_json(ctx, ln), rostered=_rostered(ctx, player_id),
              adv=ln.extra.get("adv"))
     h.update(luck=luck_json(ctx, player_id), role=role_json(ctx, player_id),

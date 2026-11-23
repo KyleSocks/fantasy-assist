@@ -98,13 +98,31 @@ class Context:
         po = self.league.playoff_window
         return min(end, po[1]) if po else end
 
+    # ``trade_focus`` (settings gear / trade tools) says what you're playing
+    # for, and so how much a regular-season game counts against a playoff one:
+    #   make_playoffs  every game the same (you need the regular season)
+    #   balanced       playoff games x playoff_game_weight (default)
+    #   playoffs       your spot is safe: regular season x
+    #                  contender_regular_weight, playoffs x
+    #                  contender_playoff_weight -- an injured star back in
+    #                  time for the playoffs is worth the weeks without him
+    def focus_weights(self) -> tuple[float, float]:
+        f = self.icfg.get("trade_focus", "balanced")
+        if f == "make_playoffs":
+            return 1.0, 1.0
+        if f == "playoffs":
+            return (float(self.icfg.get("contender_regular_weight", 0.25)),
+                    float(self.icfg.get("contender_playoff_weight", 3.0)))
+        return 1.0, float(self.icfg.get("playoff_game_weight", 1.0))
+
     def game_weight(self, date: str) -> float:
         if date > self.fantasy_end():
             return 0.0
+        regular, playoff = self.focus_weights()
         po = self.league.playoff_window
         if po and po[0] <= date <= po[1]:
-            return float(self.icfg.get("playoff_game_weight", 1.0))
-        return 1.0
+            return playoff
+        return regular
 
     def playoff_games(self, team: str | None) -> int | None:
         """Games ``team`` plays in the fantasy playoffs (None: no window)."""

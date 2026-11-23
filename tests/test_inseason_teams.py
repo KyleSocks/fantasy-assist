@@ -396,3 +396,57 @@ def test_injured_players_are_tradeable(db):  # noqa: F811
     a = analyze(ctx, IR_LEAGUE, 1, "2026-11-01", 4)
     listed = {p["id"]: p["out_until"] for t in a["teams"] for p in t["players"]}
     assert listed[2] == listed[5] == "2026-11-03" and listed[1] is None
+
+
+def test_trade_focus_weights(db):  # noqa: F811
+    """Playoffs 2026-11-04 to 2026-11-05 here. balanced: playoff games x
+    playoff_game_weight; make_playoffs: all 1; playoffs (spot safe):
+    regular x contender_regular_weight, playoffs x contender_playoff_weight."""
+    import copy
+    ctx = build_context(db, POINTS, priors=PRIORS, icfg=dict(ICFG, playoff_game_weight=2.0))
+    ctx.league = copy.copy(ctx.league)
+    ctx.league.playoff_window = ["2026-11-04", "2026-11-05"]
+    assert (ctx.game_weight("2026-11-02"), ctx.game_weight("2026-11-04")) == (1.0, 2.0)
+    ctx.icfg["trade_focus"] = "make_playoffs"
+    assert (ctx.game_weight("2026-11-02"), ctx.game_weight("2026-11-04")) == (1.0, 1.0)
+    ctx.icfg.update(trade_focus="playoffs", contender_regular_weight=0.25, contender_playoff_weight=3.0)
+    assert (ctx.game_weight("2026-11-02"), ctx.game_weight("2026-11-04")) == (0.25, 3.0)
+    assert ctx.game_weight("2026-11-06") == 0.0              # after the fantasy season
+
+
+def test_your_return_date_beats_the_tag(db):  # noqa: F811
+    """Set Strong Center back 2026-11-05: trade tools use it while he's
+    listed injured; clearing it goes back to the tag estimate (11-03)."""
+    from src.inseason.teams import injury_returns, set_injury_return, trade_roster
+    ctx = _ir_ctx(db)
+    set_injury_return(2, "2026-11-05")
+    assert injury_returns() == {2: "2026-11-05"}
+    assert trade_roster(ctx, IR_LEAGUE["teams"]["2"]["players"], "2026-11-01")[1] == {2: "2026-11-05"}
+    # a date already past counts from the start
+    set_injury_return(2, "2026-10-01")
+    assert trade_roster(ctx, IR_LEAGUE["teams"]["2"]["players"], "2026-11-01")[1] == {2: "2026-11-01"}
+    set_injury_return(2, None)
+    assert trade_roster(ctx, IR_LEAGUE["teams"]["2"]["players"], "2026-11-01")[1] == {2: "2026-11-03"}
+    with pytest.raises(ValueError):
+        set_injury_return(2, "next week")
+
+
+def test_stop_gap_for_an_injured_pickup_ends_when_he_returns(db):  # noqa: F811
+    """Depth Wing (healthy) for Strong Center (IR, back 11-03): an active
+    spot opens and Goalie A fills it, but only until Strong Center is back
+    -- then the stop-gap goes. So the deal is worth Strong Center from 11-03
+    plus Goalie A before 11-03."""
+    from src.inseason.partner import partner_trades
+    from src.inseason.teams import RosLineup, trade_roster
+    ctx = _ir_ctx(db)
+    mine, out = trade_roster(ctx, IR_LEAGUE["teams"]["1"]["players"], "2026-11-01")
+    r = partner_trades(ctx, IR_LEAGUE, 1, 2, "2026-11-01", 4, offer=([3], [2]),
+                       free_agents={6: {"G"}})
+    o = r["offer"]
+    assert o["my_adds"] == [6] and o["my_adds_until"] == ["2026-11-03"]
+    lineup = RosLineup(ctx, mine, "2026-11-01", {**out, 2: "2026-11-03"})
+    lineup.sim.until = {6: "2026-11-03"}
+    capped = lineup.gain({3}, {2: {"C"}, 6: {"G"}})
+    lineup.sim.until = {}
+    assert o["my_gain"] == pytest.approx(capped)
+    assert capped < lineup.gain({3}, {2: {"C"}, 6: {"G"}})     # a permanent add would be worth more

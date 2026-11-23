@@ -77,6 +77,13 @@ GROUPS = [
         F("replacement_fa_rank.F", "Free-agent bar: forwards", "Nth best free agent sets the bar", "int", 1, 50),
         F("replacement_fa_rank.D", "Free-agent bar: defence", "Nth best free agent", "int", 1, 50),
         F("replacement_fa_rank.G", "Free-agent bar: goalies", "Nth best free agent", "int", 1, 20),
+        F("trade_focus", "Playing for", "make_playoffs: every game the same; balanced: playoff games x the "
+          "weight below; playoffs: spot is safe, playoff games count most", "choice",
+          choices=["make_playoffs", "balanced", "playoffs"]),
+        F("contender_regular_weight", "Spot safe: regular-season game", "counts this much (Playing for = playoffs)",
+          "float", 0, 1, 0.05),
+        F("contender_playoff_weight", "Spot safe: playoff game", "counts this much (Playing for = playoffs)",
+          "float", 1, 10, 0.25),
         F("playoff_game_weight", "Fantasy playoff game weight", "a playoff-week game counts this many times",
           "float", 1, 5, 0.25),
         F("stream_goalie_min_start_share", "Stream goalies starting at least", "share of team games",

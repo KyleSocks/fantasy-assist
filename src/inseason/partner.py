@@ -124,15 +124,30 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
         add = {p: theirs[p] for p in d["get"]}
         gain = ros.gain(out, add)
         d["my_adds"] = []
-        # open roster spots: add the free agent who helps the lineup most
-        for _ in range(max(active(d["give"]) - active(d["get"]), 0)):
+        d["my_adds_until"] = []
+        # open roster spots: add the free agent who helps the lineup most.
+        # A spot opened because an injured player you get sits on IR only
+        # lasts until he's back -- then the stop-gap goes -- so that free
+        # agent counts only until his return (earliest first).
+        opened = max(active(d["give"]) - active(d["get"]), 0)
+        inj_get = sorted(out_until[p] for p in d["get"] if p in out_until)
+        inj_give = sum(1 for p in d["give"] if p in out_until)
+        expiring = inj_get[inj_give:][:opened]
+        for i in range(opened):
+            end = expiring[i] if i < len(expiring) else None
+            prev = {k: v for k, v in zip(d["my_adds"], d["my_adds_until"]) if v}
+            ros.sim.until = {**prev, **({f: end for f in short if f not in add} if end else {})}
             best = max(((ros.gain(out, {**add, f: e}), f)
                         for f, e in short.items() if f not in add), default=None)
             if best is None or best[0] <= gain + 1e-9:
+                ros.sim.until = {k: v for k, v in zip(d["my_adds"], d["my_adds_until"]) if v}
                 break
             gain, f = best
             add[f] = short[f]
             d["my_adds"].append(f)
+            d["my_adds_until"].append(end)
+            ros.sim.until = {k: v for k, v in zip(d["my_adds"], d["my_adds_until"]) if v}
+        ros.sim.until = {}
         d["my_gain"] = gain
         d["close"] = close_call(gain, sum(keeps[p] for p in d["give"])
                                 + sum(adds[p] for p in d["get"]))
@@ -207,7 +222,9 @@ def partner_trades(ctx: Context, league: dict, my_team_id: int, partner_id: int,
     return {
         "partner": {"id": partner_id, "name": names[partner_id]},
         "dates": sim.dates, "ros_games": avg_ros, "ros_end": ctx.fantasy_end(),
-        "playoff_game_weight": float(ctx.icfg.get("playoff_game_weight", 1.0)),
+        "playoff_game_weight": ctx.focus_weights()[1],
+        "regular_game_weight": ctx.focus_weights()[0],
+        "trade_focus": ctx.icfg.get("trade_focus", "balanced"),
         "considered": n_considered, "scored": min(screen, n_considered),
         "found": n_found,
         "mine": sorted((player(p, e, keeps[p]) for p, e in mine.items()),

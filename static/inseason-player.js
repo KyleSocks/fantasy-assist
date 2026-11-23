@@ -63,6 +63,7 @@
     const keys = Object.keys(p.blended).filter((k) => LABELS[k]);
     return `<p class="pd-sub">${verdict(p.verdict)} <span>${esc(p.position)}, ${esc(p.team || "–")}, ${p.gp} games played</span>
         <span class="muted">NHL stats through ${esc(p.as_of)}</span></p>
+      ${injuryBlock(p)}
       <div class="pd-tiles">${tiles.map(([l, v, s]) =>
         `<div><span class="muted">${l}</span><b>${v}</b><span class="muted">${esc(s)}</span></div>`).join("")}</div>
       ${deployment(p)}${luckBlock(p)}${advBlock(p)}${inputs(p)}
@@ -110,6 +111,35 @@
     return `<h3>Luck</h3><ul class="pd-list"><li>${g ? "Save %" : "Shooting %"} <b>${pctTxt(l.pct)}</b> this season,
       ${pctTxt(l.usual_pct)} usual: ${say}${pts}.</li><li>${verdictTxt}</li></ul>`;
   }
+
+  // Injured: when the trade tools expect him back, and your own date
+  // (e.g. "out about 12 weeks" from the news) -- PUT /api/inseason/injury-return
+  function injuryBlock(p) {
+    const i = p.injured;
+    if (!i) return "";
+    const how = i.yours ? "your date" : `an estimate from his ${i.tag ? `${esc(i.tag)} ` : ""}tag; change it here`;
+    const owner = i.owner ? ` on ${esc(i.owner.replace(/\.$/, ""))}` : "";
+    return `<div class="pd-injury" data-pid="${p.player_id}">
+      <p><b>Injured</b>${owner}. Trades and takes count him from <b>${md(i.back)}</b>
+        <span class="muted">(${how})</span>: nothing before that, every game after.</p>
+      <div class="pd-injury-set"><label>Expected back <input type="date" value="${esc(i.back)}"></label>
+        <button type="button" class="pd-back-save">Save date</button>
+        ${i.yours ? '<button type="button" class="pd-back-clear quiet">Use the estimate</button>' : ""}
+        <span class="muted pd-back-msg" role="status"></span></div></div>`;
+  }
+  $("pd-body").addEventListener("click", async (e) => {
+    const save = e.target.closest(".pd-back-save"), clear = e.target.closest(".pd-back-clear");
+    if (!save && !clear) return;
+    const box = e.target.closest(".pd-injury");
+    const date = clear ? null : box.querySelector("input[type=date]").value;
+    if (save && !date) { box.querySelector(".pd-back-msg").textContent = "Pick a date first."; return; }
+    try {
+      await api("/api/inseason/injury-return", { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ player_id: Number(box.dataset.pid), date }) });
+      open(box.dataset.pid);
+      window.insKit.reload?.();
+    } catch (err) { box.querySelector(".pd-back-msg").textContent = err.message; }
+  });
 
   // Advanced stats, season to date (advanced.py)
   function advBlock(p) {

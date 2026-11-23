@@ -16,7 +16,11 @@ pg_delta is a schedule play that costs you later in the season.
 from __future__ import annotations
 
 import datetime
+import json
+import os
+from pathlib import Path
 
+from src.paths import DATA_DIR
 from src.valuation.valuation import value_group
 
 from .evaluate import Context, form, ros_over_replacement
@@ -59,6 +63,35 @@ def injury_weeks(ctx: Context, tag: str | None, kind: str | None) -> float:
     return float(weeks.get("default", 3))
 
 
+# Return dates you set yourself (player card), e.g. "back in 12 weeks" from
+# the news: {pid: "YYYY-MM-DD"}. They win over the tag estimate while the
+# player is still listed injured.
+INJURY_RETURNS_PATH = Path(os.environ.get("INJURY_RETURNS_PATH", DATA_DIR / "injury_returns.json"))
+
+
+def injury_returns() -> dict[int, str]:
+    try:
+        with open(INJURY_RETURNS_PATH) as f:
+            return {int(k): v for k, v in (json.load(f) or {}).items()}
+    except (FileNotFoundError, ValueError):
+        return {}
+
+
+def set_injury_return(pid: int, date: str | None) -> dict[int, str]:
+    cur = injury_returns()
+    if date:
+        datetime.date.fromisoformat(date)          # ValueError if not a date
+        cur[pid] = date
+    else:
+        cur.pop(pid, None)
+    INJURY_RETURNS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = INJURY_RETURNS_PATH.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump({str(k): v for k, v in sorted(cur.items())}, f, indent=1)
+    os.replace(tmp, INJURY_RETURNS_PATH)
+    return cur
+
+
 def trade_roster(ctx: Context, players: list[dict], start: str,
                  ) -> tuple[dict[int, set[str]], dict[int, str]]:
     """Everyone tradeable on a stored roster -- active players plus those on
@@ -68,7 +101,11 @@ def trade_roster(ctx: Context, players: list[dict], start: str,
     pl = parse_list(ctx, _roster_text(players))
     out_until = {}
     d0 = datetime.date.fromisoformat(start)
+    mine = injury_returns()
     for pid in pl.inactive:
+        if pid in mine:                       # your own estimate
+            out_until[pid] = max(mine[pid], start)
+            continue
         wk = injury_weeks(ctx, pl.tags.get(pid), pl.inactive_kind.get(pid))
         out_until[pid] = (d0 + datetime.timedelta(days=round(wk * 7))).isoformat()
     return {**pl.active, **pl.inactive}, out_until
@@ -110,12 +147,16 @@ class _Sim:
         self.w = ctx.game_weight if weighted else (lambda d: 1.0)
         self.gv: dict[int, dict[str, float]] = {}
         self.out_until = out_until or {}   # injured: no games before this date
+        self.until: dict[int, str] = {}    # stop-gaps: no games after this date
 
     def games(self, pid: int) -> dict[str, float]:
         if pid not in self.gv:
             gv = game_values(self.ctx, pid, self.dates) if self.dates else {}
             back = self.out_until.get(pid)
             self.gv[pid] = {d: v for d, v in gv.items() if not back or d >= back}
+        end = self.until.get(pid)
+        if end:
+            return {d: v for d, v in self.gv[pid].items() if d < end}
         return self.gv[pid]
 
     def night(self, roster: dict[int, set[str]], d: str):
@@ -463,7 +504,9 @@ def trade_options(ctx: Context, league: dict, my_team_id: int, give: int,
                  "ros_value": g_ours, "market_value": g_mkt},
         "dates": dates, "ros_games": avg_ros, "options": rows,
         "ros_end": ctx.fantasy_end(),
-        "playoff_game_weight": float(ctx.icfg.get("playoff_game_weight", 1.0)),
+        "playoff_game_weight": ctx.focus_weights()[1],
+        "regular_game_weight": ctx.focus_weights()[0],
+        "trade_focus": ctx.icfg.get("trade_focus", "balanced"),
         "market_k_games": float(ctx.icfg.get("market_k_games", 5)),
         "market_weights": market.weights if market else None,
     }
