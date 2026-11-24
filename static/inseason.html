@@ -289,6 +289,7 @@
           whether another team has him or he's a free agent. <b>Stashes</b>: injured free agents worth an IR spot.</p>
       </details>
       <div id="takes" class="takes"></div>
+      <div id="fallout" class="fallout"></div>
       <div id="recap-body" class="recap"></div>
     </section>
 
@@ -297,6 +298,15 @@
         <p class="muted">Games per team over the window. Off-nights are light NHL nights, when your
           lineup has open slots to stream into.</p></div>
       <div class="scroll"><table id="sched-table"></table></div>
+
+      <div class="section-head"><h3>Goalie grid</h3>
+        <label class="field compact"><span>Show</span><select id="gg-filter">
+          <option value="all">Every goalie</option><option value="fa">Free agents</option>
+          <option value="mine">Mine</option></select></label></div>
+      <p class="muted">Each team's games for the next week, the likely starter first with his chance to start
+        (back-to-backs split; injured goalies left out) and a grade for the start: A is a top-fifth start of the
+        week by his projection against that opponent, E the bottom fifth. Tap a name for his card.</p>
+      <div class="scroll gg-scroll"><table id="gg-table" class="gg"></table></div>
     </section>
 
     <section id="tab-lists" class="panel" hidden>
@@ -348,5 +358,6 @@
   <script src="/static/inseason-compare.js"></script>
   <script src="/static/inseason-player.js"></script>
   <script src="/static/inseason-settings.js"></script>
+  <script src="/static/inseason-injuries.js"></script>
 </body>
 </html>

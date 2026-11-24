@@ -92,6 +92,12 @@
         + (Math.abs(d) >= 30 ? ` <span class="${d > 0 ? "pos" : "neg"}">(${d > 0 ? "+" : "−"}${mmss(Math.abs(d))})</span>` : ""));
     }
     if (r.recent_toi != null) rows.push(`Ice time per game: <b>${mmss(r.recent_toi)}</b> last 7 days, ${mmss(r.prior_toi)} before`);
+    if (r.pp_share != null || r.es_share != null) {
+      const team = esc(p.team || "his team");
+      rows.push(`Share of ${team}'s ice time, last ${r.games} game${r.games === 1 ? "" : "s"}: `
+        + `<b>${Math.round((r.pp_share ?? 0) * 100)}%</b> of the power play, `
+        + `${Math.round((r.es_share ?? 0) * 100)}% at even strength <span class="muted">(a top-line forward is about 35%)</span>`);
+    }
     return rows.length ? `<h3>Deployment</h3><ul class="pd-list">${rows.map((x) => `<li>${x}</li>`).join("")}</ul>` : "";
   }
 
@@ -124,7 +130,8 @@
     const d = vs != null ? now - vs : null;
     const sub = (r.recent_toi != null ? "last 7 days" : "this season")
       + (vs != null ? `, ${r.recent_toi != null ? "before" : "preseason"} ${mmss(vs)}` : "")
-      + (r.recent_pp_toi != null ? `; PP ${mmss(r.recent_pp_toi)}` : "");
+      + (r.recent_pp_toi != null ? `; PP ${mmss(r.recent_pp_toi)}` : "")
+      + (r.pp_share != null ? ` (${Math.round(r.pp_share * 100)}% of team PP)` : "");
     const val = `${mmss(now)}${d != null && Math.abs(d) >= 30 ? ` <span class="${d > 0 ? "pos" : "neg"}">${d > 0 ? "+" : "−"}${mmss(Math.abs(d))}</span>` : ""}`;
     return ["Ice time", val, sub];
   }
