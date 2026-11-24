@@ -6,7 +6,10 @@
    go to your roster, and recommendations refresh.
 
    Sync only ever adds picks (and fixes the Me/Taken side of a synced
-   pick); picks you logged by hand stay. Your Yahoo team comes from the
+   pick); picks you logged by hand stay. Reset draft (or "Stop syncing")
+   pauses the room as it stands: its picks aren't re-applied until it gets
+   a new pick (a live draft carries on) or you press "Sync again". The pause
+   is kept per league in localStorage. Your Yahoo team comes from the
    league config; for another league's room pick it in the panel (kept
    per league in localStorage). Uses board.js globals: state, saveState,
    render, refetchRecs, goalLight, esc. */
@@ -14,9 +17,23 @@
 (function () {
   const POLL_LIVE_MS = 2000, POLL_IDLE_MS = 8000;   // room open / not
   const ME_LS = "nhl-draft-board:me:";
+  const PAUSE_LS = "nhl-draft-board:sync-paused:";
   let last = null, timer = null;
 
   const meKey = () => ME_LS + state.meta.league;
+  const pauseKey = () => PAUSE_LS + state.meta.league;
+  function paused(v) {
+    try {
+      const p = JSON.parse(localStorage.getItem(pauseKey()) || "null");
+      return !!p && v && p.room === v.room && p.updated_at === v.updated_at;
+    } catch { return false; }
+  }
+  function pause(v) {
+    if (!v || v.room == null) return;
+    try { localStorage.setItem(pauseKey(), JSON.stringify({ room: v.room, updated_at: v.updated_at })); } catch { /* session only */ }
+  }
+  function unpause() { try { localStorage.removeItem(pauseKey()); } catch { /* ignore */ } }
+
   function savedMe() { try { const v = localStorage.getItem(meKey()); return v == null ? null : Number(v); } catch { return null; } }
 
   function panel() {
@@ -37,6 +54,8 @@
         if (!b) return;
         if (b.dataset.act === "pull") pull(b);
         if (b.dataset.act === "token") showToken(b);
+        if (b.dataset.act === "stop") { pause(last); poll(); }
+        if (b.dataset.act === "resume") { unpause(); poll(); }
       });
     }
     return box;
@@ -86,8 +105,13 @@
       const me = v.my_team_id;
       parts.push(`<label class="live-me">You are <select id="live-me"><option value="0">— not in this draft —</option>${teams.map(([id, name]) => `<option value="${id}"${Number(id) === me ? " selected" : ""}>${esc(name)}</option>`).join("")}</select></label>`);
     }
-    if (v.unmatched && v.unmatched.length) parts.push(`<div class="live-miss">Not on the board (log by name if needed): ${v.unmatched.map(esc).join(", ")}</div>`);
+    const isPaused = paused(v);
+    if (fresh && isPaused) parts.push(`<div class="muted">Not syncing this room: you reset the draft or stopped syncing. It picks up again on the room's next pick.</div>`);
+    if (v.unmatched && v.unmatched.length && !isPaused) parts.push(`<div class="live-miss">Not on the board (log by name if needed): ${v.unmatched.map(esc).join(", ")}</div>`);
     const btns = [];
+    if (fresh) btns.push(isPaused
+      ? `<button type="button" class="quiet" data-act="resume" title="Apply this room's picks to the board again">Sync again</button>`
+      : `<button type="button" class="quiet" data-act="stop" title="Leave this room's picks off the board (until its next pick)">Stop syncing</button>`);
     if (v.yahoo_league_id) btns.push(`<button type="button" class="quiet" data-act="pull" title="Read this league's public draft results from the server (no extension)">Pull from Yahoo</button>`);
     btns.push(`<button type="button" class="quiet" data-act="token" title="For the Draft Sync browser extension">Extension token</button>`);
     parts.push(`<div class="live-btns">${btns.join(" ")}</div><div id="live-token" class="muted"></div>`);
@@ -122,7 +146,7 @@
       if (r.ok) {
         last = await r.json();
         draw(last);
-        apply(last.log || []);
+        if (!paused(last)) apply(last.log || []);
       }
     } catch { /* server restarting: try again */ }
     timer = setTimeout(poll, last && last.connected ? POLL_LIVE_MS : POLL_IDLE_MS);
@@ -134,6 +158,7 @@
       const r = await fetch("/api/draft/live/pull?league=" + encodeURIComponent(state.meta.league), { method: "POST" });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.detail || r.statusText);
+      unpause();
       await poll();
     } catch (e) { const t = document.getElementById("live-token"); if (t) t.textContent = "Pull failed: " + e.message; }
     btn.disabled = false; btn.textContent = "Pull from Yahoo";
@@ -149,4 +174,5 @@
   }
 
   document.addEventListener("board:ready", poll);
+  document.addEventListener("board:reset", () => { pause(last); if (last) draw(last); });
 })();
