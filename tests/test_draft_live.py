@@ -110,10 +110,13 @@ def test_post_needs_token_and_passes_the_origin_guard(client, tmp_path):
             "html": PAGE}
     ext = {"Origin": "chrome-extension://abcdef"}
     assert client.post("/api/draft/live", json=body).status_code == 401
-    # wrong token from the extension's origin: the cross-site guard stops it
+    # wrong token from the extension's origin: refused, saying why
     r = client.post("/api/draft/live", json=body, headers=dict(ext, **{"X-Draft-Token": "x"}))
-    assert r.status_code == 403
+    assert r.status_code == 401 and "Wrong sync token" in r.json()["detail"]
     tok = client.get("/api/draft/token").json()["token"]
+    # the extension's Save button: token test, nothing stored
+    r = client.post("/api/draft/live", json={"check": True}, headers=dict(ext, **{"X-Draft-Token": tok}))
+    assert r.json() == {"ok": True} and not (tmp_path / "live").exists()
     assert tok == (tmp_path / "tok.txt").read_text().strip()
     r = client.post("/api/draft/live", json=body, headers=dict(ext, **{"X-Draft-Token": tok}))
     assert r.status_code == 200 and r.json()["room"] == "19725" and r.json()["picks"] == 4

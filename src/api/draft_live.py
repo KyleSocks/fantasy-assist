@@ -351,6 +351,7 @@ class LivePost(BaseModel):
     settings_html: str | None = Field(None, max_length=MAX_HTML)
     mock: bool = False
     my_team_id: int | None = Field(None, ge=1, le=10**6)
+    check: bool = False       # the extension's Save button: token test only
 
 
 _LID = re.compile(r"/hockey/(\d+)(?:[/?#]|$)")
@@ -362,6 +363,8 @@ def post_live(body: LivePost,
     if not token_valid(x_draft_token):
         raise HTTPException(401, "Missing or wrong X-Draft-Token (copy it "
                                  "from the draft board into the extension)")
+    if body.check:
+        return {"ok": True}
     lid = body.league_id
     if lid is None and body.url:
         m = _LID.search(body.url)

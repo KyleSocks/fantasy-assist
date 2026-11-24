@@ -99,20 +99,29 @@ def cross_site_write(request: Request) -> str | None:
 TOKEN_WRITE_PATHS = {"/api/draft/live"}
 
 
-def token_write(request: Request) -> bool:
-    if request.url.path not in TOKEN_WRITE_PATHS:
-        return False
+def token_write(request: Request) -> bool | None:
+    """True: a token write with the right token. False: a write to a token
+    path that sent a token, but the wrong one. None: not a token write."""
+    sent = request.headers.get("x-draft-token")
+    if request.url.path not in TOKEN_WRITE_PATHS or sent is None:
+        return None
     from src.api.draft_live import token_valid
-    return token_valid(request.headers.get("x-draft-token"))
+    return token_valid(sent)
 
 
 class SecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        why = None if token_write(request) else cross_site_write(request)
+        tok = token_write(request)
+        why = None if tok else cross_site_write(request)
         if not host_allowed(request.headers.get("host", "")):
             response = JSONResponse(
                 {"detail": "Invalid host header (add it to FA_ALLOWED_HOSTS)"},
                 status_code=400)
+        elif tok is False:
+            response = JSONResponse(
+                {"detail": "Wrong sync token: copy it again from the draft "
+                           "board (Extension token) into the extension's options"},
+                status_code=401)
         elif why:
             response = JSONResponse({"detail": f"Forbidden: {why}"},
                                     status_code=403)
