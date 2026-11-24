@@ -180,6 +180,8 @@ function resetDraft() {
   saveState();
   render();
   refetchRecs();
+  // draft-live.js stops re-applying the synced room's picks
+  if (typeof document.dispatchEvent === "function" && typeof CustomEvent === "function") document.dispatchEvent(new CustomEvent("board:reset"));
 }
 
 /* ─── Board table ─────────────────────────────────────────────── */
