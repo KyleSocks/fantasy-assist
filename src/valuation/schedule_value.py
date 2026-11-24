@@ -275,7 +275,8 @@ def main(argv: list[str] | None = None) -> int:
         help="league name (YAML stem in config/leagues/)",
     )
     args = parser.parse_args(argv)
-    cfg = load_league(str(LEAGUE_DIR / f"{args.league}.yaml"))
+    from src.league_files import league_path
+    cfg = load_league(str(league_path(args.league, LEAGUE_DIR)))
     season = next_season_id()
     projs = project_all(season, str(DB_PATH))
     db = str(DB_PATH)

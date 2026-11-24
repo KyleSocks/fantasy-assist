@@ -199,7 +199,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="plan even if --hold is a protected player")
     args = ap.parse_args(argv)
 
-    cfg = load_league(str(LEAGUE_DIR / f"{args.league}.yaml"))
+    from src.league_files import league_path
+    cfg = load_league(str(league_path(args.league, LEAGUE_DIR)))
     try:
         ctx = build_context(args.db, cfg)
     except ValueError as e:

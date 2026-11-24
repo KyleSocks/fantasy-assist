@@ -46,6 +46,69 @@ uv run python -m src.ingest.ingest --seasons 4
 uv run uvicorn src.api.main:app --reload
 ```
 
+## Draft board: timeframes, keepers, live sync
+
+**Timeframe** (picker in the header, `?tf=` on the URL). The default values the
+full season from the preseason projection. The others value a stretch of the
+schedule using this season's blended form (the in-season model: projection
+blended with season-to-date stats, deployment, opponent strength, goalie start
+odds), then run the normal draft valuation (pool sizes, replacement level, VORP)
+on those totals -- for drafts held mid-season or short-format contests:
+
+- `ros` rest of season, to the end of your fantasy playoffs, playoff games
+  weighted like the rest of the app (`playoff_game_weight` / trade focus)
+- `next7`, `next30` the next 7 / 30 days, every game once
+- `playoffs` only the league's `playoff_window`
+
+Needs this season's data (`uv run python -m src.inseason.ingest`, or Refresh on
+the Mid-season page). Code: `src/draft/timeframe.py`.
+
+**Keeper value** (`?keeper=1..3`, `?kdisc=`). Adds the discounted value of
+each season you could keep a player: `sum discount^y * max(0, raw * L(age+y) /
+L(age) - replacement)`, with the aging curves from `config/regression.yaml`
+(goalies flat). Young risers climb, veterans past their peak drop. Settings
+are remembered per league in the browser (rules differ by league). Works with
+any timeframe. Code: `src/draft/keeper.py`.
+
+**Live draft sync.** The Draft Sync browser extension (`extension/`, Chrome or
+Firefox) watches for an open Yahoo hockey draft room -- your league's or a
+mock draft (Yahoo runs each mock room as a temporary league, so it works the
+same way) -- and, with your own Yahoo session (private leagues work), posts
+the room's draft-results page every 5 s, its league page every minute and its
+settings page every 10 minutes. The board applies every pick: taken players
+leave the board, yours go to your roster, recommendations refresh. A room
+that is open right now wins over older data, so a mock shows up on the board
+you have open.
+
+- Your team: the league page's "My Team" link (you're signed in), the draft
+  slot in a mock, or `yahoo.team_id` in the league config; otherwise pick it
+  in the sync box. Yahoo names the drafting team without linking it, so
+  picks are matched to teams by name.
+- Scoring: the room's settings page is read into a league config
+  (`src/draft/yahoo_settings.py`: points values or categories, roster,
+  team count, playoff weeks). If one of your configs already follows that
+  Yahoo league, the sync box says whether it still matches Yahoo and lists
+  any differences. Otherwise it is saved as a board league,
+  `data/league_configs/yahoo_<league id>.yaml` (mock rooms: `yahoo_mock`),
+  and the sync box links to it. Stats the projections don't model
+  (+/-, PIM, GAA, ...) are left out and listed.
+- A public league can also be read by the server alone ("Pull from Yahoo").
+
+Parsing lives server-side (`src/draft/live.py`, tested against pages saved
+from Yahoo in `tests/fixtures/`); the last results page received is kept in
+`data/draft_live/<league>.last.html` for debugging.
+
+Install the extension:
+
+1. Chrome: `chrome://extensions` -> Developer mode -> Load unpacked -> pick
+   the `extension/` folder. Firefox: `about:debugging` -> This Firefox -> Load
+   Temporary Add-on -> pick `extension/manifest.json` (temporary add-ons are
+   removed when Firefox restarts).
+2. On the draft board, click **Extension token** in the sync box.
+3. In the extension's Options, enter the board address you use (e.g.
+   `http://marshall-home:8420`) and the token, Save, and allow the address
+   when the browser asks.
+
 ## Mid-season assistant
 
 Season-to-date stats blended with the preseason projection, used to answer

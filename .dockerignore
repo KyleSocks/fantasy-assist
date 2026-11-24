@@ -8,3 +8,4 @@ web
 docs
 *.md
 server-start.bat
+extension/

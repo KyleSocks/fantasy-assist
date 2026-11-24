@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Draft Sync options</title>
+<style>
+  body { font: 14px system-ui, sans-serif; max-width: 34rem; margin: 2rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; font-weight: 600; }
+  input { width: 100%; padding: .45rem; box-sizing: border-box; }
+  small { color: #666; }
+  button { margin-top: 1.25rem; padding: .5rem 1rem; }
+  #msg { margin-top: .75rem; }
+</style></head>
+<body>
+  <h1>Draft Sync</h1>
+  <label for="server">Draft board address</label>
+  <input id="server" placeholder="http://marshall-home:8420">
+  <small>The address you open the board at (over Tailscale is fine).</small>
+  <label for="token">Sync token</label>
+  <input id="token" placeholder="paste from the draft board">
+  <small>On the draft board, open the Draft sync box and copy the token.</small>
+  <label for="leagueId">Yahoo league id (optional)</label>
+  <input id="leagueId" inputmode="numeric" placeholder="taken from the draft room's address">
+  <small>Only needed if the draft room's address doesn't contain it.</small>
+  <button id="save" type="button">Save</button>
+  <div id="msg"></div>
+  <script src="options.js"></script>
+</body></html>

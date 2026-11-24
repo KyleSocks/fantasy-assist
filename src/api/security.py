@@ -92,9 +92,23 @@ def cross_site_write(request: Request) -> str | None:
     return None
 
 
+# Writes allowed from another origin when they carry the draft token: the
+# draft-sync browser extension posts from chrome-extension:// or
+# moz-extension://. A web page can't send the custom header cross-site
+# without a CORS preflight, which this app never answers with permission.
+TOKEN_WRITE_PATHS = {"/api/draft/live"}
+
+
+def token_write(request: Request) -> bool:
+    if request.url.path not in TOKEN_WRITE_PATHS:
+        return False
+    from src.api.draft_live import token_valid
+    return token_valid(request.headers.get("x-draft-token"))
+
+
 class SecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        why = cross_site_write(request)
+        why = None if token_write(request) else cross_site_write(request)
         if not host_allowed(request.headers.get("host", "")):
             response = JSONResponse(
                 {"detail": "Invalid host header (add it to FA_ALLOWED_HOSTS)"},

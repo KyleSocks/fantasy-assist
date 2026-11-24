@@ -54,6 +54,7 @@ from src.inseason.roster import (
 )
 from src.inseason import leagues as store
 from src.inseason.leagues import ALERTS_FILE, FA_FILE, LEAGUE_FILE, MARKET_FILE, MARKET_HISTORY_FILE, MATCHUPS_FILE, MOVES_FILE, ROSTER_FILE, STANDINGS_FILE  # noqa: F401
+from src.league_files import league_path, league_paths
 from src.paths import DATA_DIR, DB_PATH, DEFAULT_LEAGUE_PATH, LEAGUE_DIR
 from src.valuation.league import LeagueConfig, load_league
 
@@ -71,7 +72,7 @@ def _gen(ctx: Context) -> int:
 
 def _ctx(league: str | None) -> Context:
     name = league or DEFAULT_LEAGUE_PATH.stem
-    path = LEAGUE_DIR / f"{name}.yaml"
+    path = league_path(name, LEAGUE_DIR)
     if not path.exists():
         raise HTTPException(404, f"Unknown league '{name}'")
     if not DB_PATH.exists():
@@ -99,7 +100,7 @@ def _league_cfg(name: str | None) -> tuple[str, LeagueConfig | None]:
     """(config stem, parsed config or None if the file is missing/invalid)
     without building a context -- for endpoints that only need file paths."""
     key = name or DEFAULT_LEAGUE_PATH.stem
-    path = LEAGUE_DIR / f"{key}.yaml"
+    path = league_path(key, LEAGUE_DIR)
     try:
         return key, load_league(str(path))
     except (OSError, ValueError):
@@ -507,11 +508,11 @@ def get_leagues() -> dict:
     from src.inseason.model import load_inseason_config
 
     icfg = load_inseason_config() or {}
-    names = sorted(p.stem for p in LEAGUE_DIR.glob("*.yaml"))
+    names = [p.stem for p in league_paths(LEAGUE_DIR)]
     info: dict[str, dict] = {}
     for name in names:
         try:
-            cfg = load_league(str(LEAGUE_DIR / f"{name}.yaml"))
+            cfg = load_league(str(league_path(name, LEAGUE_DIR)))
             info[name] = store.describe(name, cfg, icfg, DATA_DIR)
         except (OSError, ValueError) as e:
             info[name] = {"error": str(e).splitlines()[0][:200]}

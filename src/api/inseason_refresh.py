@@ -44,7 +44,7 @@ def _targets(league: str | None, icfg: dict) -> list[tuple[str, object, dict | N
     out = [(key, cfg, store.yahoo_link(cfg, icfg))]
     if league:
         return out
-    for path in sorted(ins.LEAGUE_DIR.glob("*.yaml")):
+    for path in ins.league_paths(ins.LEAGUE_DIR):
         k, c = ins._league_cfg(path.stem)
         if k != key and c is not None and c.yahoo is not None:
             out.append((k, c, store.yahoo_link(c, icfg)))
