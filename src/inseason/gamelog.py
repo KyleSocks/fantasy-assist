@@ -25,10 +25,12 @@ def _url(report: str, pid: int) -> str:
 
 
 def _game(row: dict) -> dict:
+    toi = row.get("timeOnIcePerGame")          # seconds; per game = that game
     return {"game_id": row.get("gameId"),
             "date": str(row.get("gameDate") or "")[:10],
             "opp": row.get("opponentTeamAbbrev"),
-            "home": row.get("homeRoad") == "H"}
+            "home": row.get("homeRoad") == "H",
+            "toi": float(toi) if toi is not None else None}
 
 
 def fetch_games(fetcher, pid: int, season: int, goalie: bool) -> list[dict]:
