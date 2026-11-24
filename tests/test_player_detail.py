@@ -18,7 +18,7 @@ class _Log:
         if "skater/summary" in base:
             return [{"gameId": 2, "gameDate": "2026-11-04", "opponentTeamAbbrev": "BBB",
                      "homeRoad": "R", "goals": 1, "assists": 2, "shots": 5,
-                     "ppPoints": 1, "shPoints": 0},
+                     "ppPoints": 1, "shPoints": 0, "timeOnIcePerGame": 1132.0},
                     {"gameId": 1, "gameDate": "2026-10-20T00:00:00", "homeRoad": "H",
                      "opponentTeamAbbrev": "CCC", "goals": 0, "assists": 1, "shots": 2}]
         if "skater/realtime" in base:
@@ -38,6 +38,8 @@ def test_fetch_games_merges_reports_oldest_first():
     assert games[1]["stats"] == {"goals": 1, "assists": 2, "shots": 5,
                                  "pp_points": 1, "sh_points": 0, "hits": 3,
                                  "blocks": 1}
+    # ice time that game (seconds); missing -> None
+    assert games[1]["toi"] == 1132.0 and games[0]["toi"] is None
     # no realtime row for game 1 -> hits / blocks 0, missing fields 0
     assert games[0]["stats"]["hits"] == 0 and games[0]["stats"]["pp_points"] == 0
 

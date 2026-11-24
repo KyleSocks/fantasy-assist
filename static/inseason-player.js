@@ -53,13 +53,14 @@
       ["This season", num(f.observed), f.vs_prior_pct == null ? `${u} / game` : `${pct(f.vs_prior_pct)} vs preseason`],
       ["Blend", num(f.blended), `${u} / game played`],
       p.position !== "G" && f.avail === 1
-        ? ["Games", `${p.gp}`, "played; values count every team game (IR covers injuries)"]
+        ? ["Games", `${p.gp}`, "played; counted for every team game"]
         : ["Plays", f.avail == null ? "–" : `${Math.round(f.avail * 100)}%`, "of team games"],
       ["Value", num(f.team_game), `vs ${num(p.replacement_pg)} free-agent bar`],
       ["Rest of season", `<span class="${cls(p.ros_vs_replacement)}">${signed(p.ros_vs_replacement, 0)}</span>`,
         `${u} vs a free agent, ${p.ros_games} games to ${md(p.ros_end)}`],
       trendTile(p),
-    ];
+      toiTile(p),
+    ].filter(Boolean);
     const keys = Object.keys(p.blended).filter((k) => LABELS[k]);
     return `<p class="pd-sub">${verdict(p.verdict)} <span>${esc(p.position)}, ${esc(p.team || "–")}, ${p.gp} games played</span>
         <span class="muted">NHL stats through ${esc(p.as_of)}</span></p>
@@ -78,7 +79,6 @@
   function deployment(p) {
     const r = p.role;
     if (!r || p.position === "G") return "";
-    const mmss = (s) => (s == null ? "–" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
     const usual = [r.usual_line, r.usual_pp || (r.games > 1 ? "no PP" : null)].filter(Boolean).join(", ");
     const move = r.change ? ` <span class="flag ${r.change === "up" ? "good" : ""}">${r.change === "up" ? "promoted" : "demoted"}</span>` : "";
     const rows = [];
@@ -110,6 +110,23 @@
       : l.status === "cold" ? "Expect this to come back: a buy-low, not one to drop." : "Within normal luck.";
     return `<h3>Luck</h3><ul class="pd-list"><li>${g ? "Save %" : "Shooting %"} <b>${pctTxt(l.pct)}</b> this season,
       ${pctTxt(l.usual_pct)} usual: ${say}${pts}.</li><li>${verdictTxt}</li></ul>`;
+  }
+
+  // Ice time per game, skaters: last 7 days (shift charts) or this season,
+  // against the season or preseason -- always near the top of the card
+  const mmss = (s) => (s == null ? "–" : (() => { const t = Math.round(s); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; })());
+  function toiTile(p) {
+    if (p.position === "G") return null;
+    const r = p.role || {};
+    const now = r.recent_toi ?? p.toi_pg_obs;
+    if (now == null) return null;
+    const vs = r.recent_toi != null ? (r.prior_toi ?? p.toi_pg_obs) : p.toi_pg_prior;
+    const d = vs != null ? now - vs : null;
+    const sub = (r.recent_toi != null ? "last 7 days" : "this season")
+      + (vs != null ? `, ${r.recent_toi != null ? "before" : "preseason"} ${mmss(vs)}` : "")
+      + (r.recent_pp_toi != null ? `; PP ${mmss(r.recent_pp_toi)}` : "");
+    const val = `${mmss(now)}${d != null && Math.abs(d) >= 30 ? ` <span class="${d > 0 ? "pos" : "neg"}">${d > 0 ? "+" : "−"}${mmss(Math.abs(d))}</span>` : ""}`;
+    return ["Ice time", val, sub];
   }
 
   // Injured: when the trade tools expect him back, and your own date
@@ -150,7 +167,7 @@
     if (!a) return "";
     const pc = (x, d = 1) => (x == null ? "–" : `${(x * 100).toFixed(d)}%`);
     const n1 = (x) => (x == null ? "–" : Number(x).toFixed(1));
-    const mm = (x) => (x == null ? "–" : `${Math.floor(x / 60)}:${String(Math.round(x % 60)).padStart(2, "0")}`);
+    const mm = mmss;
     let rows;
     if (p.position === "G") {
       rows = [["Quality starts", a.quality_starts == null ? "–" : `${a.quality_starts} of ${a.gs}`, `${pc(a.qs_pct, 0)} (about 53% is average)`],
@@ -194,7 +211,7 @@
     const d = i.deploy;
     if (d) {
       const f = (x) => `${x >= 1 ? "+" : "−"}${Math.round(Math.abs(x - 1) * 100)}%`;
-      const mm = (x) => `${Math.floor(x / 60)}:${String(Math.round(x % 60)).padStart(2, "0")}`;
+      const mm = mmss;
       const big = Math.abs(d.pp - 1) >= 0.05 || Math.abs(d.ev - 1) >= 0.05;
       rows.push(`Ice time from here: PP <b>${mm(d.exp_pp)}</b> a game (season ${mm(d.season_pp)}, ${f(d.pp)}),
         even strength <b>${mm(d.exp_ev)}</b> (season ${mm(d.season_ev)}, ${f(d.ev)}).`
@@ -247,10 +264,11 @@
       return;
     }
     const keys = Object.keys(g.games[0].stats).filter((k) => LABELS[k]);
+    const toi = !g.goalie && g.games.some((x) => x.toi != null);
     el.innerHTML = `<h3>Weekly performance</h3>${chart(g)}<h3>Game log</h3>
-      <div class="scroll"><table class="pd-stats"><thead><tr><th class="l">Date</th><th class="l">Opp</th>${keys.map((k) => `<th>${LABELS[k]}</th>`).join("")}<th>${esc(g.unit)}</th></tr></thead>
+      <div class="scroll"><table class="pd-stats"><thead><tr><th class="l">Date</th><th class="l">Opp</th>${toi ? "<th>TOI</th>" : ""}${keys.map((k) => `<th>${LABELS[k]}</th>`).join("")}<th>${esc(g.unit)}</th></tr></thead>
       <tbody>${g.games.slice().reverse().map((x) => `<tr><td class="l">${md(x.date)}</td><td class="l">${x.home ? "" : "@"}${esc(x.opp || "")}</td>${
-        keys.map((k) => `<td>${Math.round(x.stats[k])}</td>`).join("")}<td><b>${num(x.value, 1)}</b></td></tr>`).join("")}</tbody></table></div>`;
+        toi ? `<td>${mmss(x.toi)}</td>` : ""}${keys.map((k) => `<td>${Math.round(x.stats[k])}</td>`).join("")}<td><b>${num(x.value, 1)}</b></td></tr>`).join("")}</tbody></table></div>`;
     const tip = el.querySelector(".pd-tip");
     const show = (node) => {
       const w = g.weeks[+node.dataset.i];
