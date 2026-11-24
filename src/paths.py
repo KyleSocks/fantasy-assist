@@ -26,3 +26,6 @@ DEFAULT_DB_ARG = "data/hockey.db"
 
 # Shown to the user whenever the DB is missing or stale.
 INGEST_COMMAND = "uv run python -m src.ingest.ingest --seasons 1"
+# league configs read from a Yahoo settings page (src/draft/yahoo_settings.py);
+# under data/ because config/ is mounted read-only in Docker
+IMPORTED_LEAGUE_DIR = DATA_DIR / "league_configs"

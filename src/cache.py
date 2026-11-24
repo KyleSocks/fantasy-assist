@@ -49,9 +49,14 @@ def db_stamp(db_path: str | os.PathLike) -> tuple:
 
 def config_stamp(config_dir: Path | None = None) -> tuple:
     """Stamp of every YAML under config/ (league + model settings, which
-    are bind-mounted and editable without a rebuild)."""
+    are bind-mounted and editable without a rebuild) and of the league
+    configs imported from Yahoo (data/league_configs/)."""
     root = config_dir or CONFIG_DIR
     files = sorted(root.rglob("*.yaml"))
+    if config_dir is None:      # + league configs imported from Yahoo
+        from src.paths import IMPORTED_LEAGUE_DIR
+        if IMPORTED_LEAGUE_DIR.is_dir():
+            files += sorted(IMPORTED_LEAGUE_DIR.glob("*.yaml"))
     return tuple(zip((str(f) for f in files), file_stamp(*files)))
 
 

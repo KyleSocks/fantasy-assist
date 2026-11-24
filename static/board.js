@@ -54,6 +54,14 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const storageKey = () => LS_PREFIX + state.meta.league;
 const norm = (s) => s.toLowerCase().replace(/[^a-z]/g, "");
+/* Board mode (timeframe, keeper value) rides in the page URL and is sent
+   with every board / recommendation request (draft-modes.js). */
+const MODE_KEYS = ["tf", "keeper", "kdisc"];
+function modeParams(params) {
+  const q = new URLSearchParams(window.location.search);
+  for (const k of MODE_KEYS) if (q.get(k)) params.set(k, q.get(k));
+  return params;
+}
 
 function saveState() {
   try {
@@ -187,7 +195,8 @@ function computeRank() {
 }
 
 function cols() {
-  const c = [["rank", "Rank"], ["draft", "Draft"], ["name", "Player"], ["pos", "Pos"], ["team", "Team"], ["vorp", "VORP"], ["dollars", "$"], ["vorp_regular", "VORP RS"], ["vorp_playoff", "VORP PO"]];
+  const valueCols = (state.meta.mode && state.meta.mode.value_columns) || [["vorp_regular", "VORP RS"], ["vorp_playoff", "VORP PO"]];
+  const c = [["rank", "Rank"], ["draft", "Draft"], ["name", "Player"], ["pos", "Pos"], ["team", "Team"], ["vorp", "VORP"], ["dollars", "$"], ...valueCols];
   for (const k of state.meta.categories) c.push([k, k]);
   if (state.meta.has_adp) c.push(["adp", "ADP"], ["delta", "+/-"]);
   return c;
@@ -218,8 +227,10 @@ function cellHtml(p, k) {
   else if (k === "dollars") v = p.dollars.toFixed(1);
   else if (k === "adp") v = p.adp == null ? "—" : p.adp.toFixed(1);
   else if (k === "delta") { v = p.delta == null ? "—" : (p.delta > 0 ? "+" : "") + p.delta; cls = p.delta > 0 ? " pos" : p.delta < 0 ? " neg" : ""; }
-  else v = p.stats[k].toFixed(1);
-  return `<td class="k-${k}${cls}" data-label="${esc(LABELS[k] || k)}">${v}</td>`;
+  else if (k in p.stats) v = p.stats[k].toFixed(1);
+  else v = p[k] == null ? "—" : (Number.isInteger(p[k]) ? p[k] : Number(p[k]).toFixed(1));
+  const label = LABELS[k] || ((state.meta.mode && state.meta.mode.value_columns) || []).reduce((l, [ck, cl]) => (ck === k ? cl : l), k);
+  return `<td class="k-${k}${cls}" data-label="${esc(label)}">${v}</td>`;
 }
 
 function rowHtml(p) { return `<tr data-id="${p.id}">${cols().map(([k]) => cellHtml(p, k)).join("")}</tr>`; }
@@ -265,7 +276,7 @@ function render() {
   const round = currentRound();
   $("round").textContent = `Round ${round}`;
   $("status").textContent =
-    `${(state.players.length - state.drafted_all.length).toLocaleString()} available, ${state.drafted_all.length} drafted. Projections for ${seasonLabel(state.meta.season)}.`;
+    `${(state.players.length - state.drafted_all.length).toLocaleString()} available, ${state.drafted_all.length} drafted. ${state.meta.mode && state.meta.mode.window ? `${state.meta.mode.timeframe_label}, this season's form` : "Projections for " + seasonLabel(state.meta.season)}${state.meta.mode && state.meta.mode.keeper.years ? ", keeper value" : ""}.`;
   window.__lastSortMs = performance.now() - t0;
 }
 
@@ -378,6 +389,7 @@ function refetchRecs() {
   params.set("round", String(currentRound()));
   params.set("drafted_by_me", state.drafted_by_me.join(","));
   params.set("drafted_all", state.drafted_all.join(","));
+  modeParams(params);
   $("recs").classList.add("loading");
   fetch(`/api/recommend?${params.toString()}`)
     .then((res) => {
@@ -538,7 +550,7 @@ function wireEvents() {
   $("search").addEventListener("input", () => { if (searchTimer) clearTimeout(searchTimer); searchTimer = setTimeout(() => { state.search = $("search").value.trim(); state.limit = CARD_PAGE; render(); }, 100); });
   $("chips").addEventListener("click", (e) => { const chip = e.target.closest(".chip"); if (!chip) return; const pos = chip.dataset.pos; if (state.posFilter.has(pos)) state.posFilter.delete(pos); else state.posFilter.add(pos); chip.classList.toggle("active", state.posFilter.has(pos)); chip.setAttribute("aria-pressed", String(state.posFilter.has(pos))); state.limit = CARD_PAGE; render(); });
   $("reset").addEventListener("click", resetDraft);
-  $("league").addEventListener("change", () => { const v = $("league").value; if (v && v !== state.meta.league) window.location.search = "?league=" + encodeURIComponent(v); });
+  $("league").addEventListener("change", () => { const v = $("league").value; if (v && v !== state.meta.league) { const q = modeParams(new URLSearchParams()); q.set("league", v); window.location.search = "?" + q.toString(); } });
 
   /* Recommendations: explicit Me / Taken buttons per player. */
   $("recs").addEventListener("click", (e) => {
@@ -588,7 +600,9 @@ function wireEvents() {
 
 async function init() {
   const league = new URLSearchParams(window.location.search).get("league");
-  const url = "/api/board" + (league ? "?league=" + encodeURIComponent(league) : "");
+  const q = modeParams(new URLSearchParams());
+  if (league) q.set("league", league);
+  const url = "/api/board" + (q.toString() ? "?" + q.toString() : "");
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
@@ -602,7 +616,15 @@ async function init() {
     wireEvents();
     render();
     refetchRecs();
-  } catch (err) { $("status").textContent = "Failed to load board: " + err.message; }
+    if (typeof document.dispatchEvent === "function" && typeof CustomEvent === "function") document.dispatchEvent(new CustomEvent("board:ready"));
+  } catch (err) {
+    $("status").textContent = "Failed to load board: " + err.message;
+    // a timeframe / keeper mode that can't be built: offer the plain board
+    if (MODE_KEYS.some((k) => new URLSearchParams(window.location.search).has(k)) && typeof document.createElement === "function") {
+      const a = document.createElement("a"); a.href = "/" + (league ? "?league=" + encodeURIComponent(league) : ""); a.textContent = " Back to the full-season board";
+      $("status").appendChild(a);
+    }
+  }
 }
 
 init();

@@ -42,3 +42,5 @@ data/*.txt
 data/*.json
 # per-league mid-season files (leagues with their own yahoo: block)
 data/leagues/
+# live draft sync state (src/api/draft_live.py); draft_token.txt is covered by data/*.txt
+data/draft_live/

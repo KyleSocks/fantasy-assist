@@ -188,3 +188,25 @@ body.board-page { display: flex; flex-direction: column; height: 100vh; height: 
 @media (max-width: 380px) {
   .fold .board tbody tr { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* ── draft modes (draft-modes.js) and live sync (draft-live.js) ── */
+.mode-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.mode-controls select { min-width: 0; }
+.mode-note { padding: 6px 16px 0; }
+.live-sync { margin: 12px 16px 0; padding: 10px 12px; display: grid; gap: 6px; font-size: 13px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--r); }
+.live-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.live-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--line); }
+.live-dot.on { background: #1f9d48; box-shadow: 0 0 0 3px rgba(31, 157, 72, .2); }
+.live-dot.idle { background: var(--muted); }
+.live-me select { margin-left: 4px; max-width: 12rem; }
+.live-miss { color: var(--bad-fg); }
+.live-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.live-btns button { font-size: 12px; padding: 3px 8px; }
+.live-tok { user-select: all; word-break: break-all; }
+@media (max-width: 900px) {
+  .board-page .controls .mode-controls { flex: 1 1 100%; }
+  .board-page .controls .mode-controls select { flex: 1 1 8rem; }
+}
+.live-tag { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--line); }
+.live-ok { color: #1f7a3a; }
+.live-switch { font-weight: 600; }

@@ -47,6 +47,8 @@ from src.valuation.schedule_value import windowed_values
 from src.valuation.valuation import auction_values
 
 from src.draft.recommend import recommend
+from src.league_files import league_paths
+from src.api.draft_modes import Mode, mode_values, parse_mode, window_stamp
 
 from src.api.export import board_to_csv
 from src.cache import Memo, config_stamp, db_stamp, file_stamp, project_all_cached
@@ -136,7 +138,7 @@ def data_freshness(now: datetime.datetime | None = None) -> dict:
 def _load_leagues() -> dict[str, LeagueConfig]:
     """Load every league config from config/leagues, keyed by name."""
     leagues: dict[str, LeagueConfig] = {}
-    for path in sorted(LEAGUE_DIR.glob("*.yaml")):
+    for path in league_paths(LEAGUE_DIR):
         cfg = load_league(str(path))
         leagues[cfg.name] = cfg
     return leagues
@@ -193,7 +195,8 @@ def _projections_and_values(cfg: LeagueConfig, season: int):
     return _VALUES.get((cfg.name, season) + _data_key(), compute)
 
 
-def build_board(league: str, adp: dict[str, float] | None = None) -> dict:
+def build_board(league: str, adp: dict[str, float] | None = None,
+                mode: Mode | None = None) -> dict:
     """Build the full board payload for one league.
 
     ``adp`` may be passed explicitly (used by tests); when None it is
@@ -208,16 +211,19 @@ def build_board(league: str, adp: dict[str, float] | None = None) -> dict:
             detail=f"Unknown league '{league}'. Available: {sorted(leagues)}",
         )
     _require_db()
+    mode = mode or Mode()
     if adp is not None:          # explicit ADP (tests): never cached
-        return _build_board(leagues, league, adp)
-    key = (league,) + _data_key() + file_stamp(ADP_PATH)
-    board = _BOARDS.get(key, lambda: _build_board(leagues, league, None))
+        return _build_board(leagues, league, adp, mode)
+    key = (league, mode) + _data_key() + file_stamp(ADP_PATH)
+    if mode.timeframe != "season":   # also the day and the in-season settings
+        key += (window_stamp(),)
+    board = _BOARDS.get(key, lambda: _build_board(leagues, league, None, mode))
     # freshness is "now"-relative, so it is recomputed on every request
     return {**board, "data_freshness": data_freshness()}
 
 
 def _build_board(leagues: dict[str, LeagueConfig], league: str,
-                 adp: dict[str, float] | None) -> dict:
+                 adp: dict[str, float] | None, mode: Mode) -> dict:
     cfg = leagues[league]
     season = _next_season_id()
     conn = sqlite3.connect(DB_PATH)
@@ -232,7 +238,9 @@ def _build_board(leagues: dict[str, LeagueConfig], league: str,
     finally:
         conn.close()
 
-    projs, vals = _projections_and_values(cfg, season)
+    projs, vals, mmeta = mode_values(cfg, season, mode,
+                                     _projections_and_values(cfg, season))
+    extra = mmeta.pop("extra")
     auction = auction_values(vals, cfg, key="total_value")
 
     if adp is None:
@@ -287,6 +295,7 @@ def _build_board(leagues: dict[str, LeagueConfig], league: str,
                 "stats": {k: round(_extract_stat(p, k), 1) for k in cat_keys},
                 "adp": round(a, 1) if a is not None else None,
                 "delta": delta,
+                **extra.get(v.player_id, {}),
             }
         )
 
@@ -299,6 +308,7 @@ def _build_board(leagues: dict[str, LeagueConfig], league: str,
         "categories": cat_keys,
         "roster_slots": cfg.roster_slots,
         "has_adp": adp is not None and len(adp) > 0,
+        "mode": mmeta,
         "count": len(out),
         "players": out,
         "data_freshness": data_freshness(),
@@ -329,6 +339,7 @@ def build_recommendations(
     drafted_by_me: list[int],
     drafted_all: list[int],
     round_no: int,
+    mode: Mode | None = None,
 ) -> dict:
     """Full pipeline for the live draft board: values + marginal re-rank."""
     leagues = _load_leagues()
@@ -337,7 +348,8 @@ def build_recommendations(
     cfg = leagues[league]
     _require_db()
     season = _next_season_id()
-    _, vals = _projections_and_values(cfg, season)
+    _, vals, _ = mode_values(cfg, season, mode or Mode(),
+                             _projections_and_values(cfg, season))
     recs = recommend(drafted_by_me, drafted_all, vals, cfg, round_no)
     return {
         "league": cfg.name,
@@ -472,6 +484,9 @@ app = FastAPI(title="NHL Draft Board")
 # every query value is limited.
 LeagueName = Annotated[str | None, Query(pattern=r"^[A-Za-z0-9_-]{0,64}$")]
 IdList = Annotated[str, Query(max_length=MAX_IDS * 9)]
+Timeframe = Annotated[str | None, Query(pattern=r"^[a-z0-9]{0,16}$")]
+KeeperYears = Annotated[int, Query(ge=0, le=5)]
+Discount = Annotated[float | None, Query(gt=0, le=1)]
 
 
 def _league_or_default(league: str | None) -> str:
@@ -480,9 +495,12 @@ def _league_or_default(league: str | None) -> str:
 
 
 @app.get("/api/board")
-def get_board(league: LeagueName = None) -> dict:
-    """Full ranked board for one league (client handles everything else)."""
-    return build_board(_league_or_default(league))
+def get_board(league: LeagueName = None, tf: Timeframe = None,
+              keeper: KeeperYears = 0, kdisc: Discount = None) -> dict:
+    """Full ranked board for one league (client handles everything else).
+    ?tf= timeframe, ?keeper= future seasons, ?kdisc= discount (draft_modes)."""
+    return build_board(_league_or_default(league),
+                       mode=parse_mode(tf, keeper, kdisc))
 
 
 @app.get("/api/recommend")
@@ -491,6 +509,9 @@ def get_recommend(
     round: Annotated[int, Query(ge=1, le=100)] = 1,
     drafted_by_me: IdList = "",
     drafted_all: IdList = "",
+    tf: Timeframe = None,
+    keeper: KeeperYears = 0,
+    kdisc: Discount = None,
 ) -> dict:
     """Marginal-value re-rank of the available pool for the live draft.
 
@@ -501,6 +522,7 @@ def get_recommend(
         _parse_ids(drafted_by_me),
         _parse_ids(drafted_all),
         round,
+        parse_mode(tf, keeper, kdisc),
     )
 
 

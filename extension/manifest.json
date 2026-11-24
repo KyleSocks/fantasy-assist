@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Fantasy Assist Draft Sync",
+  "version": "1.0.0",
+  "description": "Sends the picks from your Yahoo fantasy hockey draft room to your Fantasy Assist draft board.",
+  "permissions": ["storage"],
+  "host_permissions": ["*://*.fantasysports.yahoo.com/*"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [{
+    "matches": ["*://*.fantasysports.yahoo.com/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }],
+  "action": { "default_popup": "popup.html", "default_title": "Draft Sync" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "browser_specific_settings": {
+    "gecko": { "id": "draft-sync@fantasy-assist.local", "strict_min_version": "121.0" }
+  }
+}

@@ -6,11 +6,13 @@ mounted here so routes.py stays under the 500-line limit.
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 
+from src.api.draft_live import router as draft_live_router
 from src.api.inseason import router as inseason_router
 from src.api.routes import STATIC_DIR, app  # noqa: F401
 from src.api.security import SecurityMiddleware
 
 app.include_router(inseason_router)
+app.include_router(draft_live_router)
 app.add_middleware(SecurityMiddleware)
 # The board payload is every ranked player (hundreds of KB of JSON); gzip
 # cuts it ~5-8x, which is what matters on a phone over Tailscale.
