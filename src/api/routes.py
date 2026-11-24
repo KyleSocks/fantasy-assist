@@ -43,7 +43,7 @@ from src.valuation.league import (
     _extract_stat,
     load_league,
 )
-from src.valuation.schedule_value import windowed_values
+from src.valuation.schedule_value import season_values
 from src.valuation.valuation import auction_values
 
 from src.draft.recommend import recommend
@@ -191,7 +191,7 @@ def _projections_and_values(cfg: LeagueConfig, season: int):
     def compute():
         projs = {p.player_id: p
                  for p in project_all_cached(season, DB_PATH)}
-        return projs, windowed_values(list(projs.values()), cfg)
+        return projs, season_values(list(projs.values()), cfg)
     return _VALUES.get((cfg.name, season) + _data_key(), compute)
 
 

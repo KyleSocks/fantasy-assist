@@ -98,6 +98,8 @@ def mode_values(cfg: LeagueConfig, season: int, mode: Mode, base):
                   "value_columns": [["vorp_regular", "VORP RS"],
                                     ["vorp_playoff", "VORP PO"]],
                   "extra": {}}
+    if cfg.playoff_window is None:          # no fantasy playoffs (a mock room)
+        meta["value_columns"] = [["gp_regular", "GP"]]
     if mode.is_default:
         return projs, vals, meta
     if mode.timeframe != "season":
