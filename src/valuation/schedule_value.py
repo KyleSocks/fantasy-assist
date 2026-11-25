@@ -253,6 +253,26 @@ def windowed_values(
     return valuate_windowed(reg_projs, po_projs, cfg)
 
 
+def season_values(projs: list[Projection], cfg: LeagueConfig,
+                  db_path: str | Path | None = None) -> list[PlayerValue]:
+    """Board values for any league: ``windowed_values`` when the config has
+    its regular / playoff windows, else one season-long ``valuate`` pass
+    (a league with no fantasy playoffs, e.g. a Yahoo mock draft room) laid
+    out the same way: total_value = vorp_regular = VORP, nothing for the
+    playoffs."""
+    if cfg.regular_window is not None and cfg.playoff_window is not None:
+        return windowed_values(projs, cfg, db_path)
+    vals = valuate(list(projs), cfg)
+    gp = {p.player_id: p.gp for p in projs}
+    for v in vals:
+        v.gp_regular = gp.get(v.player_id, 0.0)
+        v.gp_playoff = 0.0
+        v.vorp_regular = v.vorp
+        v.vorp_playoff = 0.0
+        v.total_value = v.vorp
+    return vals
+
+
 # ─── CLI acceptance report ─────────────────────────────────────────────
 
 

@@ -14,6 +14,7 @@ from src.valuation.schedule_value import (
     assert_schedule_covers,
     window_games,
     windowed_projection,
+    season_values,
     windowed_values,
 )
 
@@ -415,3 +416,45 @@ def test_cli_help_exits_zero():
     assert excinfo.value.code == 0
 
 
+
+
+# --- season_values: leagues with no fantasy playoffs ---
+
+def test_season_values_without_windows_is_season_long():
+    """No regular/playoff windows (a Yahoo mock room: "Playoffs: None"):
+    one season-long pass. Points G 1, C pool 1: goals 30 / 20 / 10 ->
+    replacement 20 (the 2nd C), VORP 10 / 0 / -10, all regular season."""
+    cfg = LeagueConfig(
+        name="nowin", team_count=1, scoring_type="points",
+        roster_slots={"C": 1, "LW": 0, "RW": 0, "D": 0, "G": 0, "UTIL": 0, "BENCH": 0},
+        points_per_stat={"G": 1.0})
+    projs = [Projection(player_id=i, season_id=2025, gp=80.0, toi_per_gp=18.0,
+                        goals=g, assists=0.0, shots=0.0, blocks=0.0, hits=0.0,
+                        pp_points=0.0, wins=None, save_pct=None, position="C")
+             for i, g in ((1, 30.0), (2, 20.0), (3, 10.0))]
+    by_id = {v.player_id: v for v in season_values(projs, cfg)}
+    assert by_id[1].total_value == pytest.approx(10.0)
+    assert by_id[1].vorp_regular == pytest.approx(10.0)
+    assert by_id[1].vorp_playoff == 0.0 and by_id[1].gp_playoff == 0.0
+    assert by_id[1].gp_regular == 80.0
+    assert by_id[3].total_value == pytest.approx(-10.0)
+
+
+def test_imported_mock_room_config_values():
+    """The config read from a real Yahoo mock room (no playoffs, categories,
+    no UTIL) values without needing a schedule."""
+    from pathlib import Path
+
+    from src.draft.yahoo_settings import parse_settings
+    page = (Path(__file__).parent / "fixtures" / "yahoo_settings_mock_cat.html").read_text()
+    raw, _, _ = parse_settings(page, name="yahoo_mock", season_start="2026-10-06",
+                               season_end_year=2027)
+    cfg = LeagueConfig.model_validate(raw)
+    assert cfg.playoff_window is None
+    projs = [Projection(player_id=i, season_id=2025, gp=80.0, toi_per_gp=18.0,
+                        goals=10.0 + i, assists=20.0 + i, shots=150.0 + i,
+                        blocks=30.0, hits=40.0 + i, pp_points=10.0 + i,
+                        wins=None, save_pct=None, position="CLRD"[i % 4])
+             for i in range(60)]
+    vals = season_values(projs, cfg)
+    assert len(vals) == 60 and all(v.total_value == v.vorp for v in vals)
