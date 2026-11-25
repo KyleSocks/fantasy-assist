@@ -93,6 +93,7 @@ def apply(lines: dict[int, Line], roles: dict[int, dict],
             continue
         season_pp = (row.get("pp_toi_sec") or 0) / gp
         season_ev = (row.get("toi_sec") or 0) / gp
+        ln.extra["deploy_base"] = {"season_pp": season_pp, "season_ev": season_ev}
         f = factors(season_pp, season_ev, roles.get(pid), cfg)
         if f is None:
             continue

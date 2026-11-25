@@ -9,6 +9,13 @@ import pytest
 
 import src.inseason.takes as takes
 
+
+@pytest.fixture(autouse=True)
+def _observed(monkeypatch):
+    """The fake lines here have no season stats: say nobody's produced
+    anything beyond the model unless a test sets it."""
+    monkeypatch.setattr(takes, "observed_pg", lambda ctx, pid: ctx.scorer.per_game.get(pid))
+
 AS_OF = "2026-11-15"
 
 
@@ -160,3 +167,29 @@ def test_playoff_targets(monkeypatch):
                       start="2026-11-16", out_until={1: "2027-02-15"})
     assert out["playoff_targets"][0]["take"].endswith(
         "Your playoff spot looks safe, so those weeks cost you little: worth paying for.")
+
+
+def test_breakout_watch(monkeypatch):
+    """Ned (free agent): ice time from here 17:00 (PP 3:00 + EV 14:00) vs
+    15:00 this season (PP 1:00 + EV 14:00) -- 13% more (>= 8%) -- and the
+    model's 2.40 a game is above the 2.00 bar x 0.9 and above the 1.80 he's
+    produced. Ola (theirs) has more minutes too but has produced 2.60,
+    above his 2.50 model: no breakout. Pip has the edge but no more
+    minutes: no breakout."""
+    monkeypatch.setattr(takes, "recent", lambda c, p, days=14: None)
+    more = {"exp_pp": 180, "exp_ev": 840, "season_pp": 60, "season_ev": 840}
+    lines = {1: L(1, "Ned"), 2: L(2, "Ola"), 3: L(3, "Pip")}
+    lines[1].extra["deploy"] = dict(more)
+    lines[2].extra["deploy"] = dict(more)
+    ctx = Ctx(lines, {1: 2.4, 2: 2.5, 3: 2.6})
+    seen = {1: 1.8, 2: 2.6, 3: 1.0}
+    monkeypatch.setattr(takes, "observed_pg", lambda c, p: seen[p])
+    out = takes.build(ctx, owners={2: 2, 3: 2}, team_names={2: "Others"}, my_team=1, fas={1},
+                      injured_fas=set(), market=NS(per_game=lambda p: 2.0),
+                      rostered=lambda p: None, start="2026-11-16")
+    assert [x["name"] for x in out["breakouts"]] == ["Ned"]
+    ned = out["breakouts"][0]
+    assert ned["edge_pg"] == pytest.approx(0.6)
+    assert ned["take"] == ("Breakout watch (free agent in your league): ice time from here 17:00 a game "
+                           "vs 15:00 this season (PP 3:00 vs 1:00). The model has him at 2.40 a game "
+                           "against 1.80 so far.")
