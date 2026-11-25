@@ -15,9 +15,17 @@ $("save").addEventListener("click", async () => {
   // the board's address is a host the extension must be allowed to reach
   const granted = await api.permissions.request({ origins: [origin + "/*"] }).catch(() => false);
   if (!granted) { $("msg").textContent = "Allow access to " + origin + " so the extension can send picks there."; return; }
-  await api.storage.local.set({ server, token: $("token").value.trim(), leagueId: $("leagueId").value.trim() });
+  // a pasted token may carry quotes or spaces from the copy
+  const token = $("token").value.trim().replace(/^["'`]+|["'`]+$/g, "");
+  $("token").value = token;
+  await api.storage.local.set({ server, token, leagueId: $("leagueId").value.trim() });
   try {
-    const r = await fetch(server + "/api/draft/token");
-    $("msg").textContent = r.ok ? "Saved. The board is reachable." : "Saved, but the board answered " + r.status + ".";
+    const r = await fetch(server + "/api/draft/live", {
+      method: "POST", headers: { "Content-Type": "application/json", "X-Draft-Token": token },
+      body: JSON.stringify({ check: true }),
+    });
+    const body = await r.json().catch(() => ({}));
+    $("msg").textContent = r.ok ? "Saved. The board accepted the token, so you're set."
+      : `Saved, but the board said ${r.status}: ${body.detail || r.statusText}`;
   } catch (e) { $("msg").textContent = "Saved, but the board isn't reachable: " + e.message; }
 });
