@@ -189,6 +189,10 @@ def build_context(db_path: str, league: LeagueConfig,
         acfg = icfg.get("advanced") or {}
         apply_advanced(lines, adv, acfg, icfg.get("skater_k_games") or {},
                        load_inputs(conn, season, adv, acfg))
+        # expected goals: shot quality into the shooting % the projection
+        # starts from (xg.py)
+        from .xg import apply as apply_xg, player_xg
+        apply_xg(lines, player_xg(conn, season), acfg, icfg.get("skater_sh_pct_k_shots"))
         from .windows import load_windows
         for pid, w in load_windows(conn).items():
             if pid in lines:

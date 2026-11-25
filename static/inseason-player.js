@@ -174,17 +174,19 @@
 
   // Advanced stats, season to date (advanced.py)
   function advBlock(p) {
-    const a = p.adv;
-    if (!a) return "";
+    const a = p.adv, x = p.xg;
+    if (!a && !x) return "";
     const pc = (x, d = 1) => (x == null ? "–" : `${(x * 100).toFixed(d)}%`);
     const n1 = (x) => (x == null ? "–" : Number(x).toFixed(1));
     const mm = mmss;
-    let rows;
+    let rows = [];
     if (p.position === "G") {
+      if (!a) return "";
       rows = [["Quality starts", a.quality_starts == null ? "–" : `${a.quality_starts} of ${a.gs}`, `${pc(a.qs_pct, 0)} (about 53% is average)`],
         ["Shots against / 60", n1(a.shots_against_per60), "how busy he is"],
         ["Team goals for", n1(a.goals_for_avg), "a game in his starts (wins)"]];
     } else {
+      if (a) {
       const rel = a.sat_rel == null ? "" : ` (${a.sat_rel >= 0 ? "+" : "−"}${Math.abs(a.sat_rel * 100).toFixed(1)} vs team without him)`;
       rows = [["Corsi (shot attempts) %", pc(a.sat_pct), `at 5v5${rel}`],
         ["Offensive-zone starts", pc(a.oz_start_pct, 0), "of his offensive + defensive zone starts at 5v5"],
@@ -192,6 +194,13 @@
         ["5v5 points / 60", a.points_per60_5v5 == null ? "–" : Number(a.points_per60_5v5).toFixed(2), `${mm(a.toi_5v5_pg)} a game at 5v5`],
         ["On-ice shooting %", pc(a.onice_sh_pct), "5v5, everyone's shots with him on"],
         ["PDO", a.pdo == null ? "–" : Number(a.pdo).toFixed(3), "on-ice SH% + SV%; 1.000 is normal, far off it is luck"]];
+      }
+      if (x) {
+        const diff = x.goals - x.ixg;
+        rows.push(["Expected goals (xG)", `${num(x.ixg, 1)}`,
+          `${x.goals} goals: ${Math.abs(diff) < 0.5 ? "right on" : `${diff > 0 ? "+" : "−"}${num(Math.abs(diff), 1)} ${diff > 0 ? "above" : "below"}`} what his chances usually produce`]);
+        if (x.sog) rows.push(["xG per shot on goal", pc(x.ixg / x.sog), `quality of his looks (${x.sog} shots on goal, ${x.attempts} unblocked attempts)`]);
+      }
     }
     return `<h3>Advanced</h3><div class="scroll"><table class="pd-adv"><tbody>${rows.map(([l, v, s]) =>
       `<tr><th scope="row">${l}</th><td><b>${v}</b></td><td class="muted">${esc(s)}</td></tr>`).join("")}</tbody></table></div>`;
@@ -204,8 +213,9 @@
     const pc = (x) => `${(x * 100).toFixed(1)}%`;
     if (i.sh_pct && i.sh_pct.season != null) {
       rows.push(`Goals = shots x shooting %. Shooting % used: <b>${pc(i.sh_pct.blended)}</b>
-        (${pc(i.sh_pct.season)} this season, ${pc(i.sh_pct.prior)} projected), so a hot or cold
-        finishing run counts for little until it lasts.`);
+        (${pc(i.sh_pct.season)} this season, ${pc(i.sh_pct.prior)} projected${i.sh_pct.xg_prior != null
+          ? `, started from ${pc(i.sh_pct.xg_prior)} after mixing in the quality of his shots this season (xG ${pc(p.xg.quality)} a shot on goal)` : ""}),
+        so a hot or cold finishing run counts for little until it lasts.`);
     }
     const o = i.onice;
     if (o) {
