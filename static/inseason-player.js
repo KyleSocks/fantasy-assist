@@ -57,7 +57,11 @@
         : ["Plays", f.avail == null ? "–" : `${Math.round(f.avail * 100)}%`, "of team games"],
       ["Value", num(f.team_game), `vs ${num(p.replacement_pg)} free-agent bar`],
       ["Rest of season", `<span class="${cls(p.ros_vs_replacement)}">${signed(p.ros_vs_replacement, 0)}</span>`,
-        `${u} vs a free agent, ${p.ros_games} games to ${md(p.ros_end)}`],
+        `${u} vs a free agent, ${p.ros_games} games to ${md(p.ros_end)}` +
+        (p.focus_weights && (p.focus_weights[0] !== 1 || p.focus_weights[1] !== 1)
+          ? `; regular games x${p.focus_weights[0]}, playoff games x${p.focus_weights[1]}` +
+            (p.ros_playoff_games != null ? ` (${p.ros_playoff_games} in the playoffs)` : "")
+          : "")],
       trendTile(p),
       toiTile(p),
     ].filter(Boolean);
