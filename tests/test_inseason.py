@@ -446,3 +446,17 @@ def test_skater_play_share_off_counts_every_team_game(db):
     for pid, ln in off.lines.items():
         if ln.is_goalie:
             assert ln.start_share == on.lines[pid].start_share
+
+
+def test_hold_check_reports_the_weighting_behind_ros(ctx):
+    """ros_vs_replacement is weighted by game_weight; hold_check returns
+    the weighted game counts and focus so the CLI can say so."""
+    from src.inseason.evaluate import ros_over_replacement
+    dates = sorted(d for d, *_ in ctx.games)
+    h = hold_check(ctx, 1, dates[0], 7)
+    assert h["focus"] == ctx.focus() and h["focus_weights"] == ctx.focus_weights()
+    repl = h["replacement_pg"]
+    from src.inseason.evaluate import ros_value
+    assert h["ros_vs_replacement"] == pytest.approx(
+        ros_value(ctx, 1, dates[0]) - repl * h["avg_ros_weighted_games"])
+    assert h["ros_vs_replacement"] == ros_over_replacement(ctx, 1, dates[0])
