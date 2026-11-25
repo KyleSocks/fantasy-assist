@@ -86,6 +86,7 @@
       ["Corsi % (5v5)", (p) => (p.adv?.sat_pct != null ? `${(p.adv.sat_pct * 100).toFixed(1)}%` : "–")],
       ["Shots / 60", (p) => (p.adv?.ishots_per60 != null ? Number(p.adv.ishots_per60).toFixed(1) : "–")],
       ["On-ice SH% (5v5)", (p) => (p.adv?.onice_sh_pct != null ? `${(p.adv.onice_sh_pct * 100).toFixed(1)}%` : "–")],
+      ["Expected goals (goals)", (p) => (p.xg ? `${num(p.xg.ixg, 1)} <span class="muted">(${p.xg.goals})</span>` : "–")],
       ["PDO", (p) => (p.adv?.pdo != null ? Number(p.adv.pdo).toFixed(3) : "–")],
       ["Quality start %", (p) => (p.adv?.qs_pct != null ? `${Math.round(p.adv.qs_pct * 100)}%` : "–")],
       ["Luck", (p) => esc(p.luck?.text || "normal")],

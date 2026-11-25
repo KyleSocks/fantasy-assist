@@ -312,7 +312,7 @@ def get_player(player_id: int, league: LeagueName = None,
     from src.inseason.trend import windows_json
     h.update(injured=_injury_status(ctx, player_id, _day(start)))
     h.update(windows=windows_json(ctx, ln), rostered=_rostered(ctx, player_id),
-             adv=ln.extra.get("adv"))
+             adv=ln.extra.get("adv"), xg=ln.extra.get("xg"))
     h.update(luck=luck_json(ctx, player_id), role=role_json(ctx, player_id),
              inputs=_projection_inputs(ctx, player_id, _day(start)))
     return h

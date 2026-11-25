@@ -305,6 +305,15 @@ his chance to start (back-to-backs split, injured goalies left out) and a grade 
 top fifth of the week's likely starts by his projection against that opponent). Filter to free
 agents or your own goalies. `/api/inseason/goalie-grid`.
 
+**Expected goals (xG):** each refresh pulls the NHL play-by-play for played games (120 a refresh,
+newest first, until the season is filled in) and stores every shot attempt with its location,
+type, strength, rebound and rush flags. A logistic-regression xG model is fitted on the season's
+unblocked attempts once there are 5000 (until then fixed league-typical coefficients). Each
+skater's card shows his xG against his goals and his xG per shot on goal. In the projection, his
+xG per shot on goal (the quality of his looks) is mixed into the shooting % the projection starts
+from (`advanced.xg_k_shots`, 150 shots of the preseason figure); actual goals are then blended in
+as before, so better chances are credited and finishing luck still regresses.
+
 **Takes** (top of the Recap tab): a short column about your league. Each player has two
 prices per team game: your model's and the Yahoo crowd's (% rostered, season points and
 preseason rank, turned into the same units, as in the trade tools).

@@ -157,6 +157,10 @@ advanced:
   onice_shots_per_60: 28      # league-typical 5v5 shots for per 60
   onice_sh_pct_k_shots: {F: 1000, D: 2000}
   career_sh_pct_k_shots: 100  # position-average shots mixed into a career SH%
+  # expected goals (xg.py): his xG per shot on goal this season is mixed into
+  # the shooting % the projection starts from, with this many shots of the
+  # preseason figure. Remove to show xG without changing projections.
+  xg_k_shots: 150
   onice_flag_pts: 0.025       # on-ice SH% this far from league is worth a note
   onice_flag_shots: 100
 # Alerts about your team (injury tags, IR moves, line / PP changes, your
