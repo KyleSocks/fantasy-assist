@@ -211,7 +211,7 @@ def role_json(ctx: Context, pid: int) -> dict | None:
     name = lambda q: ctx.lines[q].name if q in ctx.lines else str(q)  # noqa: E731
     out = {k: r.get(k) for k in ("line", "pp", "usual_line", "usual_pp", "change",
                                  "date", "games", "recent_toi", "prior_toi",
-                                 "recent_pp_toi", "prior_pp_toi")}
+                                 "recent_pp_toi", "prior_pp_toi", "es_share", "pp_share")}
     out.update(label=label(r), mates=[{"id": q, "name": name(q)} for q in r.get("mates") or []])
     return out
 

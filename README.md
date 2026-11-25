@@ -289,6 +289,22 @@ Set a player's expected return yourself (e.g. "out 12 weeks" from the news) in h
 beats the tag estimate. Recap takes list **Hurt now, back for the playoffs**: injured starters
 on other teams due back before your playoffs start, with their playoff games and value.
 
+**Injury fallout** (Recap tab): regulars who are out -- missing from their team's latest game, or
+listed injured -- whose usual role was a top-6 line, top-4 pair or a power-play unit, and the
+teammates who took their line or PP spot since (from the shift data), each with what the new ice
+time adds to his projection and whether he's a free agent in your league. Players out longer than
+the stored games reach get their slot from their season PP time (top 5 on the team = PP1).
+`/api/inseason/fallout`.
+
+**Team ice-time share**: each skater's share of his team's power-play and 5-on-5 time over his
+last few games (the shift data), on his card ("on for 62% of the power play") and as a PP% column
+in the Roster and Free agents tables.
+
+**Goalie grid** (Schedule tab): every team's games for the next week with the likely starter first,
+his chance to start (back-to-backs split, injured goalies left out) and a grade for the start (A =
+top fifth of the week's likely starts by his projection against that opponent). Filter to free
+agents or your own goalies. `/api/inseason/goalie-grid`.
+
 **Takes** (top of the Recap tab): a short column about your league. Each player has two
 prices per team game: your model's and the Yahoo crowd's (% rostered, season points and
 preseason rank, turned into the same units, as in the trade tools).

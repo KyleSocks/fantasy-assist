@@ -291,15 +291,21 @@ def load_roles(conn: sqlite3.Connection, as_of: str | None = None) -> dict[int, 
     table has been filled yet."""
     try:
         dep = list(conn.execute(
-            "SELECT player_id, game_date, line, pp, es_sec, pp_sec, mates"
+            "SELECT player_id, game_date, line, pp, es_sec, pp_sec, mates, game_id, team"
             " FROM game_deployment ORDER BY game_date DESC, game_id DESC"))
         toi = list(conn.execute(
             "SELECT player_id, window, gp, toi, ev_toi, pp_toi FROM skater_toi_window"))
     except sqlite3.OperationalError:     # tables not created yet
         return {}
     games: dict[int, list] = {}
-    for pid, d, line, pp, es, pps, mates in dep:
-        games.setdefault(pid, []).append((d, line, pp, es, pps, mates))
+    # the team's own even-strength / PP time each game: every skater's
+    # seconds added up, over the 5 skaters on the ice
+    team_t: dict[tuple, list[float]] = {}
+    for pid, d, line, pp, es, pps, mates, gid, team in dep:
+        games.setdefault(pid, []).append((d, line, pp, es, pps, mates, gid, team))
+        t = team_t.setdefault((gid, team), [0.0, 0.0])
+        t[0] += (es or 0) / 5
+        t[1] += (pps or 0) / 5
     out: dict[int, dict] = {}
     for pid, gl in games.items():
         last = gl[0]
@@ -311,6 +317,13 @@ def load_roles(conn: sqlite3.Connection, as_of: str | None = None) -> dict[int, 
              "mates": json.loads(last[5] or "[]"),
              "usual_line": usual_line, "usual_pp": usual_pp,
              "games": len(gl), "change": None}
+        # share of the team's even-strength and PP time in the games he
+        # played (last few games: game_deployment keeps 5 per team)
+        tes = sum(team_t[(g[6], g[7])][0] for g in gl)
+        tpp = sum(team_t[(g[6], g[7])][1] for g in gl)
+        r["es_share"] = sum(g[3] or 0 for g in gl) / tes if tes else None
+        r["pp_share"] = sum(g[4] or 0 for g in gl) / tpp if tpp else None
+        r["team"] = last[7]
         if before:
             r["change"] = _change(last[1], usual_line, last[2], usual_pp)
         out[pid] = r
