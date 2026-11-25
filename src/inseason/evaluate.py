@@ -506,6 +506,11 @@ def hold_check(ctx: Context, pid: int, start: str, days: int) -> dict:
         "ros_games": len(ros["games"]), "avg_ros_games": avg_ros,
         # weighted (playoff games count extra), to the fantasy end
         "ros_vs_replacement": ros_over_replacement(ctx, pid, start),
+        # what ros_vs_replacement actually counts: games x game_weight
+        "ros_weighted_games": sum(ctx.game_weight(g["date"]) for g in ros["games"]),
+        "avg_ros_weighted_games": ctx.weighted_team_games(start, ctx.fantasy_end()),
+        "ros_playoff_games": ctx.playoff_games(line.team),
+        "focus": ctx.focus(), "focus_weights": ctx.focus_weights(),
         "ros_end": ctx.fantasy_end(),
         "luck": lk, "verdict": verdict}
 

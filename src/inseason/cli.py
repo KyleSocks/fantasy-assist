@@ -115,6 +115,14 @@ def _print_hold(ctx, h: dict, unit: str) -> None:
     print(f"  window vs replacement on avg schedule: {h['window_vs_replacement']:+.2f}")
     print(f"  rest of season to {h['ros_end']} ({h['ros_games']} games, avg {h['avg_ros_games']:.1f}):"
           f" {h['ros_vs_replacement']:+.2f} vs replacement")
+    reg, po = h["focus_weights"]
+    if (reg, po) != (1.0, 1.0):
+        npo = h["ros_playoff_games"]
+        print(f"    weighted for '{h['focus']}': regular games x{reg:g},"
+              f" fantasy-playoff games x{po:g}"
+              f"{f' ({npo} playoff games)' if npo is not None else ''}"
+              f" -> {h['ros_weighted_games']:.1f} weighted games,"
+              f" avg {h['avg_ros_weighted_games']:.1f}")
     print(f"  VERDICT: {h['verdict']}")
 
 
@@ -241,6 +249,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {h['name'][:24]:<24} {len(h['window']['games']):>5}"
                       f" {h['window']['value']:7.2f} {h['window_vs_replacement']:+8.2f}"
                       f" {h['ros_vs_replacement']:+11.2f}  {h['verdict']}")
+            reg, po = summary[0]["focus_weights"]
+            if (reg, po) != (1.0, 1.0):
+                print(f"  ROS counts regular games x{reg:g} and fantasy-playoff games"
+                      f" x{po:g} ('{summary[0]['focus']}', settings gear: Playing for)")
     else:
         rows = schedule_grid(ctx, args.start, args.days)
         end = _end(args.start, args.days)
