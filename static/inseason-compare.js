@@ -70,8 +70,20 @@
 
   const COLORS = ["var(--blue)", "var(--red)", "var(--pos)"];
 
+  // ice time he's expected to get from here (deploy.py) or his season
+  // average; skaters only
+  const mmss = (s) => { const t = Math.round(s); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
+  const toi = (p) => (p.position === "G" ? null
+    : p.inputs?.deploy ? p.inputs.deploy.exp_pp + p.inputs.deploy.exp_ev : p.toi_pg_obs || null);
+  let eq = null, eqLabel = "";
+
   function draw(ps, gs) {
     const u = ps[0].unit;
+    // "equal ice time": everyone at the average of these players' minutes,
+    // so a 15-minute guy and a 21-minute guy are rated on the same minutes
+    const ts = ps.map(toi).filter(Boolean);
+    eq = ts.length >= 2 ? ts.reduce((a, b) => a + b, 0) / ts.length : null;
+    eqLabel = eq ? `${mmss(eq)}, their average` : "two skaters needed";
     const w = (p, d) => { const x = p.windows?.[d]; return x && x.per_game != null ? `${num(x.per_game)} <span class="muted">${x.games} gp</span>` : "–"; };
     const rows = [
       ["Team, position", (p) => esc(`${p.team || "–"}, ${p.position}`)],
@@ -83,6 +95,9 @@
       ["Last 28 days", (p) => w(p, 28)], ["Last 56 days", (p) => w(p, 56)],
       ["Rest of season vs a free agent", (p) => `<span class="${cls(p.ros_vs_replacement)}">${signed(p.ros_vs_replacement, 0)}</span>`],
       ["Role", (p) => esc(p.role?.label || "–")],
+      ["Ice time a game", (p) => (toi(p) ? mmss(toi(p)) : "–")],
+      ["Value per 60 min", (p) => (toi(p) ? num(p.form.team_game / (toi(p) / 3600), 1) : "–")],
+      [`At equal ice time (${eqLabel})`, (p) => (toi(p) && eq ? `<b>${num(p.form.team_game * eq / toi(p))}</b>` : "–")],
       ["Corsi % (5v5)", (p) => (p.adv?.sat_pct != null ? `${(p.adv.sat_pct * 100).toFixed(1)}%` : "–")],
       ["Shots / 60", (p) => (p.adv?.ishots_per60 != null ? Number(p.adv.ishots_per60).toFixed(1) : "–")],
       ["On-ice SH% (5v5)", (p) => (p.adv?.onice_sh_pct != null ? `${(p.adv.onice_sh_pct * 100).toFixed(1)}%` : "–")],

@@ -40,6 +40,7 @@
     ["trade_targets", "Trade targets", "No hot or newly promoted starters on other teams."],
     ["waiver_adds", "Waiver adds", "No hot or newly promoted free agents worth a spot."],
     ["stashes", "Stashes", "No injured free agents worth an IR spot."],
+    ["breakouts", "Breakout watch", "Nobody's getting more ice time with the numbers to back it up."],
     ["playoff_targets", "Hurt now, back for the playoffs", "No injured starters on other teams due back before your playoffs."],
   ];
   function lead(t) {
@@ -55,6 +56,7 @@
   }
   function card(x, kind) {
     const btn = kind === "buy_low" || kind === "trade_targets" || kind === "playoff_targets"
+      || (kind === "breakouts" && x.owner_id != null && x.owner && x.owner_id !== myTeam)
       ? `<button type="button" class="take-go" data-partner="${x.owner_id}" data-get="${x.id}">Trade with ${esc(x.owner)}</button>`
       : kind === "sell_high" ? `<button type="button" class="take-go" data-give="${x.id}">Shop him</button>` : "";
     const ros = x.rostered ? ` <span class="muted">${Math.round(x.rostered.pct)}% rostered</span>` : "";
@@ -63,7 +65,9 @@
         <span class="muted">${esc(x.pos)}, ${esc(x.team)}${x.owner && kind !== "sell_high" ? ` (${esc(x.owner)})` : ""}</span>${ros}</header>
       <p>${esc(x.take)}</p>${btn ? `<footer>${btn}</footer>` : ""}</article>`;
   }
+  let myTeam = null;
   function drawTakes(t) {
+    myTeam = t.my_team_id;
     $("takes").innerHTML = `<h3>Takes</h3>${lead(t)}` + KINDS.map(([k, title, empty]) =>
       `<section class="take-group"><h4>${title}</h4>${(t[k] || []).length
         ? `<div class="take-list">${t[k].map((x) => card(x, k)).join("")}</div>`

@@ -34,7 +34,7 @@ from collections.abc import Callable
 
 from src.valuation.valuation import value_group
 
-from .evaluate import Context
+from .evaluate import Context, form
 from .roster import luck_json, role_json
 from .trend import value_of
 
@@ -47,6 +47,8 @@ DEFAULTS = {
     "heat_games": 4,
     "rostered_move": 3,   # % rostered points over 7 days worth a mention
     "missed_games": 3,
+    "minutes": 0.08,      # ice time from here vs season worth a mention
+    "breakout_bar": 0.90,  # breakouts: model >= bar x this
     "top": 8,
 }
 
@@ -100,6 +102,18 @@ def reasons(ctx: Context, pid: int, rostered: dict | None, today: str,
                         "text": f"linemates shooting {on['pct'] * 100:.1f}% at 5v5 with him on the ice "
                                 f"vs {base * 100:.1f}% {vs}, so his assists should "
                                 f"{'cool off' if hot else 'pick up'}"})
+    dep = ln.extra.get("deploy")
+    if dep and not ln.is_goalie and dep.get("season_pp", 0) + dep.get("season_ev", 0) > 0:
+        exp = dep["exp_pp"] + dep["exp_ev"]
+        season = dep["season_pp"] + dep["season_ev"]
+        if abs(exp / season - 1) >= cfg["minutes"]:
+            def mm(x):
+                t = round(x)
+                return f"{t // 60}:{t % 60:02d}"
+            up = exp > season
+            out.append({"kind": "minutes", "sign": 1 if up else -1,
+                        "text": f"ice time from here {mm(exp)} a game vs {mm(season)} this season "
+                                f"(PP {mm(dep['exp_pp'])} vs {mm(dep['season_pp'])})"})
     r = role_json(ctx, pid)
     if r and r.get("change"):
         was = ", ".join(x for x in (r.get("usual_line"), r.get("usual_pp") or "no PP") if x)
@@ -120,6 +134,11 @@ def reasons(ctx: Context, pid: int, rostered: dict | None, today: str,
                         "text": f"missed {missed} of {ln.team}'s {played} games, "
                                 "so his season totals look small"})
     return out
+
+
+def observed_pg(ctx: Context, pid: int) -> float | None:
+    """What he's produced per game so far (same units as the model)."""
+    return form(ctx, ctx.lines[pid]).get("observed")
 
 
 def _why(rs: list[dict], sign: int | None = None) -> str:
@@ -240,7 +259,6 @@ def build(ctx: Context, *, owners: dict[int, int], team_names: dict[int, str],
     po = ctx.league.playoff_window
     playoff = []
     if po:
-        regular, po_w = ctx.focus_weights()
         for p, back in out_until.items():
             if owners.get(p) == my_team or p not in ctx.lines or back > po[0]:
                 continue
@@ -263,7 +281,33 @@ def build(ctx: Context, *, owners: dict[int, int], team_names: dict[int, str],
             playoff.append(x)
         playoff.sort(key=lambda x: -x["playoff_value"])
 
+    # ── breakout watch: more ice time or a better role, and the model
+    # already above what he's produced -- anyone in the league ──────────
+    brk = []
+    for p in set(owners) | set(fas):
+        if p not in ctx.lines or p in out_until or p in injured_fas or ctx.lines[p].is_goalie:
+            continue
+        x = row(p)
+        ups = [r for r in x["reasons"] if r["kind"] in ("minutes", "role", "recent") and r["sign"] > 0]
+        if not ups or x["model"] < x["bar"] * cfg["breakout_bar"]:
+            continue
+        seen = observed_pg(ctx, p)
+        if seen is None:
+            continue
+        x["observed"] = seen
+        x["edge_pg"] = x["model"] - seen
+        if x["edge_pg"] <= 0:
+            continue
+        cold = [r for r in x["reasons"] if r["kind"] in ("luck", "onice") and r["sign"] < 0]
+        who = ("free agent in your league" if p in fas else "yours" if owners.get(p) == my_team
+               else f"on {x['owner']}")
+        x["take"] = (f"Breakout watch ({who}): {_why(ups)}"
+                     + (f"; and unlucky so far: {_why(cold)}" if cold else "")
+                     + f". The model has him at {x['model']:.2f} a game against {seen:.2f} so far.")
+        brk.append(x)
+    brk.sort(key=lambda x: -x["edge_pg"])
+
     n = cfg["top"]
-    return {"unit": unit, "buy_low": buy[:n], "sell_high": sell[:n],
+    return {"unit": unit, "breakouts": brk[:n], "buy_low": buy[:n], "sell_high": sell[:n],
             "trade_targets": targets[:n], "waiver_adds": adds[:n], "stashes": stash[:n],
             "playoff_targets": playoff[:n]}

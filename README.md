@@ -305,6 +305,19 @@ his chance to start (back-to-backs split, injured goalies left out) and a grade 
 top fifth of the week's likely starts by his projection against that opponent). Filter to free
 agents or your own goalies. `/api/inseason/goalie-grid`.
 
+**What if (projection sandbox):** every skater's card has a What if box: set his power-play and
+even-strength minutes a game (or tap what each line / PP unit on his team has played the last 7
+days) and the projection follows, from his own scoring rate per minute (the league's PP rate when
+he's barely played on the power play). Shows value a game and over the rest of the season against
+his expected minutes. `/api/inseason/player/{id}/whatif?pp=&ev=` (seconds).
+
+**Compare at equal ice time:** Compare adds ice time a game, value per 60 minutes, and each
+skater's value at the same minutes (their average), so deployment and talent come apart.
+
+**Breakout watch** (Recap takes): players anywhere in your league getting more ice time or a better
+role, whose projection is already above what they've produced -- with any bad luck that should
+turn. Ice-time changes of 8%+ also show up as a reason in every take.
+
 **Takes** (top of the Recap tab): a short column about your league. Each player has two
 prices per team game: your model's and the Yahoo crowd's (% rostered, season points and
 preseason rank, turned into the same units, as in the trade tools).

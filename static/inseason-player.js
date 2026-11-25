@@ -30,6 +30,7 @@
       if (mine !== seq) return;
       $("pd-name").textContent = p.name;
       $("pd-body").innerHTML = summary(p) + '<div id="pd-games"><p class="hint">Loading games…</p></div>';
+      if (p.position !== "G") whatif(p);
       const g = await api(`/api/inseason/player/${pid}/games?league=${encodeURIComponent(p.league)}`);
       if (mine !== seq) return;
       drawGames(g);
@@ -71,7 +72,7 @@
       ${injuryBlock(p)}
       <div class="pd-tiles">${tiles.map(([l, v, s]) =>
         `<div><span class="muted">${l}</span><b>${v}</b><span class="muted">${esc(s)}</span></div>`).join("")}</div>
-      ${deployment(p)}${luckBlock(p)}${advBlock(p)}${inputs(p)}
+      ${deployment(p)}${p.position !== "G" ? '<div id="pd-whatif" class="pd-whatif"></div>' : ""}${luckBlock(p)}${advBlock(p)}${inputs(p)}
       <h3>Per ${p.position === "G" ? "start" : "game"}</h3>
       <div class="scroll"><table class="pd-stats"><thead><tr><th class="l"></th>${keys.map((k) => `<th>${LABELS[k]}</th>`).join("")}</tr></thead>
         <tbody>${[["Preseason", p.prior], ["This season", p.observed], ["Blend", p.blended]].map(([l, d]) =>
@@ -170,6 +171,63 @@
       open(box.dataset.pid);
       window.insKit.reload?.();
     } catch (err) { box.querySelector(".pd-back-msg").textContent = err.message; }
+  });
+
+  // Projection sandbox: set his PP / even-strength minutes and see what the
+  // projection does (GET /player/{id}/whatif, sandbox.py)
+  const toSec = (t) => { const m = String(t).trim().match(/^(\d+)(?::(\d{1,2}))?$/); return m ? Number(m[1]) * 60 + Number(m[2] || 0) : null; };
+  let wiPlayer = null;
+  async function whatif(p, pp, ev) {
+    const el = document.getElementById("pd-whatif");
+    if (!el) return;
+    wiPlayer = p;
+    const qs = new URLSearchParams({ league: p.league, start: p.start });
+    if (pp != null) qs.set("pp", pp);
+    if (ev != null) qs.set("ev", ev);
+    try {
+      const w = await api(`/api/inseason/player/${p.player_id}/whatif?${qs}`);
+      if (wiPlayer !== p) return;
+      const btn = (x) => `<button type="button" class="wi-preset quiet" data-kind="${x.kind}" data-sec="${Math.round(x.sec)}">${esc(x.label)} <span class="muted">${mmss(x.sec)}</span></button>`;
+      const d = w.diff;
+      el.innerHTML = `<h3>What if</h3>
+        <p class="muted">Give him different minutes and the projection follows, from his own scoring rate per minute
+          (the league's PP rate if he's barely played on the power play). Buttons are what each line and PP unit on
+          ${esc(p.team)} has played the last 7 days.</p>
+        <form class="wi-form">
+          <label class="field"><span>PP a game</span><input name="pp" inputmode="numeric" value="${mmss(w.new.pp)}"></label>
+          <label class="field"><span>Even strength a game</span><input name="ev" inputmode="numeric" value="${mmss(w.new.ev)}"></label>
+          <button type="submit">Try it</button>
+          <button type="button" class="wi-reset quiet">Back to his expected minutes</button>
+        </form>
+        <div class="wi-presets">${w.presets.filter((x) => x.kind === "pp").map(btn).join("")}</div>
+        <div class="wi-presets">${w.presets.filter((x) => x.kind === "ev").map(btn).join("")}</div>
+        <p class="wi-result">At ${mmss(w.new.pp)} PP + ${mmss(w.new.ev)} even strength:
+          <b>${num(w.new.per_game)}</b> ${esc(w.unit)} a game
+          (<span class="${cls(d.per_game)}">${signed(d.per_game, 2)}</span> vs his expected
+          ${mmss(w.current.pp)} + ${mmss(w.current.ev)}), <span class="${cls(d.ros)}">${signed(d.ros, 0)}</span> ${esc(w.unit)}
+          over ${w.games_left} games left (playoff games weighted as in Playing for).
+          <span class="muted">Season: ${mmss(w.season.pp)} PP + ${mmss(w.season.ev)} even strength.</span></p>`;
+    } catch (e) {
+      el.innerHTML = `<p class="muted">What if: ${esc(e.message)}</p>`;
+    }
+  }
+  $("pd-body").addEventListener("submit", (e) => {
+    if (!e.target.closest(".wi-form")) return;
+    e.preventDefault();
+    const f = e.target;
+    const pp = toSec(f.pp.value), ev = toSec(f.ev.value);
+    if (pp == null || ev == null) { f.querySelector("button[type=submit]").textContent = "Use m:ss"; return; }
+    whatif(wiPlayer, pp, ev);
+  });
+  $("pd-body").addEventListener("click", (e) => {
+    const b = e.target.closest(".wi-preset, .wi-reset");
+    if (!b || !wiPlayer) return;
+    const f = document.querySelector(".wi-form");
+    if (b.classList.contains("wi-reset")) { whatif(wiPlayer); return; }
+    const sec = Number(b.dataset.sec);
+    const pp = b.dataset.kind === "pp" ? sec : toSec(f.pp.value);
+    const ev = b.dataset.kind === "ev" ? sec : toSec(f.ev.value);
+    whatif(wiPlayer, pp, ev);
   });
 
   // Advanced stats, season to date (advanced.py)

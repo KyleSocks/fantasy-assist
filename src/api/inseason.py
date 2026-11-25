@@ -17,6 +17,7 @@ GET /api/inseason/recap?league=      last week in review + next week (inseason_r
 GET/PUT /api/inseason/settings       settings gear: changes to config/inseason.yaml (inseason_settings.py)
 GET /api/inseason/fallout             injured regulars and who took their minutes (inseason_injuries.py)
 GET /api/inseason/goalie-grid         every team's games, likely starters, graded (inseason_injuries.py)
+GET /api/inseason/player/{id}/whatif?pp=&ev=   projection at other ice time (inseason_tools.py)
 
 Every endpoint takes ?league=<config stem>. A league with its own ``yahoo:``
 block reads and writes its files under data/leagues/<stem>/; the others share
@@ -602,3 +603,4 @@ from src.api import inseason_matchup  # noqa: E402,F401
 from src.api import inseason_recap  # noqa: E402,F401
 from src.api import inseason_settings  # noqa: E402,F401
 from src.api import inseason_injuries  # noqa: E402,F401
+from src.api import inseason_tools  # noqa: E402,F401
