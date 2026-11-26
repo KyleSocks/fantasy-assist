@@ -16,6 +16,7 @@ GET /api/inseason/matchup?league=&team=&start=   this week's head-to-head (insea
 GET /api/inseason/recap?league=      last week in review + next week (inseason_recap.py)
 GET/PUT /api/inseason/settings       settings gear: changes to config/inseason.yaml (inseason_settings.py)
 GET /api/inseason/fallout             injured regulars and who took their minutes (inseason_injuries.py)
+GET /api/inseason/returning?days=7    regulars due back / just back and who slides down (inseason_injuries.py)
 GET /api/inseason/goalie-grid         every team's games, likely starters, graded (inseason_injuries.py)
 
 Every endpoint takes ?league=<config stem>. A league with its own ``yahoo:``

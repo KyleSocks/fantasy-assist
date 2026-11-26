@@ -127,3 +127,44 @@ def test_goalie_grid(monkeypatch):
     # three (33%) -> B
     assert d1["goalies"][0]["grade"] == "A"
     assert d2["goalies"][0]["grade"] == "B"
+
+
+def test_returning_due_back_puts_stand_ins_at_risk():
+    """Star (1) is due back 11-20 (within 7 days of 11-16): Up (2), who took
+    his F1/PP1 spot with ice time worth +0.2 a game, would lose that. Late
+    (5) is due back 12-01: too far out."""
+    from src.inseason.fallout import returning
+    ctx = _ctx()
+    ctx.lines[5] = L(5, "Late", deploy={"season_pp": 300})
+    out = returning(ctx, {1: {"tag": "IR", "back": "2026-11-20"},
+                          5: {"tag": "IR-LT", "back": "2026-12-01"}}, "2026-11-16")
+    assert [x["name"] for x in out] == ["Star"]
+    s = out[0]
+    assert s["status"] == "due" and s["back"] == "2026-11-20" and s["slot"] == ["PP1", "F1"]
+    assert s["at_risk"][0]["name"] == "Up" and s["at_risk"][0]["loss"] == pytest.approx(-0.2)
+    # day-to-day: back = the start date
+    dtd = returning(ctx, {1: {"tag": "DTD", "back": None}}, "2026-11-16")
+    assert dtd[0]["back"] == "2026-11-16"
+
+
+def test_returning_just_back_lists_who_slid():
+    """Vet (7) played AAA's latest game (11-05) after missing 2 of the 4
+    stored ones (2 games vs the team's 4): just back on F1/PP1. Slid (8)
+    was usually F1/PP1 and is demoted in that game -> listed with his
+    ice-time loss (-0.15 a game from his adjustment)."""
+    from src.inseason.fallout import returning
+    ctx = _ctx()
+    for r in ctx.roles.values():
+        r.setdefault("games", 4)
+    ctx.roles[7] = {"team": "AAA", "date": "2026-11-05", "line": "F1", "pp": "PP1",
+                    "usual_line": "F1", "usual_pp": "PP1", "games": 2}
+    ctx.roles[8] = {"team": "AAA", "date": "2026-11-05", "line": "F3", "pp": "PP2", "usual_line": "F1",
+                    "usual_pp": "PP1", "change": "down", "games": 4, "recent_pp_toi": 100,
+                    "prior_pp_toi": 200}
+    ctx.lines[7] = L(7, "Vet")
+    ctx.lines[8] = L(8, "Slid", deploy={"delta": {"goals": -0.075}})
+    out = {x["name"]: x for x in returning(ctx, {}, "2026-11-16")}
+    v = out["Vet"]
+    assert v["status"] == "back" and v["back"] == "2026-11-05"
+    assert [t["name"] for t in v["at_risk"]] == ["Slid"]
+    assert v["at_risk"][0]["loss"] == pytest.approx(-0.15) and v["at_risk"][0]["pp_gain_sec"] == -100

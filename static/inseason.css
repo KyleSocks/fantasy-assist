@@ -327,3 +327,5 @@ dialog#set-dlg::backdrop { background: var(--shade); }
 .gg-pct { color: var(--muted); }
 .gg-b2b { font-size: 10.5px; padding: 0 4px; border-radius: 3px; background: var(--raised); color: var(--muted); }
 .gg-off { opacity: .6; }
+.take.returning-card { border-left-color: var(--ok-fg); }
+.returning-lead { margin: 2px 0 0; font-size: 13px; font-weight: 600; }

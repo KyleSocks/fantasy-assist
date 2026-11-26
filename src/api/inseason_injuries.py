@@ -17,13 +17,16 @@ def league_status(ctx, start: str) -> dict:
     {tag, back}}} from the stored league rosters and free-agent list."""
     from src.inseason.teams import team_tags, trade_roster
     snap = store.read_json(ins._dir(ctx) / ins.LEAGUE_FILE) or {}
-    owner, injured = {}, {}
+    owner, injured, dtd = {}, {}, {}
     for tid, t in (snap.get("teams") or {}).items():
         players = t.get("players") or []
         roster, out = trade_roster(ctx, players, start)
         tags = team_tags(ctx, players)
         for pid in roster:
             owner[pid] = (int(tid), t.get("name") or f"Team {tid}")
+            # day-to-day but still in an active slot: could play any night
+            if pid not in out and (tags.get(pid) or "").upper() in ("DTD", "GTD", "D"):
+                dtd[pid] = {"tag": tags[pid], "back": start}
         for pid, back in out.items():
             injured[pid] = {"tag": tags.get(pid), "back": back}
     fa = parse_list(ctx, ins._read(ins.FA_FILE, ctx))
@@ -32,7 +35,7 @@ def league_status(ctx, start: str) -> dict:
             injured.setdefault(pid, {"tag": fa.tags.get(pid), "back": None})
     me = snap.get("my_team_id")
     return {"owner": owner, "my_team": int(me) if me is not None else None,
-            "injured": injured, "has_league": bool(snap)}
+            "injured": injured, "dtd": dtd, "has_league": bool(snap)}
 
 
 def _who(st: dict, pid: int) -> dict:
@@ -55,6 +58,23 @@ def get_fallout(league: LeagueName = None, start: DateStr = None) -> dict:
         for t in r["takers"]:
             t.update(_who(st, t["id"]))
     return {"as_of": ctx.as_of, "unit": "fpts" if ctx.scorer.points else "value",
+            "players": rows}
+
+
+@ins.router.get("/returning")
+def get_returning(league: LeagueName = None, start: DateStr = None,
+                  days: Annotated[int, Query(ge=1, le=30)] = 7) -> dict:
+    """Regulars due back (or just back) and who slides down when they are."""
+    from src.inseason.fallout import returning
+    ctx = ins._ctx(league)
+    day = ins._day(start)
+    st = league_status(ctx, day)
+    rows = returning(ctx, {**st["dtd"], **st["injured"]}, day, days)
+    for r in rows:
+        r.update(_who(st, r["id"]))
+        for t in r["at_risk"]:
+            t.update(_who(st, t["id"]))
+    return {"as_of": ctx.as_of, "days": days, "unit": "fpts" if ctx.scorer.points else "value",
             "players": rows}
 
 
