@@ -296,6 +296,12 @@ time adds to his projection and whether he's a free agent in your league. Player
 the stored games reach get their slot from their season PP time (top 5 on the team = PP1).
 `/api/inseason/fallout`.
 
+**Coming back** (Recap tab, under Injury fallout): regulars due back within a week (injury-tag
+estimate, the date you set in their card, or day-to-day and missing his team's last game) and
+the stand-ins holding their line or PP unit, each with what he'd lose (the extra ice time's
+value, reversed) and whether he's yours or a free agent. Players who just returned after missing
+games list the teammates already moved down. `/api/inseason/returning?days=7`.
+
 **Team ice-time share**: each skater's share of his team's power-play and 5-on-5 time over his
 last few games (the shift data), on his card ("on for 62% of the power play") and as a PP% column
 in the Roster and Free agents tables.

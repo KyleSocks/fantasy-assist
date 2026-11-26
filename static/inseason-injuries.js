@@ -39,8 +39,41 @@
       ${status ? `<p class="muted">${esc(status)}</p>` : ""}
       <ul class="fallout-takers">${takers}</ul></article>`;
   }
+  // ── coming back: who slides down when a regular returns ───────────
+  async function drawReturning() {
+    const el = $("returning");
+    try {
+      const r = await api(`/api/inseason/returning?${q()}&days=7`);
+      el.innerHTML = `<h3>Coming back</h3>
+        <p class="muted">Regulars due back within a week (from their injury tag, the date you set in their card, or
+          day-to-day) or just back after missing games, and the stand-ins who lose minutes when they return. The
+          loss is what the extra ice time had added to his projection.</p>`
+        + (r.players.length ? `<div class="take-list">${r.players.map((p) => backCard(p, r.unit)).join("")}</div>`
+          : '<p class="muted">No regulars due back this week.</p>');
+    } catch (e) {
+      el.innerHTML = `<p class="muted">Coming back: ${esc(e.message)}</p>`;
+    }
+  }
+  function backCard(p, unit) {
+    const dtd = /^(DTD|GTD|D)$/i.test(p.tag || "");
+    const when = p.status === "back" ? `back since ${md(p.back)}`
+      : dtd ? "day-to-day: could play any night"
+        : `${p.tag ? `${esc(p.tag)}, ` : ""}due back ~${md(p.back)}`;
+    const lead = p.status === "back" ? "Already moved down:" : "Likely to lose minutes:";
+    const rows = p.at_risk.map((t) => `<li>${plink(t)} ${owner(t)}<br>
+      <span class="muted">${p.status === "back" ? `now ${esc(t.role || "–")} (was ${esc(t.was || "–")})`
+        : `holding ${esc(t.role || "–")} (usually ${esc(t.was || "–")})`}${
+        Math.abs(t.pp_gain_sec) >= 15 ? `, PP time ${t.pp_gain_sec > 0 ? "+" : "−"}${mmss(t.pp_gain_sec)}` : ""}</span>
+      ${t.loss ? `<b class="${cls(t.loss)}">${signed(t.loss, 2)}</b> ${esc(unit)} a game` : ""}</li>`).join("");
+    return `<article class="take returning-card">
+      <header>${plink(p)} <span class="muted">${esc(p.team)}, usually ${esc(p.slot.join(", "))}</span> ${owner(p)}</header>
+      <p class="muted">${when}</p>
+      ${rows ? `<p class="returning-lead">${lead}</p><ul class="fallout-takers">${rows}</ul>`
+        : '<p class="muted">No clear stand-in on his line or power-play unit.</p>'}</article>`;
+  }
+
   const prevRecap = loaders.recap;
-  loaders.recap = async () => { await prevRecap(); drawFallout(); };
+  loaders.recap = async () => { await prevRecap(); drawFallout(); drawReturning(); };
 
   // ── goalie grid ───────────────────────────────────────────────────
   let grid = null;
