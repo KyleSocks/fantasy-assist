@@ -396,7 +396,8 @@ def roster_plan(ctx: Context, roster: dict[int, set[str]],
                 cands: dict[int, set[str]], hold: int, start: str, days: int,
                 adds: list[int], locked: set[str] = frozenset(),
                 available_from: dict[int, str] | None = None,
-                max_candidates: int = 60, force: bool = False) -> dict:
+                max_candidates: int = 60, force: bool = False,
+                injured_until: str | None = None) -> dict:
     """Roster-aware add/drop plan for ``hold``'s roster spot.
 
     Candidates are screened first (screen_candidates) so a full free-agent
@@ -404,6 +405,11 @@ def roster_plan(ctx: Context, roster: dict[int, set[str]],
     A protected hold (drop_protection) is never dropped unless ``force``;
     the result's ``protected`` says why. Goalies count: the lineup has its
     G slots.
+
+    ``injured_until``: the hold is hurt and won't play before this date
+    (past the horizon = all of it). His spot is streamed while he sits on
+    IR: no protection, his first "drop" is a move to IR, and he can come
+    back into the spot on a day he plays without using an add.
     """
     dates = dates_from(start, days)
     roster = dict(roster)
@@ -414,16 +420,19 @@ def roster_plan(ctx: Context, roster: dict[int, set[str]],
     cands[hold] = hold_elig
     games = {p: game_values(ctx, p, dates) for p in roster}
     games.update({p: game_values(ctx, p, dates, locked) for p in cands})
+    if injured_until:
+        games[hold] = {d: v for d, v in games[hold].items() if d >= injured_until}
     cands = screen_candidates(cands, games, dates, hold, max_candidates)
     mv = marginal_values(roster, cands, games, dates, active_slots(ctx))
     weeks = sorted({week_key(d) for d in dates})
     budget = {w: (adds[i] if i < len(adds) else adds[-1])
               for i, w in enumerate(weeks)}
-    protected = None if force else drop_protection(ctx, hold, start)
+    protected = None if force or injured_until else drop_protection(ctx, hold, start)
     # waiver players can't be added before they clear; a protected hold
     # keeps his spot (zero adds available for it)
     pl = plan_slot(hold, mv, dates, {w: 0 for w in weeks} if protected else budget,
-                   available_from=available_from)
+                   available_from=available_from,
+                   returner=hold if injured_until else None)
 
     def who(p):
         ln = ctx.lines[p]
@@ -432,9 +441,14 @@ def roster_plan(ctx: Context, roster: dict[int, set[str]],
 
     return {
         "hold": who(hold), "dates": dates, "budget": budget,
-        "protected": protected,
+        "protected": protected, "injured_until": injured_until,
         "keep_value": sum(mv[hold].values()), "plan_value": pl.total,
-        "steps": [{"date": s.date, "drop": who(s.drop), "add": who(s.add)}
+        # with an injured hold: his first step out is a move to IR, and a
+        # step adding him back is his return (no add used)
+        "steps": [{"date": s.date, "drop": who(s.drop), "add": who(s.add),
+                   "kind": ("return" if injured_until and s.add == hold
+                            else "ir" if injured_until and s.drop == hold
+                            and s.date < injured_until else "add")}
                   for s in pl.steps],
         "nightly": [{"date": d, "holder": who(pl.holder_by_date[d]),
                      "value": mv[pl.holder_by_date[d]].get(d, 0.0)}

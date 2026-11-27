@@ -116,6 +116,9 @@
         <label class="field grow"><span>Stream the spot of</span><select id="hold"></select></label>
         <label class="field"><span>Adds left per week</span><input id="adds" value="1,4" size="6"
           title="this week first, e.g. 1,4"></label>
+        <label class="inline" title="he sits on IR while the spot is streamed, and comes back without using an add"><input id="plan-injured" type="checkbox"> He's injured</label>
+        <label class="field" id="plan-back-field" hidden><span>Back on</span><input id="plan-back" type="date"
+          title="first game he can play; empty = your saved return date, else the estimate for his tag"></label>
         <label class="field"><span>Started today</span><input id="locked" placeholder="DET,STL" size="10"
           title="NHL teams whose game today has already started"></label>
         <button id="run-plan" type="button" class="primary">Run plan</button>

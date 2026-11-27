@@ -473,7 +473,11 @@ def get_free_agents(start: DateStr = None, days: Days = 9,
 @router.get("/plan")
 def get_plan(hold: int, adds: Annotated[str, Query(max_length=40)] = "1,4", start: DateStr = None,
              days: Days = 9, locked: Annotated[str, Query(max_length=200)] = "", league: LeagueName = None,
-             force: bool = False) -> dict:
+             force: bool = False, injured: bool = False, back: DateStr = None) -> dict:
+    """Streaming plan for ``hold``'s spot. ``injured``: he's hurt right now,
+    so he sits on IR while the spot is streamed and comes back without an
+    add on ``back`` (default: your saved return date for him, else the
+    estimate for his IR / OUT tag, else not during the window)."""
     ctx = _ctx(league)
     avail: dict[int, str] = {}
     roster, fas, _ = _lists(ctx, available_from=avail)
@@ -486,8 +490,32 @@ def get_plan(hold: int, adds: Annotated[str, Query(max_length=40)] = "1,4", star
     if any(not 0 <= n <= 20 for n in budget):
         raise HTTPException(422, "adds per week must be between 0 and 20")
     lock = {t.strip() for t in locked.split(",") if t.strip()}
-    return roster_plan(ctx, roster, fas, hold, _day(start), days,
-                       budget or [0], lock, avail, force=force)
+    day = _day(start)
+    until = source = None
+    if injured:
+        until, source = _injured_until(ctx, hold, day, days, back)
+    out = roster_plan(ctx, roster, fas, hold, day, days,
+                      budget or [0], lock, avail, force=force, injured_until=until)
+    out["injured_source"] = source
+    return out
+
+
+def _injured_until(ctx, hold: int, start: str, days: int,
+                   back: str | None) -> tuple[str, str]:
+    """(first date he can play, where that came from) for an injured hold."""
+    from src.inseason.teams import injury_returns, injury_weeks
+    if back:
+        return max(back, start), "entered"
+    saved = injury_returns().get(hold)
+    if saved:
+        return max(saved, start), "saved"
+    pl = parse_list(ctx, _read(ROSTER_FILE, ctx))
+    if hold in pl.inactive:
+        wk = injury_weeks(ctx, pl.tags.get(hold), pl.inactive_kind.get(hold))
+        d = datetime.date.fromisoformat(start) + datetime.timedelta(days=round(wk * 7))
+        return d.isoformat(), "estimated"
+    end = datetime.date.fromisoformat(start) + datetime.timedelta(days=days)
+    return end.isoformat(), "window"
 
 
 @router.get("/alerts")

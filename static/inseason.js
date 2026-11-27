@@ -250,7 +250,19 @@
     sel.innerHTML = rosterPlayers.map((p) =>
       `<option value="${p.id}">${esc(p.name)} (${esc(p.team)}, blend ${num(p.blended)})</option>`).join("");
     if (prev && rosterPlayers.some((p) => String(p.id) === prev)) sel.value = prev;
+    syncInjured();
   }
+  // tick "He's injured" for a player on your IR; you can untick it
+  function syncInjured() {
+    const p = rosterPlayers.find((q) => String(q.id) === $("hold").value);
+    $("plan-injured").checked = p?.verdict === "IR";
+    $("plan-back").value = "";
+    $("plan-back-field").hidden = !$("plan-injured").checked;
+  }
+  $("hold").addEventListener("change", syncInjured);
+  $("plan-injured").addEventListener("change", () => {
+    $("plan-back-field").hidden = !$("plan-injured").checked;
+  });
 
   // ── plan ─────────────────────────────────────────────────────────────
   loaders.plan = async () => {
@@ -266,21 +278,35 @@
     try {
       const r = await api(`/api/inseason/plan?${params({
         hold: $("hold").value, adds: $("adds").value, locked: $("locked").value,
-        force: force ? "true" : "false" })}`);
+        force: force ? "true" : "false",
+        ...($("plan-injured").checked ? { injured: "true" } : {}),
+        ...($("plan-injured").checked && $("plan-back").value ? { back: $("plan-back").value } : {}) })}`);
+      const hurt = r.injured_until, past = hurt && hurt > r.dates[r.dates.length - 1];
+      const onIR = rosterPlayers.some((q) => q.id === r.hold.id && q.verdict === "IR");
+      const moveText = (s) => s.kind === "ir"
+        ? `${onIR ? `${esc(s.drop.name)} stays on IR` : `move ${esc(s.drop.name)} to IR`} → add <b>${esc(s.add.name)}</b>`
+        : s.kind === "return"
+          ? `<b>${esc(s.add.name)}</b> back off IR → drop ${esc(s.drop.name)} <span class="muted">(no add used)</span>`
+          : `drop ${esc(s.drop.name)} → add <b>${esc(s.add.name)}</b>`;
       const max = Math.max(1e-9, ...r.nightly.map((n) => n.value));
       $("plan-out").innerHTML = `
         <div class="summary">
-          <div class="stat"><b>+${num(r.keep_value, 1)}</b><span>${esc(unit)} if you keep ${esc(r.hold.name)}</span></div>
+          <div class="stat"><b>+${num(r.keep_value, 1)}</b><span>${esc(unit)} if you ${hurt ? "leave the spot empty until" : "keep"} ${esc(r.hold.name)}${hurt ? " is back" : ""}</span></div>
           <div class="stat best"><b class="pos">+${num(r.plan_value, 1)}</b><span>${esc(unit)} with the best plan</span></div>
           <div class="stat"><b>${r.steps.length}</b><span>adds used (${Object.entries(r.budget)
             .map(([w, n]) => `wk of ${md(w)}: ${n} left`).join(", ")})</span></div>
         </div>
+        ${hurt ? `<p class="muted">${esc(r.hold.name)} is out ${past ? "for this whole window"
+          : `until ${dow(hurt)} ${md(hurt)}`} (${esc({ entered: "your date", saved: "your saved return date",
+            estimated: "estimate for his injury tag", window: "no return date known" }[r.injured_source] || "")}).
+          He sits on IR, so streamers here are pure adds and he isn't dropped.</p>` : ""}
         <h3>Moves</h3>
         <ul class="steps">${r.steps.length ? r.steps.map((s) =>
-          `<li><b>${dow(s.date)} ${md(s.date)}</b>: drop ${esc(s.drop.name)} → add <b>${esc(s.add.name)}</b>
+          `<li><b>${dow(s.date)} ${md(s.date)}</b>: ${moveText(s)}
              <span class="muted">(${esc(s.add.team)}, ${esc(s.add.elig.join(","))})</span></li>`).join("")
           : r.protected ? `<li>Keep ${esc(r.hold.name)}: ${esc(r.protected)}.
               <a href="#" id="plan-force">Plan anyway</a></li>`
+          : hurt ? `<li>No free agent plays in this spot with these adds.</li>`
           : `<li>Keep ${esc(r.hold.name)}: no add beats him with these adds.</li>`}</ul>
         <h3>Who holds the spot each night</h3>
         <div class="strip">${r.nightly.map((n) => `

@@ -82,6 +82,7 @@ def plan_slot(
     slot_positions: set[str] | None = None,
     eligibility: dict[int, set[str]] | None = None,
     positions: dict[int, str] | None = None,
+    returner: int | None = None,
 ) -> Plan:
     """Best hold/switch sequence for one slot.
 
@@ -89,6 +90,11 @@ def plan_slot(
     (0 or missing = no game). ``adds_per_week`` is either a constant or a
     per-week remaining budget keyed by week_key(). ``current`` must be in
     ``values`` (use {} if he has no games).
+
+    ``returner``: an injured player whose spot is being streamed while he's
+    on IR (normally ``current``). Moving him to IR isn't a drop, so he can
+    come back into the slot on any day he has a game, without an add (the
+    streamer then goes); a step with ``add == returner`` is that return.
     """
     available_from = available_from or {}
     weeks = sorted({week_key(d, week_start) for d in dates})
@@ -124,6 +130,10 @@ def plan_slot(
             # stay
             push(score + values.get(holder, {}).get(d, 0.0),
                  holder, used_adds, used, steps)
+            # the injured player comes off IR: no add needed
+            if returner is not None and holder != returner \
+                    and (rv := values.get(returner, {}).get(d, 0.0)) > 0:
+                push(score + rv, returner, used_adds, used, steps + (Step(d, returner, holder),))
             # switch (add today, he can play today)
             if used_adds[wi] >= budget[weeks[wi]]:
                 continue
