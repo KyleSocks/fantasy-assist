@@ -49,6 +49,33 @@ def test_lists_audit_and_plan(db, tmp_path, monkeypatch):  # noqa: F811
     assert c.get("/api/inseason/plan?league=t&hold=1&adds=x").status_code == 422
 
 
+def test_plan_injured_hold_return_dates(db, tmp_path, monkeypatch):  # noqa: F811
+    """Return date: the one you enter, else your saved one, else the
+    estimate for his IR tag (3 weeks), else not during the window."""
+    from src.inseason import teams
+    c = _client(db, tmp_path, monkeypatch)
+    c.put("/api/inseason/lists?league=t", json={
+        "roster": "Alex Ovechkin | AAA | LW\nDee Man | BBB | D | IR\n",
+        "free_agents": "Dee Two | CCC | D\n"})
+    saved = {}
+    monkeypatch.setattr(teams, "injury_returns", lambda: saved)
+    q = "/api/inseason/plan?league=t&hold={}&start=2026-11-01&days=4&injured=true"
+    a = c.get("/api/inseason/audit?league=t&start=2026-11-01&days=4").json()
+    assert next(p for p in a["players"] if p["id"] == 4)["verdict"] == "IR"
+    r = c.get(q.format(4)).json()
+    assert (r["injured_until"], r["injured_source"]) == ("2026-11-22", "estimated")
+    assert r["keep_value"] == 0 and r["steps"][0]["kind"] == "ir"
+    saved[4] = "2026-11-03"
+    r = c.get(q.format(4)).json()
+    assert (r["injured_until"], r["injured_source"]) == ("2026-11-03", "saved")
+    assert [s["kind"] for s in r["steps"]] == ["ir", "return"]
+    r = c.get(q.format(4) + "&back=2026-11-04").json()
+    assert (r["injured_until"], r["injured_source"]) == ("2026-11-04", "entered")
+    r = c.get(q.format(1)).json()            # active-listed, no date known
+    assert (r["injured_until"], r["injured_source"]) == ("2026-11-05", "window")
+    assert c.get(q.format(4).replace("&injured=true", "")).json()["injured_until"] is None
+
+
 def test_audit_without_roster_is_400(db, tmp_path, monkeypatch):  # noqa: F811
     c = _client(db, tmp_path, monkeypatch)
     assert c.get("/api/inseason/audit?league=t").status_code == 400

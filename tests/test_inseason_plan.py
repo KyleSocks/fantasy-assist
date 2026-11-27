@@ -94,3 +94,35 @@ def test_goalies_fill_g_slots_in_plan_and_audit(ctx):  # noqa: F811
     assert r["keep_value"] > 0
     assert all(s["add"]["id"] != 5 or r["plan_value"] >= r["keep_value"]
                for s in r["steps"])
+
+
+# ── injured hold: his spot is streamed while he's on IR ───────────────
+
+def test_injured_player_comes_back_without_an_add():
+    """1 is hurt until D3 (5 then). One add: stream 2 on D1-D2 (1 + 2),
+    then 1 comes back off IR on D3 for free = 8. Without the free return
+    the one add would strand him: keeping him (5) beats 2's 3."""
+    vals = {1: {D3: 5.0}, 2: {D1: 1.0, D2: 2.0}}
+    p = plan_slot(1, vals, [D1, D2, D3], 1, returner=1)
+    assert p.total == 8.0
+    assert p.steps == [Step(D1, 2, 1), Step(D3, 1, 2)]
+    assert p.adds_by_week == {week_key(D1): 1}     # the return is free
+    assert plan_slot(1, vals, [D1, D2, D3], 1).total == 5.0
+
+
+def test_roster_plan_with_injured_hold(ctx):  # noqa: F811
+    """Dee Man (4) out until Nov 3: his Nov 1-2 games don't count, he isn't
+    protected, Dee Two streams Nov 1-2 (1.67625 + 1.85625) and Dee Man
+    comes back Nov 3-4 (2.05689 + 1.19)."""
+    from src.inseason.roster import roster_plan
+    r = roster_plan(ctx, {}, {5: {"D"}}, 4, "2026-11-01", 4, [4],
+                    injured_until="2026-11-03")
+    assert r["protected"] is None and r["injured_until"] == "2026-11-03"
+    assert r["keep_value"] == pytest.approx(2.05689 + 1.19, abs=1e-4)
+    assert r["plan_value"] == pytest.approx(1.67625 + 1.85625 + 2.05689 + 1.19, abs=1e-4)
+    assert [(s["date"], s["kind"], s["add"]["id"]) for s in r["steps"]] == [
+        ("2026-11-01", "ir", 5), ("2026-11-03", "return", 4)]
+    # out the whole window: the spot is all streamer
+    r = roster_plan(ctx, {}, {5: {"D"}}, 4, "2026-11-01", 4, [4],
+                    injured_until="2026-12-01")
+    assert r["keep_value"] == 0 and [s["kind"] for s in r["steps"]] == ["ir"]
